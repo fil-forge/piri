@@ -3,9 +3,9 @@ package storage
 import (
 	"fmt"
 
-	"github.com/labstack/echo/v4"
 	"github.com/fil-forge/go-ucanto/server"
 	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/labstack/echo/v4"
 
 	"github.com/fil-forge/piri/pkg/server/handler"
 )
