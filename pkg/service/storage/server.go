@@ -3,23 +3,15 @@ package storage
 import (
 	"fmt"
 
+	"github.com/labstack/echo/v4"
 	"github.com/fil-forge/go-ucanto/server"
 	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+
 	"github.com/fil-forge/piri/pkg/server/handler"
-	"github.com/labstack/echo/v4"
 )
 
 type Server struct {
 	ucanServer server.ServerView[server.Service]
-}
-
-func NewServer(service Service, options ...server.Option) (*Server, error) {
-	ucanSrv, err := NewUCANServer(service, options...)
-	if err != nil {
-		return nil, fmt.Errorf("creating UCAN server: %w", err)
-	}
-
-	return &Server{ucanSrv}, nil
 }
 
 func (srv *Server) RegisterRoutes(e *echo.Echo) {
