@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/fil-forge/go-ucanto/principal"
+	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/fil-forge/piri/pkg/build"
 )
