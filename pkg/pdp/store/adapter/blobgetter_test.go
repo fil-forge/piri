@@ -7,11 +7,11 @@ import (
 	"io"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/piri/pkg/pdp/store/adapter"
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/piri/pkg/pdp/store/adapter"
-	"github.com/storacha/piri/pkg/pdp/types"
-	"github.com/storacha/piri/pkg/store/blobstore"
 	"github.com/stretchr/testify/require"
 )
 

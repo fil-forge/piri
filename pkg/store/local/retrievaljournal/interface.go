@@ -5,10 +5,10 @@ import (
 	"io"
 	"iter"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
+	"github.com/fil-forge/go-libstoracha/failure"
+	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/go-libstoracha/capabilities/space/content"
-	"github.com/storacha/go-libstoracha/failure"
-	"github.com/storacha/go-ucanto/core/receipt"
 )
 
 // Journal stores batches of receipts. When the batch reaches a certain size,

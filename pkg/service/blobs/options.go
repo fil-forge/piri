@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"net/url"
 
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/piri/pkg/access"
+	"github.com/fil-forge/piri/pkg/presigner"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/principal"
-	"github.com/storacha/piri/pkg/access"
-	"github.com/storacha/piri/pkg/presigner"
-	"github.com/storacha/piri/pkg/store/acceptancestore"
-	"github.com/storacha/piri/pkg/store/allocationstore"
-	"github.com/storacha/piri/pkg/store/blobstore"
 )
 
 type options struct {

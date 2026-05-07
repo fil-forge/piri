@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/fil-forge/piri/pkg/config"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/config"
 	"github.com/stretchr/testify/require"
 )
 

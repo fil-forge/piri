@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
-	flatfs "github.com/storacha/piri/pkg/store/objectstore/flatfs"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
+	flatfs "github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
 )
 
 var bg = context.Background()

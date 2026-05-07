@@ -13,7 +13,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/xerrors"
 
-	"github.com/storacha/filecoin-services/go/bindings"
+	"github.com/fil-forge/filecoin-services/go/bindings"
 )
 
 var log = logging.Logger("smartcontracts")

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/ipld/go-ipld-prime/codec/dagjson"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/stretchr/testify/require"
 )
 

@@ -3,13 +3,13 @@ package publisher
 import (
 	"net/url"
 
+	ipnipub "github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
+	"github.com/fil-forge/go-ucanto/client"
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/fil-forge/go-ucanto/ucan"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multiaddr"
-	ipnipub "github.com/storacha/go-libstoracha/ipnipublisher/publisher"
-	"github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/transport/http"
-	"github.com/storacha/go-ucanto/ucan"
 )
 
 type options struct {

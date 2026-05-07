@@ -11,11 +11,11 @@ import (
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/database"
-	"github.com/storacha/piri/pkg/database/gormdb"
-	"github.com/storacha/piri/pkg/database/postgresdb"
-	"github.com/storacha/piri/pkg/database/sqlitedb"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/database"
+	"github.com/fil-forge/piri/pkg/database/gormdb"
+	"github.com/fil-forge/piri/pkg/database/postgresdb"
+	"github.com/fil-forge/piri/pkg/database/sqlitedb"
 )
 
 // PostgreSQL schema names for each logical database

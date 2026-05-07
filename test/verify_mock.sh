@@ -8,8 +8,8 @@ echo "===================================="
 echo ""
 
 # Test the release endpoint
-echo "1. Testing /repos/storacha/piri/releases/latest endpoint:"
-RESPONSE=$(curl -s http://localhost:8080/repos/storacha/piri/releases/latest)
+echo "1. Testing /repos/fil-forge/piri/releases/latest endpoint:"
+RESPONSE=$(curl -s http://localhost:8080/repos/fil-forge/piri/releases/latest)
 echo "$RESPONSE" | jq '.'
 
 VERSION=$(echo "$RESPONSE" | jq -r '.tag_name')

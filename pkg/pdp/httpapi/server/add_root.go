@@ -8,8 +8,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/pdp/httpapi"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/httpapi"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPHandler) handleAddRootToProofSet(c echo.Context) error {

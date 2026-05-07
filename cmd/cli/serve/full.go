@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/storacha/go-ucanto/did"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -15,14 +15,14 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/storacha/piri/cmd/cli/setup"
-	"github.com/storacha/piri/cmd/cliutil"
-	"github.com/storacha/piri/pkg/config"
-	appconfig "github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/fx/app"
-	"github.com/storacha/piri/pkg/health"
-	"github.com/storacha/piri/pkg/presets"
-	"github.com/storacha/piri/pkg/telemetry"
+	"github.com/fil-forge/piri/cmd/cli/setup"
+	"github.com/fil-forge/piri/cmd/cliutil"
+	"github.com/fil-forge/piri/pkg/config"
+	appconfig "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/fx/app"
+	"github.com/fil-forge/piri/pkg/health"
+	"github.com/fil-forge/piri/pkg/presets"
+	"github.com/fil-forge/piri/pkg/telemetry"
 )
 
 var (
@@ -390,7 +390,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 
 					// Record server metadata
 					if err := telemetry.RecordServerInfo(otel.GetMeterProvider().Meter("github."+
-						"com/storacha/piri/cli/serve"),
+						"com/fil-forge/piri/cli/serve"),
 						ctx,
 						"full",
 						attribute.String("did", appCfg.Identity.Signer.DID().String()),
@@ -435,7 +435,7 @@ func initTelemetry(ctx context.Context, instanceID, network string, dataDir stri
 
 	if err := telemetry.StartHostMetrics(
 		ctx,
-		t.Metrics.Meter("github.com/storacha/piri/cli/serve"),
+		t.Metrics.Meter("github.com/fil-forge/piri/cli/serve"),
 		dataDir,
 	); err != nil {
 		return fmt.Errorf("setting up telemetry host metrics: %w", err)

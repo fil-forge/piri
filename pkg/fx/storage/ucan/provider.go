@@ -3,15 +3,15 @@ package ucan
 import (
 	"fmt"
 
+	"github.com/fil-forge/go-ucanto/principal"
+	ucanserver "github.com/fil-forge/go-ucanto/server"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-ucanto/principal"
-	ucanserver "github.com/storacha/go-ucanto/server"
 	"go.uber.org/fx"
 
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/fx/storage/ucan/handlers"
-	"github.com/storacha/piri/pkg/service/storage"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/fx/storage/ucan/handlers"
+	"github.com/fil-forge/piri/pkg/service/storage"
 )
 
 var log = logging.Logger("fx/storage/ucan")

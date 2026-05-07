@@ -28,16 +28,16 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/storacha/piri/lib/telemetry"
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/ethereum"
-	"github.com/storacha/piri/pkg/pdp/promise"
-	"github.com/storacha/piri/pkg/pdp/proof"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
-	"github.com/storacha/piri/pkg/pdp/types"
-	"github.com/storacha/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/lib/telemetry"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/ethereum"
+	"github.com/fil-forge/piri/pkg/pdp/promise"
+	"github.com/fil-forge/piri/pkg/pdp/proof"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var _ scheduler.TaskInterface = &ProveTask{}
@@ -72,7 +72,7 @@ func NewProveTask(
 	reader types.PieceReaderAPI,
 	resolver types.PieceResolverAPI,
 ) (*ProveTask, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/storacha/piri/pkg/pdp/tasks")
+	meter := otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/tasks")
 	pdpProveFailure, err := telemetry.NewCounter(
 		meter,
 		"pdp_prove_failure",

@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"time"
 
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/ipfs/go-cid"
 	"github.com/ipld/go-ipld-prime/datamodel"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/lib/jobqueue/dialect"
-	"github.com/storacha/piri/lib/jobqueue/serializer"
-	"github.com/storacha/piri/lib/jobqueue/traceutil"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/pdp/aggregation/types"
-	pdptypes "github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/lib/jobqueue/dialect"
+	"github.com/fil-forge/piri/lib/jobqueue/serializer"
+	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 const (

@@ -6,6 +6,10 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-ucanto/core/ipld"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/ucan"
 	ipldprime "github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/codec"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
@@ -13,10 +17,6 @@ import (
 	"github.com/ipld/go-ipld-prime/node/bindnode"
 	"github.com/ipld/go-ipld-prime/schema"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/ucan"
 )
 
 //go:embed allocation.ipldsch

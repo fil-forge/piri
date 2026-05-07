@@ -13,8 +13,8 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
 // mockActivePiecesProvider implements ActivePiecesProvider for testing

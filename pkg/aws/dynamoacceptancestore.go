@@ -9,13 +9,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
 	multihash "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/acceptancestore"
-	"github.com/storacha/piri/pkg/store/acceptancestore/acceptance"
 )
 
 // DynamoAcceptanceStore implements the AcceptanceStore interface on dynamodb

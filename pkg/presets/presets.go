@@ -6,8 +6,8 @@ import (
 	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/samber/lo"
-	"github.com/storacha/go-ucanto/did"
 )
 
 // Network represents the network the node will operate on

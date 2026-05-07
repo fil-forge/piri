@@ -1,17 +1,17 @@
 package scheduler
 
 import (
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/ethereum"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
-	"github.com/storacha/piri/pkg/pdp/tasks"
-	"github.com/storacha/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/ethereum"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/tasks"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var TasksModule = fx.Module("scheduler-tasks",

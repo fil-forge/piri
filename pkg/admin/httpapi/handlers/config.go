@@ -7,8 +7,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/admin/httpapi"
-	"github.com/storacha/piri/pkg/config/dynamic"
+	"github.com/fil-forge/piri/pkg/admin/httpapi"
+	"github.com/fil-forge/piri/pkg/config/dynamic"
 )
 
 // ConfigHandler handles dynamic configuration API requests.

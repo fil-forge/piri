@@ -19,8 +19,8 @@ import (
 
 	types2 "github.com/filecoin-project/lotus/chain/types"
 
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 // TODO allow this to be tuned based on network and user preferences for risk, ideally through config

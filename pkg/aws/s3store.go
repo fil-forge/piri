@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 )
 
 // S3Store implements the store.Store interface on S3

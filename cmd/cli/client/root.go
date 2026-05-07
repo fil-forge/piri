@@ -4,9 +4,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/storacha/piri/cmd/cli/client/admin"
-	"github.com/storacha/piri/cmd/cli/client/pdp"
-	"github.com/storacha/piri/cmd/cli/client/ucan"
+	"github.com/fil-forge/piri/cmd/cli/client/admin"
+	"github.com/fil-forge/piri/cmd/cli/client/pdp"
+	"github.com/fil-forge/piri/cmd/cli/client/ucan"
 )
 
 var (

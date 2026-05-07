@@ -1,9 +1,9 @@
 package retrieval
 
 import (
-	"github.com/storacha/go-ucanto/principal"
-	"github.com/storacha/piri/pkg/store/allocationstore"
-	"github.com/storacha/piri/pkg/store/blobstore"
+	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 type Service interface {

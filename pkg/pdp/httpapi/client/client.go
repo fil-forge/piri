@@ -14,17 +14,17 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/principal"
 
-	"github.com/storacha/piri/lib"
-	"github.com/storacha/piri/pkg/config"
-	"github.com/storacha/piri/pkg/pdp/httpapi"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/pdp/httpapi"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 var log = logging.Logger("pdp/client")

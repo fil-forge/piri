@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	tracer = otel.Tracer("github.com/storacha/piri/pkg/service/storage/handlers/blob")
+	tracer = otel.Tracer("github.com/fil-forge/piri/pkg/service/storage/handlers/blob")
 )

@@ -3,9 +3,9 @@ package main
 import (
 	"net/http"
 
-	"github.com/storacha/piri/cmd/lambda"
-	"github.com/storacha/piri/pkg/aws"
-	"github.com/storacha/piri/pkg/server"
+	"github.com/fil-forge/piri/cmd/lambda"
+	"github.com/fil-forge/piri/pkg/aws"
+	"github.com/fil-forge/piri/pkg/server"
 )
 
 func main() {

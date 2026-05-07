@@ -5,15 +5,15 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/go-ucanto/client"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/principal"
+	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal"
-	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 // TestConfigOption is a function that modifies a test config

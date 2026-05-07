@@ -1,7 +1,7 @@
 package smartcontracts
 
 import (
-	"github.com/storacha/filecoin-services/go/bindings"
+	"github.com/fil-forge/filecoin-services/go/bindings"
 )
 
 // Type aliases for types used in public interfaces

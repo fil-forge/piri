@@ -9,18 +9,18 @@ import (
 	"testing"
 	"time"
 
+	schedulerfx "github.com/fil-forge/piri/pkg/fx/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
 	logging "github.com/ipfs/go-log/v2"
-	schedulerfx "github.com/storacha/piri/pkg/fx/scheduler"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/database"
-	"github.com/storacha/piri/pkg/database/gormdb"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/database"
+	"github.com/fil-forge/piri/pkg/database/gormdb"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 // MockTask implements TaskInterface for testing
@@ -792,7 +792,7 @@ func TestTaskEngineShutdownTimeoutMultipleTasks(t *testing.T) {
 
 // TestTaskEngineNewTaskIgnoresRetryWait verifies that brand-new tasks (Retries=0)
 // are picked up immediately, ignoring the RetryWait duration. This is a regression
-// test for https://github.com/storacha/piri/issues/459
+// test for https://github.com/fil-forge/piri/issues/459
 func TestTaskEngineNewTaskIgnoresRetryWait(t *testing.T) {
 	db := setupTestDB(t)
 

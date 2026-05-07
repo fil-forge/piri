@@ -12,15 +12,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
+	"github.com/fil-forge/go-libstoracha/failure"
+	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-car"
 	carutil "github.com/ipld/go-car/util"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/capabilities/space/content"
-	"github.com/storacha/go-libstoracha/failure"
-	"github.com/storacha/go-ucanto/core/receipt"
 )
 
 var log = logging.Logger("retrievaljournal")

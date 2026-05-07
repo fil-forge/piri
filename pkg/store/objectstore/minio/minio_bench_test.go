@@ -12,7 +12,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 // Global variable to prevent compiler optimizations

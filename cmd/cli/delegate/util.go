@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multibase"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/ucan"
 )
 
 // these methods were ported from https://github.com/storacha/go-mkdelegation/blob/main/pkg/delegation/delegation.go

@@ -10,7 +10,7 @@ TMP_DIR=$(mktemp -d)
 cd "$TMP_DIR"
 
 # Download release
-DOWNLOAD_URL="https://github.com/storacha/piri/releases/download/${VERSION}/piri_${VERSION#v}_linux_amd64.tar.gz"
+DOWNLOAD_URL="https://github.com/fil-forge/piri/releases/download/${VERSION}/piri_${VERSION#v}_linux_amd64.tar.gz"
 echo "Downloading from: $DOWNLOAD_URL"
 curl -L -o piri.tar.gz "$DOWNLOAD_URL"
 

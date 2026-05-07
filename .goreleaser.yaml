@@ -9,7 +9,7 @@ builds:
     ldflags:
       # Sets the version variable in the build package to the build version prefixed with a 'v'
       # Sets the main.date to a static date for checksum verification. See https://goreleaser.com/customization/builds/#reproducible-builds.
-      - -s -w -X github.com/storacha/piri/pkg/build.version=v{{.Version}} -X github.com/storacha/piri/pkg/build.Commit={{.Commit}} -X github.com/storacha/piri/pkg/build.Date={{.CommitDate}} -X github.com/storacha/piri/pkg/build.BuiltBy=goreleaser
+      - -s -w -X github.com/fil-forge/piri/pkg/build.version=v{{.Version}} -X github.com/fil-forge/piri/pkg/build.Commit={{.Commit}} -X github.com/fil-forge/piri/pkg/build.Date={{.CommitDate}} -X github.com/fil-forge/piri/pkg/build.BuiltBy=goreleaser
     goos:
       - linux
       - darwin

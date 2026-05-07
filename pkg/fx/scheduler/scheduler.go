@@ -7,9 +7,9 @@ import (
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service"
 )
 
 var Module = fx.Module("scheduler",

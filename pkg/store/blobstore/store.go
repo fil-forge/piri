@@ -8,11 +8,11 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/objectstore"
-	"github.com/storacha/piri/pkg/store/objectstore/dsadapter"
-	"github.com/storacha/piri/pkg/store/objectstore/flatfs"
-	minio_store "github.com/storacha/piri/pkg/store/objectstore/minio"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
+	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
+	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 var _ Blobstore = (*Store)(nil)

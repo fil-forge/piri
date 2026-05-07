@@ -10,8 +10,8 @@ import (
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/service"
 )
 
 var log = logging.Logger("pdp/api")

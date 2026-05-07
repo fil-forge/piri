@@ -9,8 +9,8 @@ import (
 	"io"
 	"os"
 
+	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
 	"github.com/spf13/cobra"
-	ed25519 "github.com/storacha/go-ucanto/principal/ed25519/signer"
 )
 
 var (

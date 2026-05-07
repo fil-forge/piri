@@ -5,12 +5,12 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/spf13/viper"
-	"github.com/storacha/go-ucanto/did"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/config"
-	appcfg "github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config"
+	appcfg "github.com/fil-forge/piri/pkg/config/app"
 )
 
 // setupViperDefaults sets up viper with default values for tests.

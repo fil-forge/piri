@@ -11,10 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-libstoracha/testutil"
-	paws "github.com/storacha/piri/pkg/aws"
-	piritutil "github.com/storacha/piri/pkg/internal/testutil"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/testutil"
+	paws "github.com/fil-forge/piri/pkg/aws"
+	piritutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 

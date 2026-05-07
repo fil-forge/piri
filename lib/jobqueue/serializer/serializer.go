@@ -3,9 +3,9 @@ package serializer
 import (
 	"encoding/json"
 
+	"github.com/fil-forge/go-ucanto/core/ipld/codec/cbor"
 	"github.com/ipld/go-ipld-prime/node/bindnode"
 	"github.com/ipld/go-ipld-prime/schema"
-	"github.com/storacha/go-ucanto/core/ipld/codec/cbor"
 )
 
 type Serializer[T any] interface {

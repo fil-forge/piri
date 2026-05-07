@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 // Test keys for registry tests

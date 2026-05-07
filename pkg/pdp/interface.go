@@ -1,8 +1,8 @@
 package pdp
 
 import (
-	"github.com/storacha/piri/pkg/pdp/aggregation/commp"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 type PDP interface {

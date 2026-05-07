@@ -3,13 +3,13 @@ package presigner
 import (
 	"fmt"
 
+	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/presigner"
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/presigner"
 )
 
 var Module = fx.Module("presigner",

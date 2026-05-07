@@ -8,19 +8,19 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/piri/pkg/pdp/types"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/database/gormdb"
-	"github.com/storacha/piri/pkg/pdp/piece"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/database/gormdb"
+	"github.com/fil-forge/piri/pkg/pdp/piece"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 type resolverFixture struct {

@@ -1,10 +1,10 @@
 package storage
 
 import (
+	"github.com/fil-forge/go-ucanto/server"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/storacha/go-ucanto/server"
 
-	"github.com/storacha/piri/pkg/service/storage/ucan"
+	"github.com/fil-forge/piri/pkg/service/storage/ucan"
 )
 
 var log = logging.Logger("storage")

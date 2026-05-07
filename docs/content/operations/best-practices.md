@@ -9,7 +9,7 @@ Always update Lotus to the [latest release](https://github.com/filecoin-project/
 ## Keep your Piri node up to date
 
 Running the latest Piri release keeps you protocol-compatible with the Storacha network, pulls in bug fixes and security patches, and ensures your node understands the current proof and API expectations. 
-Watch the [latest releases](https://github.com/storacha/piri/releases/latest) and upgrade promptly when a new version is published; release notes will call out any operator actions or migrations needed.
+Watch the [latest releases](https://github.com/fil-forge/piri/releases/latest) and upgrade promptly when a new version is published; release notes will call out any operator actions or migrations needed.
 
 Join the Storacha Discord for announcements and operator guidance: [invite](https://discord.gg/pqa6Dn6RnP).
 

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 // TestTaskEngineGasTooHighDoesNotIncrementRetries tests AC2: when a task returns

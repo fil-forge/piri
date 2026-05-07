@@ -6,8 +6,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/pdp/httpapi"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/httpapi"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 // echoHandleCreateProofSet -> POST /pdp/proof-sets

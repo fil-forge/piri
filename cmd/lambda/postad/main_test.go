@@ -6,6 +6,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/metadata"
+	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	"github.com/ipni/go-libipni/ingest/schema"
@@ -13,10 +17,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/ipnipublisher/publisher"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-libstoracha/metadata"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 )
 

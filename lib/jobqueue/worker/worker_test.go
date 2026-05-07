@@ -17,10 +17,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	internalsql "github.com/storacha/piri/lib/jobqueue/internal/sql"
-	internaltesting "github.com/storacha/piri/lib/jobqueue/internal/testing"
-	"github.com/storacha/piri/lib/jobqueue/queue"
-	"github.com/storacha/piri/lib/jobqueue/worker"
+	internalsql "github.com/fil-forge/piri/lib/jobqueue/internal/sql"
+	internaltesting "github.com/fil-forge/piri/lib/jobqueue/internal/testing"
+	"github.com/fil-forge/piri/lib/jobqueue/queue"
+	"github.com/fil-forge/piri/lib/jobqueue/worker"
 )
 
 func TestMain(m *testing.M) {

@@ -6,11 +6,11 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/did"
 
-	"github.com/storacha/piri/cmd/cliutil"
-	"github.com/storacha/piri/pkg/client"
+	"github.com/fil-forge/piri/cmd/cliutil"
+	"github.com/fil-forge/piri/pkg/client"
 )
 
 type Config struct {

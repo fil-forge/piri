@@ -7,8 +7,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/storacha/piri/lib/telemetry"
-	"github.com/storacha/piri/pkg/build"
+	"github.com/fil-forge/piri/lib/telemetry"
+	"github.com/fil-forge/piri/pkg/build"
 )
 
 func RecordServerInfo(meter metric.Meter, ctx context.Context, serverType string, extraAttrs ...attribute.KeyValue) error {

@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/types"
 	"gorm.io/gorm/clause"
 )
 

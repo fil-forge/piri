@@ -9,14 +9,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/did"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/allocationstore"
-	"github.com/storacha/piri/pkg/store/allocationstore/allocation"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 // DynamoAllocationStore implements the AllocationStore interface on dynamodb

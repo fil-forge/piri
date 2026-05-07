@@ -3,9 +3,9 @@ package ucan
 import (
 	"fmt"
 
-	"github.com/storacha/go-ucanto/core/ipld"
-	"github.com/storacha/go-ucanto/core/result/failure/datamodel"
-	"github.com/storacha/go-ucanto/ucan"
+	"github.com/fil-forge/go-ucanto/core/ipld"
+	"github.com/fil-forge/go-ucanto/core/result/failure/datamodel"
+	"github.com/fil-forge/go-ucanto/ucan"
 )
 
 type UnsupportedCapabilityError[C any] struct {

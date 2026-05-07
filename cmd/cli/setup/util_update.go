@@ -19,10 +19,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fil-forge/piri/pkg/build"
 	"github.com/minio/selfupdate"
 	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/build"
 	"golang.org/x/mod/semver"
 )
 
@@ -30,7 +30,7 @@ func getLatestRelease(ctx context.Context) (*GitHubRelease, error) {
 	// Allow overriding the release URL for testing
 	releaseURL := ReleaseURL
 	if testURL := os.Getenv("PIRI_TEST_GITHUB_API_URL"); testURL != "" {
-		releaseURL = testURL + "/repos/storacha/piri/releases/latest"
+		releaseURL = testURL + "/repos/fil-forge/piri/releases/latest"
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", releaseURL, nil)

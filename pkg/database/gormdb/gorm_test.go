@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/database"
+	"github.com/fil-forge/piri/pkg/database"
 )
 
 func TestGORMOptions(t *testing.T) {

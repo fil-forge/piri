@@ -1,7 +1,7 @@
 package dynamic
 
 import (
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 // ChangeSource indicates where a configuration change originated.

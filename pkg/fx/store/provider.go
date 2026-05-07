@@ -3,10 +3,10 @@ package store
 import (
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/fx/store/filesystem"
-	"github.com/storacha/piri/pkg/fx/store/memory"
-	"github.com/storacha/piri/pkg/fx/store/s3"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/fx/store/filesystem"
+	"github.com/fil-forge/piri/pkg/fx/store/memory"
+	"github.com/fil-forge/piri/pkg/fx/store/s3"
 )
 
 // StorageModule returns the appropriate storage module based on configuration.

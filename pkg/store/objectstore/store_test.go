@@ -16,12 +16,12 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/internal/testutil"
-	"github.com/storacha/piri/pkg/store/objectstore"
-	"github.com/storacha/piri/pkg/store/objectstore/flatfs"
-	"github.com/storacha/piri/pkg/store/objectstore/leveldb"
-	"github.com/storacha/piri/pkg/store/objectstore/memory"
-	miniostore "github.com/storacha/piri/pkg/store/objectstore/minio"
+	"github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
+	"github.com/fil-forge/piri/pkg/store/objectstore/leveldb"
+	"github.com/fil-forge/piri/pkg/store/objectstore/memory"
+	miniostore "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 type StoreKind string

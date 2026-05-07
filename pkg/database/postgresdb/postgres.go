@@ -9,7 +9,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 var log = logging.Logger("database")

@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/validator"
 	"github.com/patrickmn/go-cache"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/validator"
 )
 
 var _ validator.PrincipalResolver = (*CachedResolver)(nil)

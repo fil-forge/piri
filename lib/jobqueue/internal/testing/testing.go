@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/lib/jobqueue/dedup"
-	"github.com/storacha/piri/lib/jobqueue/queue"
-	"github.com/storacha/piri/pkg/database/sqlitedb"
+	"github.com/fil-forge/piri/lib/jobqueue/dedup"
+	"github.com/fil-forge/piri/lib/jobqueue/queue"
+	"github.com/fil-forge/piri/pkg/database/sqlitedb"
 )
 
 // NewInMemoryDB creates a new in-memory SQLite database for testing

@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/build"
+	"github.com/fil-forge/piri/pkg/build"
 )
 
 func (p *PDPHandler) handlePing(c echo.Context) error {

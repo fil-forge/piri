@@ -5,13 +5,13 @@ import (
 	"io"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	mh "github.com/multiformats/go-multihash"
 	"github.com/samber/lo"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 )
 

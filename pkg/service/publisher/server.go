@@ -3,11 +3,11 @@ package publisher
 import (
 	"fmt"
 
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/server"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-libstoracha/ipnipublisher/server"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
 
-	echofx "github.com/storacha/piri/pkg/fx/echo"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 )
 
 var _ echofx.RouteRegistrar = (*Server)(nil)

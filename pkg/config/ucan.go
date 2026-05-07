@@ -3,7 +3,7 @@ package config
 import (
 	"net/url"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type UCANServerConfig struct {

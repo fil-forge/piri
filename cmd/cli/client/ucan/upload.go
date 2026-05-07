@@ -7,14 +7,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/fil-forge/go-ucanto/core/ipld/hash/sha256"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/spf13/cobra"
-	"github.com/storacha/go-ucanto/core/ipld/hash/sha256"
-	"github.com/storacha/go-ucanto/did"
 
-	"github.com/storacha/piri/cmd/client"
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/cmd/client"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 var (

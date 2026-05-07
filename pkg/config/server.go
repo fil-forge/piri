@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type ServerConfig struct {

@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"github.com/storacha/go-ucanto/core/delegation"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/consolidationstore/consolidation"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
 )
 
 // Legacy key prefixes for the old two-namespace storage format.

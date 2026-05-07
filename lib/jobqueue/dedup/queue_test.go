@@ -10,10 +10,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/lib/jobqueue/dedup"
-	internaltesting "github.com/storacha/piri/lib/jobqueue/internal/testing"
-	"github.com/storacha/piri/lib/jobqueue/queue"
-	"github.com/storacha/piri/pkg/database/sqlitedb"
+	"github.com/fil-forge/piri/lib/jobqueue/dedup"
+	internaltesting "github.com/fil-forge/piri/lib/jobqueue/internal/testing"
+	"github.com/fil-forge/piri/lib/jobqueue/queue"
+	"github.com/fil-forge/piri/pkg/database/sqlitedb"
 )
 
 func TestMain(m *testing.M) {

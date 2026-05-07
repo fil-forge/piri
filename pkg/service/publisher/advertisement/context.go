@@ -3,8 +3,8 @@ package advertisement
 import (
 	"bytes"
 
+	"github.com/fil-forge/go-ucanto/did"
 	mh "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-ucanto/did"
 )
 
 // Encode canonically encodes ContextID data.

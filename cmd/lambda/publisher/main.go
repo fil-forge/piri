@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/queue"
+	awspublishingqueue "github.com/fil-forge/go-libstoracha/ipnipublisher/queue/aws"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/metadata"
+	"github.com/fil-forge/piri/cmd/lambda"
+	"github.com/fil-forge/piri/pkg/aws"
 	"github.com/labstack/gommon/log"
-	"github.com/storacha/go-libstoracha/ipnipublisher/publisher"
-	"github.com/storacha/go-libstoracha/ipnipublisher/queue"
-	awspublishingqueue "github.com/storacha/go-libstoracha/ipnipublisher/queue/aws"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-libstoracha/metadata"
-	"github.com/storacha/piri/cmd/lambda"
-	"github.com/storacha/piri/pkg/aws"
 )
 
 const gracePeriod = time.Second

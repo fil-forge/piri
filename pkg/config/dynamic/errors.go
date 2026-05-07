@@ -3,7 +3,7 @@ package dynamic
 import (
 	"fmt"
 
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 // ParseError indicates a value could not be parsed to the expected type.

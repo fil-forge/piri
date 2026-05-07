@@ -1,10 +1,10 @@
 package identity
 
 import (
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/fil-forge/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 var Module = fx.Module("identity",

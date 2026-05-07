@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/fil-forge/piri/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/client"
 )
 
 var upgradeCheckCmd = &cobra.Command{

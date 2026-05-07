@@ -3,8 +3,8 @@ package egresstracker
 import (
 	"context"
 
+	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/ipfs/go-cid"
-	"github.com/storacha/piri/lib/jobqueue"
 )
 
 type EgressTrackerQueue interface {

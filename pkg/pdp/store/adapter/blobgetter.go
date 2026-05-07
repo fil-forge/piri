@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/piri/pkg/pdp/types"
-	"github.com/storacha/piri/pkg/store/blobstore"
 )
 
 type pieceObject struct {

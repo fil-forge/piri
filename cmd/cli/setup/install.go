@@ -5,9 +5,9 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/piri/pkg/config"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/build"
-	"github.com/storacha/piri/pkg/config"
 )
 
 var InstallCmd = &cobra.Command{

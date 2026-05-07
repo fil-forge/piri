@@ -6,9 +6,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/store/local/keystore"
-	"github.com/storacha/piri/pkg/wallet"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/store/local/keystore"
+	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 var Module = fx.Module("wallet",

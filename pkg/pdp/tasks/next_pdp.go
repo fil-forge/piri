@@ -15,13 +15,13 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/storacha/piri/lib/telemetry"
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/ethereum"
-	"github.com/storacha/piri/pkg/pdp/promise"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/lib/telemetry"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/ethereum"
+	"github.com/fil-forge/piri/pkg/pdp/promise"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
 var _ scheduler.TaskInterface = &NextProvingPeriodTask{}
@@ -52,7 +52,7 @@ func NewNextProvingPeriodTask(
 	verifier smartcontracts.Verifier,
 	service smartcontracts.Service,
 ) (*NextProvingPeriodTask, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/storacha/piri/pkg/pdp/tasks")
+	meter := otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/tasks")
 	pdpNextFailureCounter, err := telemetry.NewCounter(
 		meter,
 		"pdp_next_failure",

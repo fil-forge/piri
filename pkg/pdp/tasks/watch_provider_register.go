@@ -11,9 +11,9 @@ import (
 	"golang.org/x/xerrors"
 	"gorm.io/gorm"
 
-	"github.com/storacha/filecoin-services/go/bindings"
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/filecoin-services/go/bindings"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 // NewWatcherProviderRegister sets up the watcher for provider registrations

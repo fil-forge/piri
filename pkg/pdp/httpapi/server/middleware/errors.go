@@ -7,7 +7,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 // CustomHTTPErrorHandler is a centralized error handler for all Echo routes

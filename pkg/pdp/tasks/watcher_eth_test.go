@@ -18,8 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/database/gormdb"
-	"github.com/storacha/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/database/gormdb"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
 // fakeEthClient implements MessageWatcherEthClient for testing

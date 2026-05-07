@@ -5,9 +5,9 @@ import (
 
 	"go.uber.org/fx"
 
-	"github.com/storacha/go-ucanto/principal"
-	edverifier "github.com/storacha/go-ucanto/principal/ed25519/verifier"
-	"github.com/storacha/go-ucanto/validator"
+	"github.com/fil-forge/go-ucanto/principal"
+	edverifier "github.com/fil-forge/go-ucanto/principal/ed25519/verifier"
+	"github.com/fil-forge/go-ucanto/validator"
 )
 
 var Module = fx.Module("claimvalidation",

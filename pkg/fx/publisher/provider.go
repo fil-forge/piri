@@ -3,13 +3,13 @@ package publisher
 import (
 	"fmt"
 
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/config/app"
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/config/app"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 )
 
 var Module = fx.Module("publisher",

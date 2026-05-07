@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"math/bits"
 
+	"github.com/fil-forge/go-libstoracha/piece/digest"
+	"github.com/fil-forge/go-libstoracha/piece/piece"
+	"github.com/fil-forge/go-libstoracha/piece/size"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-data-segment/merkletree"
-	"github.com/storacha/go-libstoracha/piece/digest"
-	"github.com/storacha/go-libstoracha/piece/piece"
-	"github.com/storacha/go-libstoracha/piece/size"
-	"github.com/storacha/piri/pkg/pdp/aggregation/types"
 )
 
 // This code is adapted from
