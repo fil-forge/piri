@@ -3,7 +3,7 @@ package config
 import (
 	"time"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type TelemetryCollectorConfig struct {

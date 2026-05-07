@@ -3,10 +3,10 @@ package retrieval
 import (
 	"fmt"
 
+	"github.com/fil-forge/go-ucanto/server"
+	"github.com/fil-forge/go-ucanto/server/retrieval"
+	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-ucanto/server"
-	"github.com/storacha/go-ucanto/server/retrieval"
-	ucanhttp "github.com/storacha/go-ucanto/transport/http"
 )
 
 type Server struct {

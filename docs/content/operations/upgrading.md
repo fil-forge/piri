@@ -45,7 +45,7 @@ piri serve --config=config.toml
 ## Important Notes
 
 - Always stop the server before upgrading to prevent data corruption
-- Check the [release notes](https://github.com/storacha/piri/releases/latest) for any breaking changes
+- Check the [release notes](https://github.com/fil-forge/piri/releases/latest) for any breaking changes
 
 ## Troubleshooting
 

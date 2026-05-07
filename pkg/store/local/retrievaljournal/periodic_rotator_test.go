@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/store/local/retrievaljournal"
+	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 )
 
 func TestPeriodicRotator(t *testing.T) {

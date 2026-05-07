@@ -3,8 +3,8 @@ package pdp
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/storacha/piri/cmd/cli/client/pdp/proofset"
-	"github.com/storacha/piri/cmd/cli/client/pdp/provider"
+	"github.com/fil-forge/piri/cmd/cli/client/pdp/proofset"
+	"github.com/fil-forge/piri/cmd/cli/client/pdp/provider"
 )
 
 var Cmd = &cobra.Command{

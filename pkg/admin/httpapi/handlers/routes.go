@@ -9,10 +9,10 @@ import (
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/admin/httpapi"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/config/dynamic"
-	echofx "github.com/storacha/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/admin/httpapi"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/dynamic"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 )
 
 type AdminRoutes struct {

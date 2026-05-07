@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/storacha/piri/pkg/config"
-	"github.com/storacha/piri/pkg/pdp/httpapi/client"
+	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/pdp/httpapi/client"
 )
 
 var (

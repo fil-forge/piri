@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/storacha/piri/pkg/admin/httpapi"
-	"github.com/storacha/piri/pkg/admin/httpapi/client"
+	"github.com/fil-forge/piri/pkg/admin/httpapi"
+	"github.com/fil-forge/piri/pkg/admin/httpapi/client"
 )
 
 // Styles for the TUI

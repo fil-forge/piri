@@ -10,7 +10,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 type leveldbStore struct {

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fil-forge/piri/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/client"
 )
 
 var (

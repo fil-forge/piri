@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/ipfs/go-datastore"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/acceptancestore"
-	"github.com/storacha/piri/pkg/store/acceptancestore/acceptance"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 )
 
 func TestDsAcceptanceStore(t *testing.T) {

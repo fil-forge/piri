@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	tracer = otel.Tracer("github.com/storacha/piri/pkg/service/retrieval/ucan")
+	tracer = otel.Tracer("github.com/fil-forge/piri/pkg/service/retrieval/ucan")
 )

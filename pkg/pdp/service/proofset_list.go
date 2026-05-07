@@ -8,8 +8,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPService) ListProofSets(ctx context.Context) (res []types.ProofSet, retErr error) {

@@ -10,19 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 
+	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
+	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	piritestutil "github.com/storacha/piri/pkg/internal/testutil"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/objectstore/flatfs"
-	minio_store "github.com/storacha/piri/pkg/store/objectstore/minio"
 )
 
 func TestBlobstore(t *testing.T) {

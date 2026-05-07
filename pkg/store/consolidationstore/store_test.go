@@ -4,18 +4,18 @@ import (
 	"io"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/core/result/ok"
+	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/result/ok"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/consolidationstore/consolidation"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
 )
 
 func TestDatastoreConsolidationStore(t *testing.T) {

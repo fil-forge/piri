@@ -7,13 +7,13 @@ import (
 	"os"
 	"path"
 
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/labstack/gommon/color"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/spf13/cobra"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/did"
 
-	"github.com/storacha/piri/pkg/build"
+	"github.com/fil-forge/piri/pkg/build"
 )
 
 func PrintHero(w io.Writer, id did.DID) {

@@ -1,12 +1,12 @@
 package claims
 
 import (
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-ucanto/principal"
 
-	"github.com/storacha/piri/pkg/service/publisher"
-	"github.com/storacha/piri/pkg/store/claimstore"
+	"github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/store/claimstore"
 )
 
 type ClaimService struct {

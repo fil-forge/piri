@@ -6,16 +6,16 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-ucanto/core/invocation"
+	"github.com/fil-forge/go-ucanto/core/result"
+	"github.com/fil-forge/go-ucanto/core/result/failure"
+	"github.com/fil-forge/go-ucanto/server/retrieval"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/capabilities/space/content"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/result"
-	"github.com/storacha/go-ucanto/core/result/failure"
-	"github.com/storacha/go-ucanto/server/retrieval"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/blobstore"
 )
 
 var log = logging.Logger("retrieval/handlers/spacecontent")

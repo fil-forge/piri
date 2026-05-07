@@ -7,19 +7,19 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/go-ucanto/server"
+	ucanretrieval "github.com/fil-forge/go-ucanto/server/retrieval"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-ucanto/principal"
-	"github.com/storacha/go-ucanto/server"
-	ucanretrieval "github.com/storacha/go-ucanto/server/retrieval"
 
-	"github.com/storacha/piri/pkg/build"
-	"github.com/storacha/piri/pkg/service/blobs"
-	"github.com/storacha/piri/pkg/service/claims"
-	"github.com/storacha/piri/pkg/service/publisher"
-	"github.com/storacha/piri/pkg/service/retrieval"
-	"github.com/storacha/piri/pkg/service/storage"
+	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/service/retrieval"
+	"github.com/fil-forge/piri/pkg/service/storage"
 )
 
 var log = logging.Logger("server")
@@ -126,7 +126,7 @@ func NewHandler(id principal.Signer) http.Handler {
 		ID: id.DID().String(),
 		Build: BuildInfo{
 			Version: build.Version,
-			Repo:    "https://github.com/storacha/piri",
+			Repo:    "https://github.com/fil-forge/piri",
 		},
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +142,7 @@ func NewHandler(id principal.Signer) http.Handler {
 		} else {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.Write([]byte(fmt.Sprintf("🔥 piri %s\n", info.Build.Version)))
-			w.Write([]byte("- https://github.com/storacha/piri\n"))
+			w.Write([]byte("- https://github.com/fil-forge/piri\n"))
 			w.Write([]byte(fmt.Sprintf("- %s", info.ID)))
 		}
 	})

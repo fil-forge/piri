@@ -3,12 +3,12 @@ package consolidation
 import (
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/core/result/ok"
+	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/storacha/go-libstoracha/testutil"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/core/result/ok"
-	"github.com/storacha/go-ucanto/ucan"
 	"github.com/stretchr/testify/require"
 )
 

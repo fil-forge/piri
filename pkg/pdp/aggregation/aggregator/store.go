@@ -3,12 +3,12 @@ package aggregator
 import (
 	"context"
 
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/piri/internal/ipldstore"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/piri/internal/ipldstore"
-	"github.com/storacha/piri/pkg/pdp/aggregation/types"
 )
 
 type InProgressWorkspace interface {

@@ -6,9 +6,9 @@ import (
 	"io"
 	"iter"
 
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 // simpleStoreObjectAdapter adapts a store.SimpleStore to objectstore.ListableStore.

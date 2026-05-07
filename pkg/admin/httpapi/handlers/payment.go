@@ -15,11 +15,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/admin/httpapi"
-	"github.com/storacha/piri/pkg/config/app"
-	ethsender "github.com/storacha/piri/pkg/pdp/ethereum"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/admin/httpapi"
+	"github.com/fil-forge/piri/pkg/config/app"
+	ethsender "github.com/fil-forge/piri/pkg/pdp/ethereum"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
 var log = logging.Logger("admin/payment")

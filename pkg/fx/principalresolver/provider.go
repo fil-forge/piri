@@ -5,14 +5,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/storacha/go-ucanto/did"
-	ucanserver "github.com/storacha/go-ucanto/server"
-	ucanretrievalserver "github.com/storacha/go-ucanto/server/retrieval"
-	"github.com/storacha/go-ucanto/validator"
+	"github.com/fil-forge/go-ucanto/did"
+	ucanserver "github.com/fil-forge/go-ucanto/server"
+	ucanretrievalserver "github.com/fil-forge/go-ucanto/server/retrieval"
+	"github.com/fil-forge/go-ucanto/validator"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/principalresolver"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
 var Module = fx.Module("principalresolver",

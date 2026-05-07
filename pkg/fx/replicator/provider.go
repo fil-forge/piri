@@ -5,20 +5,20 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/fil-forge/go-ucanto/principal"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/storacha/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/lib/jobqueue/dialect"
-	"github.com/storacha/piri/lib/jobqueue/serializer"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/pdp"
-	"github.com/storacha/piri/pkg/service/blobs"
-	"github.com/storacha/piri/pkg/service/claims"
-	"github.com/storacha/piri/pkg/service/replicator"
-	replicahandler "github.com/storacha/piri/pkg/service/storage/handlers/replica"
-	"github.com/storacha/piri/pkg/store/receiptstore"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/lib/jobqueue/dialect"
+	"github.com/fil-forge/piri/lib/jobqueue/serializer"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/replicator"
+	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 var log = logging.Logger("replicator")

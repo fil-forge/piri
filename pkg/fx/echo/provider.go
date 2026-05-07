@@ -14,8 +14,8 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/otel"
 
-	"github.com/storacha/piri/pkg/config/app"
-	pirimiddleware "github.com/storacha/piri/pkg/pdp/httpapi/server/middleware"
+	"github.com/fil-forge/piri/pkg/config/app"
+	pirimiddleware "github.com/fil-forge/piri/pkg/pdp/httpapi/server/middleware"
 )
 
 var log = logging.Logger("fx/echo")

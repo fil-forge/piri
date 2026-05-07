@@ -255,7 +255,7 @@ The module now ignores volume size changes to allow manual resizing without data
 ## 🛟 Support
 
 - **Storacha Discord**: Join for community support
-- **Issues**: Report bugs in the [Piri repository](https://github.com/storacha/piri)
+- **Issues**: Report bugs in the [Piri repository](https://github.com/fil-forge/piri)
 - **Lotus Gateway Access**: Contact the Storacha team for access to their Lotus gateway
 
 ## 🔧 Troubleshooting
@@ -318,7 +318,7 @@ sudo journalctl -u cloud-init | grep -i mount
 
 ## 📚 Additional Resources
 
-- [Piri Documentation](https://github.com/storacha/piri)
+- [Piri Documentation](https://github.com/fil-forge/piri)
 - [PDP Smart Contract](https://github.com/FilOzone/pdp)
 - [Storacha Network](https://storacha.network)
 - [OpenTofu Documentation](https://opentofu.org/docs)

@@ -6,7 +6,7 @@
 
 ## What is Piri?
 
-What's Piri? It's the _**P**rovable **I**nformation **R**etention **I**nterface_ - a Go-based storage node that's part of the Storacha network backbone. It works alongside other services like the [indexing service](https://github.com/storacha/indexing-service) and [upload service](https://github.com/storacha/upload-service) to enable decentralized storage with cryptographic proofs.
+What's Piri? It's the _**P**rovable **I**nformation **R**etention **I**nterface_ - a Go-based storage node that's part of the Storacha network backbone. It works alongside other services like the [indexing service](https://github.com/fil-forge/indexing-service) and [upload service](https://github.com/storacha/upload-service) to enable decentralized storage with cryptographic proofs.
 
 ## Documentation
 
@@ -35,7 +35,7 @@ All welcome! Storacha is open-source. Please feel empowered to open a PR or an i
 
 ### Reporting Issues
 
-Found a bug or have a feature request? Please [open an issue](https://github.com/storacha/piri/issues) on our GitHub repository.
+Found a bug or have a feature request? Please [open an issue](https://github.com/fil-forge/piri/issues) on our GitHub repository.
 
 ## License
 

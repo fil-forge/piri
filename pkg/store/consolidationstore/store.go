@@ -9,12 +9,12 @@ import (
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/consolidationstore/consolidation"
-	"github.com/storacha/piri/pkg/store/genericstore"
-	"github.com/storacha/piri/pkg/store/objectstore"
-	"github.com/storacha/piri/pkg/store/objectstore/dsadapter"
-	"github.com/storacha/piri/pkg/store/objectstore/minio"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
+	"github.com/fil-forge/piri/pkg/store/genericstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
+	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 var log = logging.Logger("consolidationstore")

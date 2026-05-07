@@ -46,7 +46,7 @@ echo ""
 
 # Test the API endpoint
 echo -e "${YELLOW}Testing API endpoint...${NC}"
-curl -s http://localhost:8080/repos/storacha/piri/releases/latest | jq '.tag_name, .assets[].name'
+curl -s http://localhost:8080/repos/fil-forge/piri/releases/latest | jq '.tag_name, .assets[].name'
 echo ""
 
 # Show how to test with piri

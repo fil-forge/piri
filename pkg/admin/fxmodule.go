@@ -3,8 +3,8 @@ package admin
 import (
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/admin/httpapi/handlers"
-	echofx "github.com/storacha/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/admin/httpapi/handlers"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 )
 
 var Module = fx.Module("admin",

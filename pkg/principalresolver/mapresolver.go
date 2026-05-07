@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/validator"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/validator"
 )
 
 type MapResolver struct {

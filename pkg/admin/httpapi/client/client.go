@@ -11,12 +11,12 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/storacha/go-ucanto/principal"
 
-	"github.com/storacha/piri/lib"
-	"github.com/storacha/piri/pkg/admin/httpapi"
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/pkg/admin/httpapi"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 type Client struct {

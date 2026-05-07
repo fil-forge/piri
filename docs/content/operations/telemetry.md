@@ -90,7 +90,7 @@ Telemetry is implemented using OpenTelemetry, an industry-standard observability
 
 If you have questions about telemetry or privacy, please:
 
-- Open an issue on our [GitHub repository](https://github.com/storacha/piri)
+- Open an issue on our [GitHub repository](https://github.com/fil-forge/piri)
 - Contact the development team through official channels
 
 We're committed to transparency and will continue to document any changes to telemetry collection.

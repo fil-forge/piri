@@ -11,14 +11,14 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/storacha/piri/lib/verifyread"
-	"github.com/storacha/piri/pkg/pdp/piece"
-	"github.com/storacha/piri/pkg/presets"
+	"github.com/fil-forge/piri/lib/verifyread"
+	"github.com/fil-forge/piri/pkg/pdp/piece"
+	"github.com/fil-forge/piri/pkg/presets"
 
 	"github.com/multiformats/go-multihash"
 
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpload) (retErr error) {

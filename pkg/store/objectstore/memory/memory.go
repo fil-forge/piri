@@ -7,7 +7,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 type memoryStore struct {

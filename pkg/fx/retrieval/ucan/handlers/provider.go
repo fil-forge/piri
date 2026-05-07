@@ -5,16 +5,16 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
+	"github.com/fil-forge/go-libstoracha/failure"
+	"github.com/fil-forge/go-ucanto/core/invocation"
+	"github.com/fil-forge/go-ucanto/core/receipt"
+	ucanserver "github.com/fil-forge/go-ucanto/server"
+	ucanretrieval "github.com/fil-forge/go-ucanto/server/retrieval"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/storacha/go-libstoracha/capabilities/space/content"
-	"github.com/storacha/go-libstoracha/failure"
-	"github.com/storacha/go-ucanto/core/invocation"
-	"github.com/storacha/go-ucanto/core/receipt"
-	ucanserver "github.com/storacha/go-ucanto/server"
-	ucanretrieval "github.com/storacha/go-ucanto/server/retrieval"
 
-	"github.com/storacha/piri/pkg/service/egresstracker"
-	"github.com/storacha/piri/pkg/service/retrieval/ucan"
+	"github.com/fil-forge/piri/pkg/service/egresstracker"
+	"github.com/fil-forge/piri/pkg/service/retrieval/ucan"
 )
 
 var log = logging.Logger("retrieval/ucan")

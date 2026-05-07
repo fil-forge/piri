@@ -8,10 +8,10 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/storacha/go-ucanto/core/car"
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/local/retrievaljournal"
+	"github.com/fil-forge/go-ucanto/core/car"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 )
 
 var _ echofx.RouteRegistrar = (*Server)(nil)

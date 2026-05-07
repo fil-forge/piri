@@ -1,12 +1,12 @@
 package root
 
 import (
+	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/labstack/echo/v4"
-	"github.com/storacha/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/server"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/server"
 )
 
 // Module provides the root handler with route registrar tag

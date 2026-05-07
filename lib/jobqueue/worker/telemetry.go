@@ -7,7 +7,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/storacha/piri/lib/telemetry"
+	"github.com/fil-forge/piri/lib/telemetry"
 )
 
 // jobDurationBounds covering 5ms up to 30 minutes.

@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/fil-forge/piri/pkg/client"
 	"github.com/spf13/cobra"
-	"github.com/storacha/piri/pkg/client"
 )
 
 var SupportedLinuxArch = map[string]bool{

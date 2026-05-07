@@ -6,7 +6,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 
-	"github.com/storacha/piri/lib/telemetry"
+	"github.com/fil-forge/piri/lib/telemetry"
 )
 
 var replicaDurationBounds = []float64{
@@ -35,7 +35,7 @@ type Metrics struct {
 }
 
 func NewMetrics() (*Metrics, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/storacha/piri/pkg/service/storage/handlers/replica")
+	meter := otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/service/storage/handlers/replica")
 	durationTimer, err := telemetry.NewTimer(
 		meter,
 		"transfer_duration",

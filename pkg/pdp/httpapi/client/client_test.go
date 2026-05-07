@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/storacha/go-libstoracha/testutil"
 	"github.com/stretchr/testify/require"
 )
 

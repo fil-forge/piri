@@ -1,8 +1,8 @@
 package config
 
 import (
-	"github.com/storacha/piri/lib"
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type IdentityConfig struct {

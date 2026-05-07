@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )

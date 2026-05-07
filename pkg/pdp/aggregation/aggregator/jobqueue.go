@@ -9,22 +9,22 @@ import (
 	"slices"
 	"time"
 
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-libstoracha/piece/piece"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/piece/piece"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/lib/jobqueue/dialect"
-	"github.com/storacha/piri/lib/jobqueue/serializer"
-	"github.com/storacha/piri/lib/jobqueue/traceutil"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/pdp/aggregation/manager"
-	"github.com/storacha/piri/pkg/pdp/aggregation/types"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/lib/jobqueue/dialect"
+	"github.com/fil-forge/piri/lib/jobqueue/serializer"
+	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
 
 var log = logging.Logger("aggregation/aggregator")

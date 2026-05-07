@@ -4,9 +4,9 @@ import (
 	_ "embed"
 	"fmt"
 
+	"github.com/fil-forge/go-libstoracha/piece/piece"
 	ipldprime "github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/schema"
-	"github.com/storacha/go-libstoracha/piece/piece"
 )
 
 //go:embed buffer.ipldsch

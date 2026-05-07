@@ -4,26 +4,26 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/go-ucanto/did"
 
-	"github.com/storacha/piri/pkg/store/acceptancestore/acceptance"
-	"github.com/storacha/piri/pkg/store/genericstore"
-	"github.com/storacha/piri/pkg/store/objectstore"
-	"github.com/storacha/piri/pkg/store/objectstore/dsadapter"
-	"github.com/storacha/piri/pkg/store/objectstore/minio"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
+	"github.com/fil-forge/piri/pkg/store/genericstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
+	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // AcceptanceStore tracks the items that have been stored on the storage node.
 type AcceptanceStore interface {
 	// Get retrieves an acceptance for a blob (digest) in a space (DID). It
-	// returns [github.com/storacha/piri/pkg/store.ErrNotFound] if the acceptance
+	// returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if the acceptance
 	// does not exist.
 	Get(context.Context, multihash.Multihash, did.DID) (acceptance.Acceptance, error)
 	// GetAny retrieves any acceptance for a blob (digest), regardless of space.
-	// Returns [github.com/storacha/piri/pkg/store.ErrNotFound] if no acceptance exists.
+	// Returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if no acceptance exists.
 	GetAny(context.Context, multihash.Multihash) (acceptance.Acceptance, error)
 	// Exists checks if any acceptance exists for a blob (digest).
 	Exists(context.Context, multihash.Multihash) (bool, error)

@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/storacha/filecoin-services/go/evmerrors"
+	"github.com/fil-forge/filecoin-services/go/evmerrors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/multierr"
@@ -19,15 +19,15 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/storacha/piri/lib/telemetry"
-	"github.com/storacha/piri/pkg/config"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/config/dynamic"
-	"github.com/storacha/piri/pkg/pdp/promise"
-	"github.com/storacha/piri/pkg/pdp/scheduler"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/types"
-	"github.com/storacha/piri/pkg/wallet"
+	"github.com/fil-forge/piri/lib/telemetry"
+	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/dynamic"
+	"github.com/fil-forge/piri/pkg/pdp/promise"
+	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 // sendReasonToConfigKey maps SendReason strings to their per-type gas config keys.
@@ -91,7 +91,7 @@ func NewSenderETH(client SenderETHClient, wallet wallet.Wallet, db *gorm.DB, opt
 		o(&options)
 	}
 
-	meter := otel.GetMeterProvider().Meter("github.com/storacha/piri/pkg/pdp/tasks")
+	meter := otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/tasks")
 	sendFailure, err := telemetry.NewCounter(
 		meter,
 		"message_send_failure",

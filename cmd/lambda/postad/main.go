@@ -18,10 +18,10 @@ import (
 
 	"github.com/ipfs/go-cid"
 
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-libstoracha/metadata"
-	"github.com/storacha/piri/cmd/lambda"
-	"github.com/storacha/piri/pkg/aws"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/metadata"
+	"github.com/fil-forge/piri/cmd/lambda"
+	"github.com/fil-forge/piri/pkg/aws"
 )
 
 func main() {

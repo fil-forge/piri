@@ -3,17 +3,17 @@ package blobs
 import (
 	"fmt"
 
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/fil-forge/go-ucanto/principal"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/access"
-	"github.com/storacha/piri/pkg/config/app"
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/presigner"
-	"github.com/storacha/piri/pkg/service/blobs"
-	"github.com/storacha/piri/pkg/store/acceptancestore"
-	"github.com/storacha/piri/pkg/store/allocationstore"
-	"github.com/storacha/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/access"
+	"github.com/fil-forge/piri/pkg/config/app"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/presigner"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var Module = fx.Module("blobs",

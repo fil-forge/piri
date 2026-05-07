@@ -10,10 +10,10 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"gorm.io/gorm"
 
-	"github.com/storacha/filecoin-services/go/eip712"
+	"github.com/fil-forge/filecoin-services/go/eip712"
 
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
 func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retErr error) {

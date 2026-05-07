@@ -8,7 +8,7 @@ import (
 	"github.com/multiformats/go-multihash"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/lib/jobqueue"
 )
 
 var log = logging.Logger("aggregation/commp")

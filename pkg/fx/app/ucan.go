@@ -3,19 +3,19 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/fx/blobs"
-	"github.com/storacha/piri/pkg/fx/claims"
-	"github.com/storacha/piri/pkg/fx/claimvalidation"
-	"github.com/storacha/piri/pkg/fx/presigner"
-	"github.com/storacha/piri/pkg/fx/principalresolver"
-	"github.com/storacha/piri/pkg/fx/publisher"
-	"github.com/storacha/piri/pkg/fx/replicator"
-	"github.com/storacha/piri/pkg/fx/retrieval"
-	retrievalucan "github.com/storacha/piri/pkg/fx/retrieval/ucan"
-	"github.com/storacha/piri/pkg/fx/root"
-	"github.com/storacha/piri/pkg/fx/storage"
-	storageucan "github.com/storacha/piri/pkg/fx/storage/ucan"
-	"github.com/storacha/piri/pkg/service/egresstracker"
+	"github.com/fil-forge/piri/pkg/fx/blobs"
+	"github.com/fil-forge/piri/pkg/fx/claims"
+	"github.com/fil-forge/piri/pkg/fx/claimvalidation"
+	"github.com/fil-forge/piri/pkg/fx/presigner"
+	"github.com/fil-forge/piri/pkg/fx/principalresolver"
+	"github.com/fil-forge/piri/pkg/fx/publisher"
+	"github.com/fil-forge/piri/pkg/fx/replicator"
+	"github.com/fil-forge/piri/pkg/fx/retrieval"
+	retrievalucan "github.com/fil-forge/piri/pkg/fx/retrieval/ucan"
+	"github.com/fil-forge/piri/pkg/fx/root"
+	"github.com/fil-forge/piri/pkg/fx/storage"
+	storageucan "github.com/fil-forge/piri/pkg/fx/storage/ucan"
+	"github.com/fil-forge/piri/pkg/service/egresstracker"
 )
 
 var UCANModule = fx.Module("ucan",

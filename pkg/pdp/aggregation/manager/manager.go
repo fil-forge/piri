@@ -12,8 +12,8 @@ import (
 	"github.com/raulk/clock"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 var log = logging.Logger("aggregator/manager")

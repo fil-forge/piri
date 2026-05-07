@@ -4,9 +4,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/fil-forge/go-ucanto/client"
+	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/core/delegation"
 )
 
 type ExternalServicesConfig struct {

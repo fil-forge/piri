@@ -11,11 +11,11 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/did"
-	ucan_http "github.com/storacha/go-ucanto/transport/http"
+	"github.com/fil-forge/go-ucanto/client"
+	"github.com/fil-forge/go-ucanto/did"
+	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
 
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type ContractAddresses struct {

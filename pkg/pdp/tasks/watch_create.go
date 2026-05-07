@@ -10,9 +10,9 @@ import (
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
 	"gorm.io/gorm"
 
-	"github.com/storacha/piri/pkg/pdp/chainsched"
-	"github.com/storacha/piri/pkg/pdp/service/models"
-	"github.com/storacha/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/chainsched"
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
 type ProofSetCreate struct {

@@ -7,7 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/storacha/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/core/delegation"
 )
 
 // S3IndexerProofs returns delegation proofs for the indexer

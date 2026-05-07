@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/storacha/piri/cmd/cli"
+	"github.com/fil-forge/piri/cmd/cli"
 )
 
 func main() {

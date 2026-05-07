@@ -6,23 +6,23 @@ import (
 	"fmt"
 	"runtime"
 
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-libstoracha/piece/piece"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/ipld/go-ipld-prime/schema"
 	"github.com/multiformats/go-multihash"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/piece/piece"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/lib/jobqueue/dialect"
-	"github.com/storacha/piri/lib/jobqueue/serializer"
-	"github.com/storacha/piri/lib/jobqueue/traceutil"
-	"github.com/storacha/piri/pkg/config/app"
-	"github.com/storacha/piri/pkg/pdp/aggregation/aggregator"
-	"github.com/storacha/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/lib/jobqueue/dialect"
+	"github.com/fil-forge/piri/lib/jobqueue/serializer"
+	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
+	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 type CommpQueueParams struct {

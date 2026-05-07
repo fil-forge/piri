@@ -1,12 +1,12 @@
 package types
 
 import (
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/piri/internal/ipldstore"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipld/go-ipld-prime/datamodel"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/piri/internal/ipldstore"
 	"go.uber.org/fx"
 )
 

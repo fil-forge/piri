@@ -77,13 +77,13 @@ func main() {
 	}
 
 	// Setup routes
-	http.HandleFunc("/repos/storacha/piri/releases/latest", server.handleLatestRelease)
+	http.HandleFunc("/repos/fil-forge/piri/releases/latest", server.handleLatestRelease)
 	http.HandleFunc("/download/", server.handleDownload)
 
 	log.Printf("Mock GitHub API server starting on port %d", config.Port)
 	log.Printf("Serving binary: %s", config.BinaryPath)
 	log.Printf("Advertising version: %s", config.AdvertisedVersion)
-	log.Printf("API endpoint: %s/repos/storacha/piri/releases/latest", config.ServerURL)
+	log.Printf("API endpoint: %s/repos/fil-forge/piri/releases/latest", config.ServerURL)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil); err != nil {
 		log.Fatalf("Server failed: %v", err)

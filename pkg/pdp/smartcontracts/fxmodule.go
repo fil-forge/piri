@@ -4,7 +4,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	appconfig "github.com/storacha/piri/pkg/config/app"
+	appconfig "github.com/fil-forge/piri/pkg/config/app"
 )
 
 var Module = fx.Module("smartcontracts",

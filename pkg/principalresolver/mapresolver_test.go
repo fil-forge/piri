@@ -3,10 +3,10 @@ package principalresolver_test
 import (
 	"testing"
 
-	"github.com/storacha/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/did"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/principalresolver"
+	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
 func TestPrincipalResolver(t *testing.T) {

@@ -6,21 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/metadata"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
-	"github.com/storacha/go-libstoracha/metadata"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/pkg/store/acceptancestore"
-	"github.com/storacha/piri/pkg/store/allocationstore"
-	"github.com/storacha/piri/pkg/store/blobstore"
-	"github.com/storacha/piri/pkg/store/claimstore"
-	"github.com/storacha/piri/pkg/store/consolidationstore"
-	"github.com/storacha/piri/pkg/store/delegationstore"
-	"github.com/storacha/piri/pkg/store/local/keystore"
-	"github.com/storacha/piri/pkg/store/local/retrievaljournal"
-	"github.com/storacha/piri/pkg/store/receiptstore"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/claimstore"
+	"github.com/fil-forge/piri/pkg/store/consolidationstore"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/local/keystore"
+	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
+	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 var Module = fx.Module("memory-store",

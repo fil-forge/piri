@@ -3,15 +3,15 @@ package replicator
 import (
 	"context"
 
-	"github.com/storacha/go-ucanto/client"
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/fil-forge/go-ucanto/client"
+	"github.com/fil-forge/go-ucanto/principal"
 
-	"github.com/storacha/piri/lib/jobqueue"
-	"github.com/storacha/piri/pkg/pdp"
-	"github.com/storacha/piri/pkg/service/blobs"
-	"github.com/storacha/piri/pkg/service/claims"
-	replicahandler "github.com/storacha/piri/pkg/service/storage/handlers/replica"
-	"github.com/storacha/piri/pkg/store/receiptstore"
+	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/pkg/pdp"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 type Replicator interface {

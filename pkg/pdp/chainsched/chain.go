@@ -16,7 +16,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/store"
 	"github.com/filecoin-project/lotus/chain/types"
 
-	"github.com/storacha/piri/lib/telemetry"
+	"github.com/fil-forge/piri/lib/telemetry"
 )
 
 var log = logging.Logger("scheduler/chain")
@@ -50,7 +50,7 @@ func WithClock(clock clock.Clock) Option {
 }
 
 func New(api NodeAPI, opts ...Option) (*Scheduler, error) {
-	meter := otel.GetMeterProvider().Meter("github.com/storacha/piri/pkg/pdp/chainsched")
+	meter := otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/chainsched")
 	currentEpoch, err := telemetry.NewInt64Gauge(
 		meter,
 		"chain_current_epoch",

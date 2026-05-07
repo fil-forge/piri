@@ -1,6 +1,6 @@
 site_name: Piri Docs
 site_url: https://storacha.github.io/piri
-repo_url: https://github.com/storacha/piri
+repo_url: https://github.com/fil-forge/piri
 docs_dir: content
 site_dir: site
 markdown_extensions:

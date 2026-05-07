@@ -3,10 +3,10 @@ package blobstore
 import (
 	"path/filepath"
 
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
 	"github.com/multiformats/go-multibase"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/piri/pkg/store/objectstore/flatfs"
 )
 
 // KeyEncoder defines how to encode blob keys for a specific backend.

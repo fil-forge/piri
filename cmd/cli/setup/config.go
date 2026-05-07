@@ -111,7 +111,7 @@ const (
 	PiriUpdateTimerServiceFile        = "piri-updater.timer"
 	PiriServiceName                   = "piri"
 	PiriUpdateTimerName               = "piri-updater.timer"
-	ReleaseURL                        = "https://api.github.com/repos/storacha/piri/releases/latest"
+	ReleaseURL                        = "https://api.github.com/repos/fil-forge/piri/releases/latest"
 	PiriUpdateBootDuration            = 2 * time.Minute
 	PiriUpdateUnitActiveDuration      = 30 * time.Minute
 	PiriUpdateRandomizedDelayDuration = 5 * time.Minute

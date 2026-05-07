@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/validator"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/validator"
 )
 
 var log = logging.Logger("principal-resolver")
@@ -41,7 +41,7 @@ func (fc *FlexibleContext) UnmarshalJSON(data []byte) error {
 
 // Document is a did document that describes a did subject.
 // See https://www.w3.org/TR/did-core/#dfn-did-documents.
-// Copied from: https://github.com/storacha/indexing-service/blob/fe8f2211a15d851f2672bfeb64dcfc65c52e6011/pkg/server/server.go#L238
+// Copied from: https://github.com/fil-forge/indexing-service/blob/fe8f2211a15d851f2672bfeb64dcfc65c52e6011/pkg/server/server.go#L238
 type Document struct {
 	Context            FlexibleContext      `json:"@context"` // https://w3id.org/did/v1
 	ID                 string               `json:"id"`

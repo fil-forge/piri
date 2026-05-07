@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/storacha/go-ucanto/principal"
+	"github.com/fil-forge/go-ucanto/principal"
 )
 
 // IdentityConfig contains identity-related configuration

@@ -10,8 +10,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/storacha/piri/lib/telemetry/metrics"
-	"github.com/storacha/piri/lib/telemetry/traces"
+	"github.com/fil-forge/piri/lib/telemetry/metrics"
+	"github.com/fil-forge/piri/lib/telemetry/traces"
 )
 
 type shutdownFn func(context.Context) error

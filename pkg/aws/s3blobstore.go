@@ -16,12 +16,12 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/piri/pkg/presigner"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/multiformats/go-multicodec"
 	multihash "github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/digestutil"
-	"github.com/storacha/piri/pkg/presigner"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/blobstore"
 )
 
 type KeyFormatterFunc func(digest multihash.Multihash) string

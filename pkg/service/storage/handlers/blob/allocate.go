@@ -8,24 +8,24 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/blob"
+	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/ucan"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
-	"github.com/storacha/go-libstoracha/capabilities/blob"
-	captypes "github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/ucan"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/storacha/piri/pkg/pdp/types"
-	"github.com/storacha/piri/pkg/presets"
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/presets"
 
-	"github.com/storacha/go-libstoracha/digestutil"
+	"github.com/fil-forge/go-libstoracha/digestutil"
 
-	"github.com/storacha/piri/pkg/pdp"
-	"github.com/storacha/piri/pkg/service/blobs"
-	"github.com/storacha/piri/pkg/store"
-	"github.com/storacha/piri/pkg/store/allocationstore/allocation"
+	"github.com/fil-forge/piri/pkg/pdp"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 var log = logging.Logger("storage/handlers/blob")

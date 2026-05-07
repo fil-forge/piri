@@ -10,7 +10,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/viper"
 
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 // ViperBridge bridges between Viper configuration and the dynamic Registry.

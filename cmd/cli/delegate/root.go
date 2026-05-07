@@ -6,16 +6,16 @@ import (
 	"os"
 	"strings"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/blob"
+	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
+	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
+	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/principal/signer"
 	"github.com/spf13/cobra"
-	"github.com/storacha/go-libstoracha/capabilities/blob"
-	"github.com/storacha/go-libstoracha/capabilities/blob/replica"
-	"github.com/storacha/go-libstoracha/capabilities/pdp"
-	"github.com/storacha/go-ucanto/core/delegation"
-	"github.com/storacha/go-ucanto/did"
-	"github.com/storacha/go-ucanto/principal/signer"
 
-	"github.com/storacha/piri/cmd/cliutil"
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/cmd/cliutil"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 var (

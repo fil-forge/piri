@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/storacha/go-ucanto/principal"
-	ed25519 "github.com/storacha/go-ucanto/principal/ed25519/signer"
+	"github.com/fil-forge/go-ucanto/principal"
+	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
 )
 
 func SignerFromEd25519PEMFile(path string) (principal.Signer, error) {

@@ -11,7 +11,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/minio/minio-go/v7"
 
-	"github.com/storacha/piri/pkg/store/objectstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 var log = logging.Logger("objectstore/minio")

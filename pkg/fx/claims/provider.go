@@ -3,10 +3,10 @@ package claims
 import (
 	"go.uber.org/fx"
 
-	echofx "github.com/storacha/piri/pkg/fx/echo"
-	"github.com/storacha/piri/pkg/service/claims"
-	publisherSvc "github.com/storacha/piri/pkg/service/publisher"
-	"github.com/storacha/piri/pkg/store/claimstore"
+	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	publisherSvc "github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/store/claimstore"
 )
 
 var Module = fx.Module("claims",

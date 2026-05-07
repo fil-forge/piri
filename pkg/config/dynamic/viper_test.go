@@ -10,7 +10,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/storacha/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/config"
 )
 
 func TestNewTOMLPersister(t *testing.T) {

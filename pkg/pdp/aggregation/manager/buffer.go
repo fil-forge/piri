@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
 	"github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/schema"
-	"github.com/storacha/go-libstoracha/capabilities/types"
-	"github.com/storacha/go-libstoracha/ipnipublisher/store"
 	"go.uber.org/fx"
 
-	"github.com/storacha/piri/internal/ipldstore"
+	"github.com/fil-forge/piri/internal/ipldstore"
 )
 
 //go:embed buffer.ipldsch

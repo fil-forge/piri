@@ -9,11 +9,11 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconvhttp "go.opentelemetry.io/otel/semconv/v1.37.0/httpconv"
 
-	"github.com/storacha/piri/lib/telemetry"
-	"github.com/storacha/piri/lib/telemetry/metrics"
-	"github.com/storacha/piri/lib/telemetry/traces"
-	"github.com/storacha/piri/pkg/build"
-	"github.com/storacha/piri/pkg/config/app"
+	"github.com/fil-forge/piri/lib/telemetry"
+	"github.com/fil-forge/piri/lib/telemetry/metrics"
+	"github.com/fil-forge/piri/lib/telemetry/traces"
+	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 const (

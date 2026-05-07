@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fil-forge/go-libstoracha/piece/digest"
+	"github.com/fil-forge/go-libstoracha/piece/piece"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/filecoin-project/go-data-segment/merkletree"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
-	"github.com/storacha/go-libstoracha/piece/digest"
-	"github.com/storacha/go-libstoracha/piece/piece"
-	"github.com/storacha/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/stretchr/testify/require"
 )
 
