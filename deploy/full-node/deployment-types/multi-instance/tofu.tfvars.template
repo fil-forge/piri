@@ -91,12 +91,12 @@
 # owner = "storacha"
 
 # Team managing the resources
-# Default: "Storacha Engineering" - uncomment to override
-# team = "Storacha Engineering"
+# Default: "Forge Engineering" - uncomment to override
+# team = "Forge Engineering"
 
 # Organization name
-# Default: "Storacha" - uncomment to override
-# org = "Storacha"
+# Default: "Forge" - uncomment to override
+# org = "Forge"
 
 # ===========================================================================
 # PDP (PROOF DATA PROCESSOR) CONFIGURATION

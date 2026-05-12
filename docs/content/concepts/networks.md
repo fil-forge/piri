@@ -1,6 +1,6 @@
 # Networks
 
-Piri operates on Storacha networks, which define the services and smart contracts it communicates with.
+Piri operates on Forge networks, which define the services and smart contracts it communicates with.
 
 ## forge-prod
 

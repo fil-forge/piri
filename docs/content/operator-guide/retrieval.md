@@ -6,15 +6,15 @@ Your Piri node serves data to clients who request it. This page explains how ret
 
 When a client wants to retrieve data:
 
-1. **Discovery**: The client asks Storacha where to find the content
-2. **Routing**: Storacha directs them to a node that has it (your node)
+1. **Discovery**: The client asks Forge where to find the content
+2. **Routing**: Forge directs them to a node that has it (your node)
 3. **Authorization**: The client provides UCAN authorization to your node
 4. **Serving**: Your node serves the requested data
 5. **Tracking**: Your node records a receipt for this egress event
 
 ```
 ┌────────┐     1. Where is CID X?      ┌──────────┐
-│ Client │ ───────────────────────────▶│ Storacha │
+│ Client │ ───────────────────────────▶│ Forge │
 └────────┘                             └──────────┘
     │                                       │
     │         2. Node Y has it              │
@@ -36,7 +36,7 @@ When a client wants to retrieve data:
 
 ### Node Selection
 
-The diagram above simplifies reality in the interest of clarity. Due to replication, the astute reader will have noticed that *three* nodes typically hold any given piece of content, not merely "Node Y." Storacha, being honest about the state of the network, returns all nodes known to possess the requested data.
+The diagram above simplifies reality in the interest of clarity. Due to replication, the astute reader will have noticed that *three* nodes typically hold any given piece of content, not merely "Node Y." Forge, being honest about the state of the network, returns all nodes known to possess the requested data.
 
 The client then faces a choice—a modest embarrassment of riches. By default, client software selects a node at random, which distributes load across the network with admirable fairness if not particular cleverness.
 
@@ -76,7 +76,7 @@ Every retrieval is tracked for payment purposes.
 
 When your node serves data, it retains the UCAN token the client presented. This token is cryptographic proof that the client requested the data—it cannot be forged or disputed.
 
-Your node submits these tokens to Storacha's egress tracker service. This happens automatically in the background.
+Your node submits these tokens to Forge's egress tracker service. This happens automatically in the background.
 
 ### Mutual Accountability
 

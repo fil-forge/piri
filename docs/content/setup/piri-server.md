@@ -15,11 +15,11 @@ Before you start, make sure you have:
 
 ## Initialize Your Piri Node
 
-The `piri init` command does all the setup needed to join the Storacha network:
+The `piri init` command does all the setup needed to join the Forge network:
 
 - Imports your wallet
 - Creates a proof set (if you don't have one)
-- Signs you up with the Storacha network
+- Signs you up with the Forge network
 - Creates a configuration file
 
 ### Run Initialization
@@ -68,7 +68,7 @@ Note: if you move the config file to your user config directory (e.g. `~/.config
 - `--key-file`: Path to your [identity PEM file](./key-generation.md)
 - `--wallet-file`: Path to your [wallet hex file](./key-generation.md)
 - `--lotus-endpoint`: WebSocket address of your Lotus node
-- `--operator-email`: Your email so the Storacha team can contact you
+- `--operator-email`: Your email so the Forge team can contact you
 - `--public-url`: The public HTTPS address for your Piri node (use the domain from the [TLS setup](./tls-termination.md), like `https://piri.example.com`)
 
 **Expected Output:**
@@ -76,7 +76,7 @@ Note: if you move the config file to your user config directory (e.g. `~/.config
 💡Note: Step 3 `Setting up proof set` can take up to 5 minutes to complete.
 
 ```bash
-🚀 Initializing your Piri node on the Storacha Network...
+🚀 Initializing your Piri node on the Forge Network...
 
 [1/5] Validating configuration...
 ✅ Configuration validated
@@ -128,7 +128,7 @@ Piri Public Endpoint: https://piri.example.com
 
 ## Troubleshooting
 
-If you have problems, the Storacha team can help you in the [Storacha Discord server](https://discord.gg/pqa6Dn6RnP).
+If you have problems, the Forge team can help you in the [Filecoin Slack](https://filecoin.io/slack).
 
 ### Initialization Issues
 
@@ -150,4 +150,4 @@ If the server won't start:
 
 ---
 
-Great work! Your Piri setup is done and ready to get data from the Storacha Network.
+Great work! Your Piri setup is done and ready to get data from the Forge Network.

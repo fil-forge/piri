@@ -1,13 +1,13 @@
 # init
 
-Initialize your Piri node and register it with the Storacha network.
+Initialize your Piri node and register it with the Forge network.
 
 This is a **one-time setup command** that prepares your node to participate in the network. It performs several critical operations:
 
 1. **Validates your configuration** - Checks that all required files and endpoints are accessible
 2. **Imports your wallet** - Adds your Filecoin delegated address to Piri's wallet for on-chain transactions
 3. **Creates a proof set** - Registers a proof set on the PDP smart contract (this can take up to 5 minutes as it waits for on-chain confirmation)
-4. **Registers with the network** - Signs up your node with the Storacha delegator service and receives authorization proofs
+4. **Registers with the network** - Signs up your node with the Forge delegator service and receives authorization proofs
 5. **Generates a configuration file** - Outputs a complete TOML config file that [`piri serve`](serve/index.md) uses to run your node
 
 After initialization completes, you use the generated config file with `piri serve` to start your node. You typically only run `piri init` once per node setup.
@@ -44,7 +44,7 @@ All flags are required:
 | `--key-file <path>` | Path to PEM file containing your Ed25519 identity key |
 | `--wallet-file <path>` | Path to hex file containing your delegated Filecoin wallet private key |
 | `--lotus-endpoint <url>` | WebSocket URL of your Lotus node (e.g., `wss://lotus.example.com/rpc/v1`) |
-| `--operator-email <email>` | Contact email for the Storacha team to reach you |
+| `--operator-email <email>` | Contact email for the Forge team to reach you |
 | `--public-url <url>` | Public HTTPS URL where your node will be accessible |
 
 ## Example
@@ -62,7 +62,7 @@ piri init \
 ```
 
 ```
-Initializing your Piri node on the Storacha Network...
+Initializing your Piri node on the Forge Network...
 
 [1/5] Validating configuration...
 Configuration validated

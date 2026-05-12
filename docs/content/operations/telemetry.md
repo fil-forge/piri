@@ -53,7 +53,7 @@ We do NOT collect:
 
 ## How to Opt Out
 
-If you prefer not to share telemetry data with Storacha, you can disable it using either an environment variable or config file:
+If you prefer not to share telemetry data with Forge Development Team, you can disable it using either an environment variable or config file:
 
 **Environment variable:**
 

@@ -34,7 +34,7 @@ var log = logging.Logger("cmd")
 var configFilePath = path.Join("piri", "config.toml")
 
 const piriShortDescription = `
-Piri is the software run by all storage providers on the Storacha network
+Piri is the software run by all storage providers on the Forge network
 `
 
 var (

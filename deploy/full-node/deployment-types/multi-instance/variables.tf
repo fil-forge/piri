@@ -8,13 +8,13 @@ variable "owner" {
 variable "team" {
   description = "Name of team managing the project"
   type        = string
-  default     = "Storacha Engineering"
+  default     = "Forge Engineering"
 }
 
 variable "org" {
   description = "Name of the organization managing the project"
   type        = string
-  default     = "Storacha"
+  default     = "Forge"
 }
 
 variable "allowed_account_ids" {

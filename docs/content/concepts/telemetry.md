@@ -170,4 +170,4 @@ See [Configuration > telemetry](../configuration/telemetry.md) for collector set
 
 ## Analytics
 
-Piri can optionally send anonymized analytics to Storacha to help improve the software. See [Operations > Telemetry](../operations/telemetry.md) for details and opt-out instructions.
+Piri can optionally send anonymized analytics to Forge Development Team to help improve the software. See [Operations > Telemetry](../operations/telemetry.md) for details and opt-out instructions.

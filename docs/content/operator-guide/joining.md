@@ -4,10 +4,10 @@ Becoming a Forge operator involves an approval process followed by on-chain regi
 
 ## Getting Approved
 
-Operator approval is handled by Storacha. Before you can join the network, you'll need to:
+Operator approval is handled by Forge Team. Before you can join the network, you'll need to:
 
-1. **Contact Storacha** to express interest in becoming an operator
-2. **Demonstrate capability** — Storacha evaluates prospective operators for reliable infrastructure, adequate resources, and operational readiness
+1. **Contact Forge Team** to express interest in becoming an operator
+2. **Demonstrate capability** — Forge Team evaluates prospective operators for reliable infrastructure, adequate resources, and operational readiness
 3. **Receive approval** — Once approved, you'll be authorized to register on-chain
 
 This vetting process ensures the network maintains quality and reliability for users who depend on it.

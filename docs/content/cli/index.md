@@ -1,6 +1,6 @@
 # CLI Reference
 
-Piri provides a command-line interface for managing storage nodes on the Storacha network.
+Piri provides a command-line interface for managing storage nodes on the Forge network.
 
 ## Usage
 

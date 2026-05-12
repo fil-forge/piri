@@ -1,32 +1,32 @@
 # How Storage Works
 
-Your Piri node receives data from clients and participates in Storacha's distributed storage network. This page explains how data arrives, how replication maintains redundancy, and what your node actually stores.
+Your Piri node receives data from clients and participates in Forge's distributed storage network. This page explains how data arrives, how replication maintains redundancy, and what your node actually stores.
 
 ## Direct Upload Flow
 
-When a client uploads data to Storacha, your node may be selected to receive it. The data flows directly from the client to your node—Storacha orchestrates the process but never handles the actual bytes.
+When a client uploads data to Forge, your node may be selected to receive it. The data flows directly from the client to your node—Forge orchestrates the process but never handles the actual bytes.
 
 The upload sequence:
 
-1. **Allocation request**: Client requests an allocation from Storacha, providing the SHA hash and size of the data
-2. **Node selection**: Storacha selects a Piri node (see [Node Selection](#node-selection) below)
-3. **Allocation creation**: Storacha requests an allocation from the selected node
+1. **Allocation request**: Client requests an allocation from Forge, providing the SHA hash and size of the data
+2. **Node selection**: Forge selects a Piri node (see [Node Selection](#node-selection) below)
+3. **Allocation creation**: Forge requests an allocation from the selected node
 4. **URL generation**: Your node creates an allocation record and returns an upload URL with authentication tokens
-5. **URL delivery**: Storacha sends the upload URL to the client
+5. **URL delivery**: Forge sends the upload URL to the client
 6. **Direct transfer**: Client performs an HTTP PUT directly to your node
-7. **Confirmation**: Client confirms upload completion to Storacha
-8. **Notification**: Storacha notifies your node that the upload is complete
+7. **Confirmation**: Client confirms upload completion to Forge
+8. **Notification**: Forge notifies your node that the upload is complete
 9. **Verification**: Your node verifies the data matches the expected CID, computes CommPv2, and queues the root for chain registration
 
-The critical point: actual data transfer is direct from client to your node. Storacha coordinates; your node receives.
+The critical point: actual data transfer is direct from client to your node. Forge coordinates; your node receives.
 
 ## Replication
 
-The Forge network maintains redundancy—three copies of each piece across different nodes. Storacha orchestrates this replication at its layer; your node participates without needing to know whether it's storing a primary copy or a replica.
+The Forge network maintains redundancy—three copies of each piece across different nodes. Forge orchestrates this replication at its layer; your node participates without needing to know whether it's storing a primary copy or a replica.
 
 ### How Replication Works
 
-After a client completes a primary upload, Storacha selects additional nodes for redundancy. Each replica follows the same allocation flow: Storacha requests an allocation, your node returns a URL, and data transfers in.
+After a client completes a primary upload, Forge selects additional nodes for redundancy. Each replica follows the same allocation flow: Forge requests an allocation, your node returns a URL, and data transfers in.
 
 From your node's perspective, there is no difference between a primary upload and a replica. Both proceed through the identical pipeline:
 
@@ -43,11 +43,11 @@ From your node's perspective, there is no difference between a primary upload an
 - Replication traffic between nodes is not billable egress
 - Storage and proof obligations are the same for all copies
 
-Storacha selects which nodes participate in replication using the same selection mechanism as primary uploads. Data transfers directly between nodes.
+Forge selects which nodes participate in replication using the same selection mechanism as primary uploads. Data transfers directly between nodes.
 
 ## Node Selection
 
-Storacha selects which nodes receive uploads and replicas. The current algorithm uses weighted random selection with uniform weights—all active, healthy nodes have equal probability of selection.
+Forge selects which nodes receive uploads and replicas. The current algorithm uses weighted random selection with uniform weights—all active, healthy nodes have equal probability of selection.
 
 ### Future Considerations
 
@@ -110,7 +110,7 @@ Some performance factors are within your control; others are not.
 - Client bandwidth and connection quality
 - Client geographic location
 - Internet routing between client and node
-- Storacha's selection decisions
+- Forge's selection decisions
 
 Optimizing what you control improves your node's performance profile, which may influence selection as the algorithm evolves.
 
@@ -134,4 +134,4 @@ As capacity needs grow, you have options:
 
 Piri uses a database for operational state and job scheduling. Choose based on your scale and requirements—see [Database](../concepts/database.md) for details on SQLite versus PostgreSQL.
 
-The [Prerequisites](../setup/prerequisites.md) guide recommends 1+ TB to start, but actual needs depend on how much data Storacha routes to your node.
+The [Prerequisites](../setup/prerequisites.md) guide recommends 1+ TB to start, but actual needs depend on how much data Forge routes to your node.

@@ -423,7 +423,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 }
 
 func initTelemetry(ctx context.Context, instanceID, network string, dataDir string, cfg appconfig.TelemetryConfig) error {
-	// If no Storacha analytics AND no user collectors, skip setup entirely
+	// If no Forge analytics AND no user collectors, skip setup entirely
 	if cfg.DisableStorachaAnalytics && len(cfg.Metrics) == 0 && len(cfg.Traces) == 0 {
 		return nil
 	}
