@@ -3,16 +3,16 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/fil-forge/piri/pkg/fx/claims"
 	"github.com/fil-forge/piri/pkg/fx/claimvalidation"
-	"github.com/fil-forge/piri/pkg/fx/principalresolver"
-	"github.com/fil-forge/piri/pkg/fx/publisher"
-	"github.com/fil-forge/piri/pkg/fx/replicator"
-	retrievalucan "github.com/fil-forge/piri/pkg/fx/retrieval/ucan"
 	"github.com/fil-forge/piri/pkg/fx/root"
-	"github.com/fil-forge/piri/pkg/fx/storage"
-	storageucan "github.com/fil-forge/piri/pkg/fx/storage/ucan"
+	"github.com/fil-forge/piri/pkg/principalresolver"
+	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/service/egresstracker"
+	"github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/service/replicator"
+	retrievalucan "github.com/fil-forge/piri/pkg/service/retrieval/ucan"
+	"github.com/fil-forge/piri/pkg/service/storage"
+	storageucan "github.com/fil-forge/piri/pkg/service/storage/ucan"
 )
 
 var UCANModule = fx.Module("ucan",

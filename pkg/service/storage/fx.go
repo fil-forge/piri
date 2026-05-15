@@ -7,7 +7,6 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
-	storageucan "github.com/fil-forge/piri/pkg/service/storage/ucan"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 )
@@ -28,7 +27,6 @@ var Module = fx.Module("storage",
 		func(a acceptancestore.AcceptanceStore) blobhandler.AcceptanceStore { return a },
 		func(p pdptypes.PieceAPI) blobhandler.PieceAllocator { return p },
 		func(p pdptypes.PieceAPI) blobhandler.PieceReader { return p },
-		func(p pdptypes.PieceAPI) storageucan.PieceResolver { return p },
 	),
 )
 

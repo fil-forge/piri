@@ -19,8 +19,8 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/pdp"
 	"github.com/fil-forge/piri/pkg/fx/scheduler"
-	"github.com/fil-forge/piri/pkg/fx/wallet"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 var PDPModule = fx.Module("pdp",

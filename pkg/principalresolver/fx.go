@@ -12,12 +12,11 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
 var Module = fx.Module("principalresolver",
 	fx.Provide(
-		NewPrincipalResolver,
+		NewFx,
 		fx.Annotate(
 			ProvideAsUCANOption,
 			fx.ResultTags(`group:"ucan_options"`),
@@ -29,8 +28,8 @@ var Module = fx.Module("principalresolver",
 	),
 )
 
-// NewPrincipalResolver creates a principal resolver from configuration
-func NewPrincipalResolver(cfg app.AppConfig) (validator.PrincipalResolver, error) {
+// NewFx creates a principal resolver from configuration.
+func NewFx(cfg app.AppConfig) (validator.PrincipalResolver, error) {
 	services := make([]did.DID, 0, 2)
 	if idxSvc := cfg.UCANService.Services.Indexer.Connection; idxSvc != nil {
 		if strings.HasPrefix(idxSvc.ID().DID().String(), "did:web:") {
@@ -42,17 +41,16 @@ func NewPrincipalResolver(cfg app.AppConfig) (validator.PrincipalResolver, error
 			services = append(services, uplSvc.ID().DID())
 		}
 	}
-	// Build resolver options
-	var opts []principalresolver.Option
+	var opts []Option
 	if cfg.UCANService.InsecureDIDResolution {
-		opts = append(opts, principalresolver.InsecureResolution())
+		opts = append(opts, InsecureResolution())
 	}
 
-	hr, err := principalresolver.NewHTTPResolver(services, opts...)
+	hr, err := NewHTTPResolver(services, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating http principal resolver: %w", err)
 	}
-	cr, err := principalresolver.NewCachedResolver(hr, 24*time.Hour)
+	cr, err := NewCachedResolver(hr, 24*time.Hour)
 	if err != nil {
 		return nil, fmt.Errorf("creating cached principal resolver: %w", err)
 	}
@@ -65,7 +63,7 @@ func ProvideAsUCANOption(resolver validator.PrincipalResolver) ucanserver.Option
 }
 
 // ProvideAsUCANRetrievalOption provides the principal resolver as a UCAN
-// retrieval server option/
+// retrieval server option.
 func ProvideAsUCANRetrievalOption(resolver validator.PrincipalResolver) ucanretrievalserver.Option {
 	return ucanretrievalserver.WithPrincipalResolver(resolver.ResolveDIDKey)
 }

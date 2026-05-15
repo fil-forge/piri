@@ -9,43 +9,41 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
-	"github.com/fil-forge/piri/pkg/service/publisher"
 )
 
 var Module = fx.Module("publisher",
 	fx.Provide(
 		// Also provide the interface
 		fx.Annotate(
-			NewService,
-			fx.As(new(publisher.Publisher)),
+			NewFx,
+			fx.As(new(Publisher)),
 		),
 		fx.Annotate(
-			publisher.NewServer,
+			NewServer,
 			fx.As(new(echofx.RouteRegistrar)),
 			fx.ResultTags(`group:"route_registrar"`),
 		),
 	),
 )
 
-func NewService(
+func NewFx(
 	cfg app.AppConfig,
 	id principal.Signer,
 	publisherStore store.PublisherStore,
-) (*publisher.PublisherService, error) {
+) (*PublisherService, error) {
 	pubCfg := cfg.UCANService.Services.Publisher
 	if pubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
 	}
 
-	return publisher.New(
+	return New(
 		id,
 		publisherStore,
 		pubCfg.PublicMaddr,
-		publisher.WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		publisher.WithIndexingService(cfg.UCANService.Services.Indexer.Connection),
-		publisher.WithIndexingServiceProof(cfg.UCANService.Services.Indexer.Proofs...),
-		publisher.WithAnnounceAddress(pubCfg.AnnounceMaddr),
-		publisher.WithBlobAddress(pubCfg.BlobMaddr),
+		WithDirectAnnounce(pubCfg.AnnounceURLs...),
+		WithIndexingService(cfg.UCANService.Services.Indexer.Connection),
+		WithIndexingServiceProof(cfg.UCANService.Services.Indexer.Proofs...),
+		WithAnnounceAddress(pubCfg.AnnounceMaddr),
+		WithBlobAddress(pubCfg.BlobMaddr),
 	)
-
 }

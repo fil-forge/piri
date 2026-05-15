@@ -16,7 +16,6 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/publisher"
-	"github.com/fil-forge/piri/pkg/service/replicator"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
@@ -29,9 +28,9 @@ var Module = fx.Module("replicator",
 	fx.Provide(
 		ProvideReplicationQueue,
 		fx.Annotate(
-			New,
-			fx.As(fx.Self()),                  // provide as concrete type for RegisterReplicationJobs
-			fx.As(new(replicator.Replicator)), // also provide as interface
+			NewFx,
+			fx.As(fx.Self()),       // provide as concrete type for RegisterReplicationJobs
+			fx.As(new(Replicator)), // also provide as interface
 		),
 	),
 	fx.Invoke(
@@ -95,8 +94,8 @@ type Params struct {
 	Queue        *jobqueue.JobQueue[*replicahandler.TransferRequest]
 }
 
-func New(params Params) (*replicator.Service, error) {
-	r, err := replicator.New(
+func NewFx(params Params) (*Service, error) {
+	r, err := New(
 		params.ID,
 		params.Pieces,
 		params.Commp,
@@ -116,7 +115,7 @@ func New(params Params) (*replicator.Service, error) {
 
 func RegisterReplicationJobs(
 	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
-	service *replicator.Service,
+	service *Service,
 ) error {
 	return service.RegisterTransferTask(queue)
 }

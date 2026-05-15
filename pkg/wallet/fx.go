@@ -7,8 +7,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/store/local/keystore"
-	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 var Module = fx.Module("wallet",
@@ -16,17 +14,13 @@ var Module = fx.Module("wallet",
 		fx.Annotate(
 			NewWallet,
 			fx.As(fx.Self()),
-			fx.As(new(wallet.Wallet)),
+			fx.As(new(Wallet)),
 		),
 	),
 	fx.Invoke(InitializeWallet),
 )
 
-func NewWallet(ks keystore.KeyStore) (*wallet.LocalWallet, error) {
-	return wallet.NewWallet(ks)
-}
-
-func InitializeWallet(lc fx.Lifecycle, cfg app.PDPServiceConfig, wlt *wallet.LocalWallet) {
+func InitializeWallet(lc fx.Lifecycle, cfg app.PDPServiceConfig, wlt *LocalWallet) {
 	addr := cfg.OwnerAddress
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
