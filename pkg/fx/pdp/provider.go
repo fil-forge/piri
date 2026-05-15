@@ -13,8 +13,6 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/chainsched"
 	"github.com/fil-forge/piri/pkg/pdp/ethereum"
 	"github.com/fil-forge/piri/pkg/pdp/httpapi/server"
@@ -39,17 +37,11 @@ var Module = fx.Module("pdp-service",
 			fx.As(new(types.API)), // also provide the server as the interface(s) it implements
 			fx.As(new(types.ProofSetAPI)),
 			fx.As(new(types.PieceAPI)),
+			fx.As(new(types.PieceReaderAPI)),
 			fx.As(new(types.PieceWriterAPI)),
 			fx.As(new(types.PieceCommPAPI)),
 		),
-		fx.Annotate(
-			ProvideProofSetIDProvider,
-		),
-
-		fx.Annotate(
-			ProvideTODOPDPImplInterface,
-			fx.As(new(pdp.PDP)),
-		),
+		ProvideProofSetIDProvider,
 		fx.Annotate(
 			server.NewPDPHandler,
 			fx.As(new(echofx.RouteRegistrar)),
@@ -57,29 +49,6 @@ var Module = fx.Module("pdp-service",
 		),
 	),
 )
-
-// TODO(forrest): this interface and it's impls need to be removed, renamed, or merged with the blob interface
-type TODO_PDP_Impl struct {
-	commpCalc commp.Calculator
-	api       types.PieceAPI
-}
-
-func (s *TODO_PDP_Impl) CommpCalculate() commp.Calculator {
-	return s.commpCalc
-}
-
-func (s *TODO_PDP_Impl) API() types.PieceAPI {
-	return s.api
-}
-
-var _ pdp.PDP = (*TODO_PDP_Impl)(nil)
-
-func ProvideTODOPDPImplInterface(service types.API, commpCalc commp.Calculator, cfg app.AppConfig) (*TODO_PDP_Impl, error) {
-	return &TODO_PDP_Impl{
-		commpCalc: commpCalc,
-		api:       service,
-	}, nil
-}
 
 type Params struct {
 	fx.In

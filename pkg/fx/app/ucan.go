@@ -3,7 +3,6 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/fil-forge/piri/pkg/fx/blobs"
 	"github.com/fil-forge/piri/pkg/fx/claims"
 	"github.com/fil-forge/piri/pkg/fx/claimvalidation"
 	"github.com/fil-forge/piri/pkg/fx/principalresolver"
@@ -19,13 +18,12 @@ import (
 
 var UCANModule = fx.Module("ucan",
 	root.Module,              // Provides root http handler
-	blobs.Module,             // Provides blob allocation + acceptance metadata service
 	claims.Module,            // Provides claims service and handler
 	claimvalidation.Module,   // Provides context for validating UCANs
 	publisher.Module,         // Provides publisher service and handler
 	egresstracker.Module,     // Provides egress tracker service
 	replicator.Module,        // Provides replicator service
-	storage.Module,           // Provides storage service wrapper
+	storage.Module,           // Wires upload connection + consumer-side interface bindings
 	retrieval.Module,         // Provides retrieval service wrapper
 	principalresolver.Module, // Provides principal resolver for UCAN
 	storageucan.Module,       // Provides storage UCAN handler

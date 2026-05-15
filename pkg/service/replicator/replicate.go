@@ -7,10 +7,11 @@ import (
 	"github.com/fil-forge/go-ucanto/principal"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -26,8 +27,9 @@ type Service struct {
 
 func New(
 	id principal.Signer,
-	p pdp.PDP,
-	b blobs.Blobs,
+	pieces pdptypes.PieceAPI,
+	commpCalc commp.Calculator,
+	accepts acceptancestore.AcceptanceStore,
 	c claims.Claims,
 	rstore receiptstore.ReceiptStore,
 	uploadConn client.Connection,
@@ -41,9 +43,9 @@ func New(
 		queue: queue,
 		deps: replicahandler.TransferDeps{
 			ID:          id,
-			Acceptances: b.Acceptances(),
-			Pieces:      p.API(),
-			Commp:       p.CommpCalculate(),
+			Acceptances: accepts,
+			Pieces:      pieces,
+			Commp:       commpCalc,
 			Claims:      c,
 			Receipts:    rstore,
 			UploadConn:  uploadConn,

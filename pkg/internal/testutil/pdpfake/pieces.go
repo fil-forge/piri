@@ -1,6 +1,6 @@
 // Package pdpfake provides in-memory fakes of the PDP storage backend for tests.
 //
-// The fakes satisfy pdp.PDP, types.PieceAPI and commp.Calculator so that fxtest
+// The fakes satisfy types.PieceAPI and commp.Calculator so that fxtest
 // applications can wire the UCAN handlers' PDP code path without pulling in the
 // real PDP service (which requires a database, ethereum client, scheduler, and
 // signing service).

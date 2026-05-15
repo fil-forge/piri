@@ -13,11 +13,12 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/service/replicator"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -84,8 +85,9 @@ type Params struct {
 
 	Config       app.AppConfig
 	ID           principal.Signer
-	PDP          pdp.PDP
-	Blobs        blobs.Blobs
+	Pieces       pdptypes.PieceAPI
+	Commp        commp.Calculator
+	Acceptances  acceptancestore.AcceptanceStore
 	Claims       claims.Claims
 	ReceiptStore receiptstore.ReceiptStore
 	Queue        *jobqueue.JobQueue[*replicahandler.TransferRequest]
@@ -94,8 +96,9 @@ type Params struct {
 func New(params Params) (*replicator.Service, error) {
 	r, err := replicator.New(
 		params.ID,
-		params.PDP,
-		params.Blobs,
+		params.Pieces,
+		params.Commp,
+		params.Acceptances,
 		params.Claims,
 		params.ReceiptStore,
 		params.Config.UCANService.Services.Upload.Connection,
