@@ -9,7 +9,7 @@ import (
 	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/fil-forge/go-ucanto/did"
 
-	"github.com/fil-forge/piri/cmd/cliutil"
+	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/client"
 )
 
@@ -21,7 +21,7 @@ type Config struct {
 }
 
 func New(cfg Config) (*client.Client, error) {
-	id, err := cliutil.ReadPrivateKeyFromPEM(cfg.KeyFile)
+	id, err := lib.SignerFromEd25519PEMFile(cfg.KeyFile)
 	if err != nil {
 		return nil, err
 	}
