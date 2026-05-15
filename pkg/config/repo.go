@@ -64,10 +64,13 @@ type DatabaseConfig struct {
 	Postgres PostgresConfig `mapstructure:"postgres" validate:"omitempty" toml:"postgres,omitempty"`
 }
 
-// ToAppConfig converts DatabaseConfig to app.DatabaseConfig.
 // ToAppConfig converts DatabaseConfig to app.DatabaseConfig. SQLite paths are
 // populated by the caller (RepoConfig.ToAppConfig) since they depend on the
 // repo's data directory.
+//
+// A deployment runs with exactly one database backend; configuring the
+// postgres section while leaving type as sqlite (or empty) is a configuration
+// error and surfaces here rather than getting silently discarded.
 func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 	if c.Type == "postgres" {
 		pgCfg, err := c.Postgres.ToAppConfig()
@@ -78,6 +81,13 @@ func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 			Type:     app.DatabaseTypePostgres,
 			Postgres: pgCfg,
 		}, nil
+	}
+	if c.Postgres.URL != "" {
+		return app.DatabaseConfig{}, fmt.Errorf(
+			"database.postgres section is configured but database.type is %q; "+
+				"a deployment uses one backend for all databases — set type to \"postgres\" or remove the postgres section",
+			c.Type,
+		)
 	}
 	return app.DatabaseConfig{
 		Type: app.DatabaseTypeSQLite,
@@ -165,12 +175,16 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 
 	// SQLite databases each live in their own file under the data dir. Paths
 	// are computed here rather than derived inside fx providers so that the
-	// config fully describes the on-disk layout.
-	dbCfg.SQLite = app.SQLiteConfig{
-		ReplicatorPath:    filepath.Join(r.DataDir, "replicator", "replicator.db"),
-		AggregatorPath:    filepath.Join(r.DataDir, "aggregator", "jobqueue", "jobqueue.db"),
-		EgressTrackerPath: filepath.Join(r.DataDir, "egress_tracker", "jobqueue", "jobqueue.db"),
-		TaskEnginePath:    filepath.Join(r.DataDir, "pdp", "state", "state.db"),
+	// config fully describes the on-disk layout. Populated only when the
+	// selected backend is SQLite — deployments pick one backend for the
+	// entire database layer; the inactive sub-config stays zero-valued.
+	if dbCfg.IsSQLite() {
+		dbCfg.SQLite = app.SQLiteConfig{
+			ReplicatorPath:    filepath.Join(r.DataDir, "replicator", "replicator.db"),
+			AggregatorPath:    filepath.Join(r.DataDir, "aggregator", "jobqueue", "jobqueue.db"),
+			EgressTrackerPath: filepath.Join(r.DataDir, "egress_tracker", "jobqueue", "jobqueue.db"),
+			TaskEnginePath:    filepath.Join(r.DataDir, "pdp", "state", "state.db"),
+		}
 	}
 
 	out := app.StorageConfig{

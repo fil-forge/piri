@@ -94,4 +94,26 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 		_, err := cfg.ToAppConfig()
 		assert.Error(t, err)
 	})
+
+	t.Run("sqlite type with postgres section configured returns error", func(t *testing.T) {
+		cfg := DatabaseConfig{
+			Type: "sqlite",
+			Postgres: PostgresConfig{
+				URL: "postgres://localhost/db",
+			},
+		}
+		_, err := cfg.ToAppConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "one backend")
+	})
+
+	t.Run("empty type with postgres section configured returns error", func(t *testing.T) {
+		cfg := DatabaseConfig{
+			Postgres: PostgresConfig{
+				URL: "postgres://localhost/db",
+			},
+		}
+		_, err := cfg.ToAppConfig()
+		require.Error(t, err)
+	})
 }

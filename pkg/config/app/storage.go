@@ -17,15 +17,25 @@ const (
 
 // DatabaseConfig contains database connection configuration.
 //
-// Each backend has its own nested config (SQLite, Postgres, ...). Adding a
-// future backend (e.g. Yugabyte) means adding another sibling sub-struct, a
-// new DatabaseType constant, and one branch in the providers that consume
-// this config.
+// A deployment runs with exactly one database backend: every logical database
+// (replicator queue, aggregator queue, egress-tracker queue, task engine
+// state) uses the backend selected by Type. Mixed-backend deployments — e.g.
+// running the task engine on Postgres while job queues stay on SQLite — are
+// not supported. Only the sub-config for the selected backend is meaningful;
+// the others are zero-valued.
+//
+// Adding a future backend (e.g. Yugabyte) means adding another sibling
+// sub-struct, a new DatabaseType constant, and one branch in the providers
+// that consume this config.
 type DatabaseConfig struct {
 	// Type is the database backend type: "sqlite" (default) or "postgres".
+	// It selects the backend for every logical database in the deployment.
 	Type DatabaseType
 
-	SQLite   SQLiteConfig
+	// SQLite configuration. Populated only when Type == DatabaseTypeSQLite.
+	SQLite SQLiteConfig
+
+	// Postgres configuration. Populated only when Type == DatabaseTypePostgres.
 	Postgres PostgresConfig
 }
 
