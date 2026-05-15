@@ -34,6 +34,7 @@ import (
 	ufailure "github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/core/result/ok"
 	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/principal"
 	ucanserver "github.com/fil-forge/go-ucanto/server"
 	ucan_car "github.com/fil-forge/go-ucanto/transport/car"
 	"github.com/fil-forge/go-ucanto/transport/headercar"
@@ -52,7 +53,9 @@ import (
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
@@ -60,9 +63,11 @@ func TestFXServer(t *testing.T) {
 	// Create test app configuration directly (no CLI config needed!)
 	var (
 		// things we are testing
-		svc        storage.Service
 		srv        ucanserver.ServerView[ucanserver.Service]
 		fakePieces *pdpfake.Pieces
+		allocs     allocationstore.AllocationStore
+		accepts    acceptancestore.AcceptanceStore
+		claimsSvc  claims.Claims
 	)
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
@@ -71,7 +76,7 @@ func TestFXServer(t *testing.T) {
 		app.CommonModules(appConfig),
 		app.UCANModule,
 		pdpfake.Module,
-		fx.Populate(&svc, &srv, &fakePieces),
+		fx.Populate(&srv, &fakePieces, &allocs, &accepts, &claimsSvc),
 	)
 
 	testApp.RequireStart()
@@ -132,7 +137,7 @@ func TestFXServer(t *testing.T) {
 			fmt.Printf("%+v\n", ok)
 			require.Equal(t, size, ok.Size)
 
-			alloc, err := svc.Blobs().Allocations().Get(context.Background(), digest, space)
+			alloc, err := allocs.Get(context.Background(), digest, space)
 			require.NoError(t, err)
 
 			require.Equal(t, digest, alloc.Blob.Digest)
@@ -332,7 +337,7 @@ func TestFXServer(t *testing.T) {
 		result.MatchResultR0(rcpt.Out(), func(ok blob.AcceptOk) {
 			fmt.Printf("%+v\n", ok)
 
-			acc, err := svc.Blobs().Acceptances().Get(t.Context(), digest, space)
+			acc, err := accepts.Get(t.Context(), digest, space)
 			require.NoError(t, err)
 
 			require.Equal(t, digest, acc.Blob.Digest)
@@ -341,7 +346,7 @@ func TestFXServer(t *testing.T) {
 			// With PDP enabled, acceptance records the pdp/accept promise.
 			require.NotNil(t, acc.PDPAccept)
 
-			claim, err := svc.Claims().Store().Get(context.Background(), ok.Site)
+			claim, err := claimsSvc.Store().Get(context.Background(), ok.Site)
 			require.NoError(t, err)
 
 			require.Equal(t, testutil.Alice.DID(), claim.Issuer())
@@ -445,9 +450,9 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 
 			// Create test app configuration with custom presigner and upload service
 			var (
-				svc        storage.Service
 				srv        ucanserver.ServerView[ucanserver.Service]
 				fakePieces *pdpfake.Pieces
+				allocs     allocationstore.AllocationStore
 			)
 
 			appConfig := piritestutil.NewTestConfig(t,
@@ -472,7 +477,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 					MaxWorkers: 1,
 					MaxTimeout: time.Second,
 				}),
-				fx.Populate(&svc, &srv, &fakePieces),
+				fx.Populate(&srv, &fakePieces, &allocs),
 			)
 
 			// Route the handler's WritePieceURL to the test sink endpoint.
@@ -481,7 +486,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			testApp.RequireStart()
 
 			fakeServer, transferOkChan, sourceGetCount, sinkPutCount := startTestHTTPServer(
-				ctx, t, expectedDigest, expectedData, svc, fakePieces,
+				ctx, t, expectedDigest, expectedData, testutil.Alice, fakePieces,
 				serverAddr, sourcePath, sinkPath, uploadServicePath,
 				tc.simulateRetry, tc.simulateFailure,
 			)
@@ -509,7 +514,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			// Condition: If existing allocation, store an existing allocation
 			// coverage when an allocation has been made but not transfered.
 			if tc.hasExistingAllocation {
-				require.NoError(t, svc.Blobs().Allocations().Put(ctx, allocation.Allocation{
+				require.NoError(t, allocs.Put(ctx, allocation.Allocation{
 					Space: expectedSpace,
 					Blob: allocation.Blob{
 						Digest: expectedDigest,
@@ -649,9 +654,9 @@ func TestNewAllocationExistingData(t *testing.T) {
 
 	// Create test app configuration with custom presigner and upload service
 	var (
-		svc        storage.Service
 		srv        ucanserver.ServerView[ucanserver.Service]
 		fakePieces *pdpfake.Pieces
+		allocs     allocationstore.AllocationStore
 	)
 
 	appConfig := piritestutil.NewTestConfig(t,
@@ -676,7 +681,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 			MaxWorkers: 1,
 			MaxTimeout: time.Second,
 		}),
-		fx.Populate(&svc, &srv, &fakePieces),
+		fx.Populate(&srv, &fakePieces, &allocs),
 	)
 
 	fakePieces.SetWriteURL(*sinkURL)
@@ -684,7 +689,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	testApp.RequireStart()
 
 	fakeServer, transferOkChan, _, _ := startTestHTTPServer(
-		ctx, t, expectedDigest, expectedData, svc, fakePieces,
+		ctx, t, expectedDigest, expectedData, testutil.Alice, fakePieces,
 		serverAddr, sourcePath, sinkPath, uploadServicePath,
 		false, false,
 	)
@@ -710,7 +715,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	)
 
 	// create an allocation for the blob
-	require.NoError(t, svc.Blobs().Allocations().Put(ctx, allocation.Allocation{
+	require.NoError(t, allocs.Put(ctx, allocation.Allocation{
 		Space: initialAllocationSpace,
 		Blob: allocation.Blob{
 			Digest: expectedDigest,
@@ -769,10 +774,10 @@ func TestNewAllocationExistingData(t *testing.T) {
 	)
 
 	// assert there are now two allocations for this blob (one per space)
-	_, err = svc.Blobs().Allocations().Get(ctx, expectedDigest, initialAllocationSpace)
+	_, err = allocs.Get(ctx, expectedDigest, initialAllocationSpace)
 	require.NoError(t, err, "expected allocation in initial allocation space")
 
-	_, err = svc.Blobs().Allocations().Get(ctx, expectedDigest, expectedSpace)
+	_, err = allocs.Get(ctx, expectedDigest, expectedSpace)
 	require.NoError(t, err, "expected allocation in expected (replicated) allocation space")
 
 }
@@ -1050,7 +1055,7 @@ func startTestHTTPServer(
 	t *testing.T,
 	digest multihash.Multihash,
 	serveData []byte,
-	svc storage.Service,
+	id principal.Signer,
 	fakePieces *pdpfake.Pieces,
 	addr, sourcePath, sinkPath, uploadServicePath string,
 	simulateRetry bool,
@@ -1167,7 +1172,7 @@ func startTestHTTPServer(
 		invLinks := agentMessage.Invocations()
 		require.Len(t, invLinks, 1)
 
-		rcpt, err := receipt.Issue(svc.ID(), result.Ok[ok.Unit, ipld.Builder](ok.Unit{}), ran.FromLink(invLinks[0]))
+		rcpt, err := receipt.Issue(id, result.Ok[ok.Unit, ipld.Builder](ok.Unit{}), ran.FromLink(invLinks[0]))
 		require.NoError(t, err)
 
 		respMessage, err := message.Build([]invocation.Invocation{}, []receipt.AnyReceipt{rcpt})

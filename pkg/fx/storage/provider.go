@@ -8,11 +8,15 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/service/replicator"
 	"github.com/fil-forge/piri/pkg/service/storage"
-	"github.com/fil-forge/piri/pkg/service/storage/ucan"
+	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
+	storageucan "github.com/fil-forge/piri/pkg/service/storage/ucan"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -21,14 +25,27 @@ var Module = fx.Module("storage",
 		fx.Annotate(
 			NewStorageService,
 			fx.As(new(storage.Service)),
-			fx.As(new(ucan.AccessGrantService)),
-			fx.As(new(ucan.BlobAllocateService)),
-			fx.As(new(ucan.BlobAcceptService)),
-			fx.As(new(ucan.PDPInfoService)),
-			fx.As(new(ucan.ReplicaAllocateService)),
 		),
+		NewUploadConnection,
+		// Bind concrete production types to the narrow consumer interfaces
+		// each handler's Deps struct declares. Each binding is a pass-through
+		// that lets fx resolve a handler's narrow dep from its broader
+		// concrete provider — keeps the handler-local interfaces honest about
+		// what they consume without forcing every store/PDP provider to know
+		// about handler-local types.
+		func(a allocationstore.AllocationStore) blobhandler.AllocationStore { return a },
+		func(a acceptancestore.AcceptanceStore) blobhandler.AcceptanceStore { return a },
+		func(p pdptypes.PieceAPI) blobhandler.PieceAllocator { return p },
+		func(p pdptypes.PieceAPI) blobhandler.PieceReader { return p },
+		func(p pdptypes.PieceAPI) storageucan.PieceResolver { return p },
 	),
 )
+
+// NewUploadConnection exposes the upload service connection as a top-level
+// fx bean so that handlers can request it directly via their Deps structs.
+func NewUploadConnection(cfg app.AppConfig) client.Connection {
+	return cfg.UCANService.Services.Upload.Connection
+}
 
 // StorageServiceParams contains all dependencies for the storage service
 type StorageServiceParams struct {

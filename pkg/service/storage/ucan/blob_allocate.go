@@ -11,19 +11,12 @@ import (
 	"github.com/fil-forge/go-ucanto/server"
 	"github.com/fil-forge/go-ucanto/ucan"
 
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
 )
 
 const maxUploadSize = 127 * (1 << 25)
 
-type BlobAllocateService interface {
-	PDP() pdp.PDP
-	Blobs() blobs.Blobs
-}
-
-func WithBlobAllocateMethod(storageService BlobAllocateService) server.Option {
+func WithBlobAllocateMethod(deps blobhandler.AllocateDeps) server.Option {
 	return server.WithServiceMethod(
 		blob.AllocateAbility,
 		server.Provide(
@@ -47,7 +40,7 @@ func WithBlobAllocateMethod(storageService BlobAllocateService) server.Option {
 				// end UCAN Validation
 				//
 
-				resp, err := blobhandler.Allocate(ctx, storageService, &blobhandler.AllocateRequest{
+				resp, err := blobhandler.Allocate(ctx, deps, &blobhandler.AllocateRequest{
 					Space: cap.Nb().Space,
 					Blob:  cap.Nb().Blob,
 					Cause: inv.Link(),

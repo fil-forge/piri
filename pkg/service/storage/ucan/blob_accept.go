@@ -8,24 +8,13 @@ import (
 	"github.com/fil-forge/go-ucanto/core/receipt/fx"
 	"github.com/fil-forge/go-ucanto/core/result"
 	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/fil-forge/go-ucanto/server"
 	"github.com/fil-forge/go-ucanto/ucan"
 
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
-	"github.com/fil-forge/piri/pkg/service/claims"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
 )
 
-type BlobAcceptService interface {
-	ID() principal.Signer
-	PDP() pdp.PDP
-	Blobs() blobs.Blobs
-	Claims() claims.Claims
-}
-
-func WithBlobAcceptMethod(storageService BlobAcceptService) server.Option {
+func WithBlobAcceptMethod(deps blobhandler.AcceptDeps) server.Option {
 	return server.WithServiceMethod(
 		blob.AcceptAbility,
 		server.Provide(
@@ -44,7 +33,7 @@ func WithBlobAcceptMethod(storageService BlobAcceptService) server.Option {
 				// end UCAN Validation
 				//
 
-				resp, err := blobhandler.Accept(ctx, storageService, &blobhandler.AcceptRequest{
+				resp, err := blobhandler.Accept(ctx, deps, &blobhandler.AcceptRequest{
 					Space: cap.Nb().Space,
 					Blob:  cap.Nb().Blob,
 					Put:   cap.Nb().Put,

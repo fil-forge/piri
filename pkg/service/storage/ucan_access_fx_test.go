@@ -20,7 +20,6 @@ import (
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -29,8 +28,6 @@ import (
 )
 
 func TestFXAccessGrant(t *testing.T) {
-	var svc storage.Service
-
 	granter := testutil.Alice
 	strnde := testutil.Bob
 	idxsvc := testutil.Mallory
@@ -52,7 +49,6 @@ func TestFXAccessGrant(t *testing.T) {
 				upsvc.DID().String(): upsvc.Unwrap().DID().String(),
 			}))(t)
 		}),
-		fx.Populate(&svc),
 	)
 
 	testApp.RequireStart()

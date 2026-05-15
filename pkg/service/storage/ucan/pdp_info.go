@@ -17,23 +17,36 @@ import (
 	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/fil-forge/go-ucanto/server"
 	"github.com/fil-forge/go-ucanto/ucan"
-	piece2 "github.com/fil-forge/piri/pkg/pdp/piece"
 	logging "github.com/ipfs/go-log/v2"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/multiformats/go-multihash"
+	fxlib "go.uber.org/fx"
 
-	pdpservice "github.com/fil-forge/piri/pkg/pdp"
+	piece2 "github.com/fil-forge/piri/pkg/pdp/piece"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 var log = logging.Logger("storage/ucan")
 
-type PDPInfoService interface {
-	ID() principal.Signer
-	Receipts() receiptstore.ReceiptStore
-	PDP() pdpservice.PDP
+// PieceResolver is the slice of the PDP piece API the pdp/info handler
+// depends on.
+type PieceResolver interface {
+	ResolveToPiece(ctx context.Context, blob multihash.Multihash) (multihash.Multihash, bool, error)
+	CalculateCommP(ctx context.Context, blob multihash.Multihash) (pdptypes.CalculateCommPResponse, error)
 }
 
-func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
+// PDPInfoDeps is the dependency set for the pdp/info UCAN method.
+type PDPInfoDeps struct {
+	fxlib.In
+	ID       principal.Signer
+	Receipts receiptstore.ReceiptStore
+	Pieces   PieceResolver
+}
+
+var _ PieceResolver = (pdptypes.PieceAPI)(nil)
+
+func WithPDPInfoMethod(deps PDPInfoDeps) server.Option {
 	return server.WithServiceMethod(
 		pdp.InfoAbility,
 		server.Provide(
@@ -41,7 +54,7 @@ func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
 			func(ctx context.Context, cap ucan.Capability[pdp.InfoCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[pdp.InfoOk, ufailure.IPLDBuilderFailure], fx.Effects, error) {
 				// TODO I think this is backwards, we will get pieces from the nodes for the signing service
 				// try and resolve the blob to its derived pieceCID (commp)
-				resolvedCommp, found, err := storageService.PDP().API().ResolveToPiece(ctx, cap.Nb().Blob)
+				resolvedCommp, found, err := deps.Pieces.ResolveToPiece(ctx, cap.Nb().Blob)
 				if err != nil {
 					log.Errorw("failed to resolve PDP api", "error", err)
 					return nil, nil, ufailure.FromError(fmt.Errorf("failed to resolve PDP API: %w", err))
@@ -50,7 +63,7 @@ func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
 					// we didn't find the commp for this blob, compute it on demand, this means it hasn't been computed yet
 					// and is still likely in the pipeline.
 					// TODO(forrest): this is a bit wastefully, we could instead poll for it to be resolved yolo-ing for now
-					commpResp, err := storageService.PDP().API().CalculateCommP(ctx, cap.Nb().Blob)
+					commpResp, err := deps.Pieces.CalculateCommP(ctx, cap.Nb().Blob)
 					if err != nil {
 						log.Errorw("failed to compute commp for digest", "digest", cap.Nb().Blob.String(), "error", err)
 						return nil, nil, ufailure.FromError(fmt.Errorf("failed to compute commp for digest: %w", err))
@@ -77,9 +90,9 @@ func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
 				// generate the invocation that would submit when this was first submitted, allowing the
 				// receipt to be retrieved for it from the receipt store.
 				pieceAccept, err := pdp.Accept.Invoke(
-					storageService.ID(),
-					storageService.ID(),
-					storageService.ID().DID().GoString(),
+					deps.ID,
+					deps.ID,
+					deps.ID.DID().GoString(),
 					pdp.AcceptCaveats{
 						Blob: cap.Nb().Blob,
 					}, delegation.WithNoExpiration())
@@ -89,7 +102,7 @@ func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
 				}
 
 				// look up the receipt for the accept invocation
-				rcpt, err := storageService.Receipts().GetByRan(ctx, pieceAccept.Link())
+				rcpt, err := deps.Receipts.GetByRan(ctx, pieceAccept.Link())
 				if err != nil {
 					// This can happen when a piece is still awaiting aggregation
 					// TODO here is where a polling mechanism could be helpful

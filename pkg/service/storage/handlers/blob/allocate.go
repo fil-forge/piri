@@ -11,28 +11,54 @@ import (
 	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-ucanto/did"
 	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-
-	"github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/presets"
+	"go.uber.org/fx"
 
 	"github.com/fil-forge/go-libstoracha/digestutil"
 
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 var log = logging.Logger("storage/handlers/blob")
 
-type AllocateService interface {
-	PDP() pdp.PDP
-	Blobs() blobs.Blobs
+// AllocationStore is the slice of allocationstore.AllocationStore the
+// allocation handler depends on.
+type AllocationStore interface {
+	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (allocation.Allocation, error)
+	Exists(ctx context.Context, digest multihash.Multihash) (bool, error)
+	Put(ctx context.Context, alloc allocation.Allocation) error
 }
+
+// PieceAllocator is the slice of the PDP piece API the allocation handler
+// depends on.
+type PieceAllocator interface {
+	Has(ctx context.Context, digest multihash.Multihash) (bool, error)
+	AllocatePiece(ctx context.Context, alloc types.PieceAllocation) (*types.AllocatedPiece, error)
+	WritePieceURL(uploadID uuid.UUID) (url.URL, error)
+}
+
+// AllocateDeps is the dependency set populated by fx for the Allocate
+// handler.
+type AllocateDeps struct {
+	fx.In
+	Allocations AllocationStore
+	Pieces      PieceAllocator
+}
+
+// Compile-time check that the concrete production types satisfy the narrow
+// interfaces this handler declares.
+var (
+	_ AllocationStore = (allocationstore.AllocationStore)(nil)
+	_ PieceAllocator  = (types.PieceAPI)(nil)
+)
 
 type AllocateRequest struct {
 	Space did.DID
@@ -45,7 +71,7 @@ type AllocateResponse struct {
 	Address *blob.Address
 }
 
-func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (resp *AllocateResponse, err error) {
+func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (resp *AllocateResponse, err error) {
 	ctx, span := tracer.Start(ctx, "blob.allocate")
 	defer func() {
 		if err != nil {
@@ -64,7 +90,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	)
 
 	// check if we already have an allocation for the blob in this space
-	_, err = s.Blobs().Allocations().Get(ctx, req.Blob.Digest, req.Space)
+	_, err = deps.Allocations.Get(ctx, req.Blob.Digest, req.Space)
 	allocated := err == nil
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Errorw("getting allocation", "error", err)
@@ -74,7 +100,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	// check if any allocation exists for the blob (skip if we already found one above)
 	anyAllocation := allocated
 	if !allocated {
-		anyAllocation, err = s.Blobs().Allocations().Exists(ctx, req.Blob.Digest)
+		anyAllocation, err = deps.Allocations.Exists(ctx, req.Blob.Digest)
 		if err != nil {
 			log.Errorw("checking allocation exists", "error", err)
 			return nil, fmt.Errorf("checking allocation exists: %w", err)
@@ -84,7 +110,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	received := false
 	// check if we received the blob (only possible if we have an allocation)
 	if anyAllocation {
-		has, err := s.PDP().API().Has(ctx, req.Blob.Digest)
+		has, err := deps.Pieces.Has(ctx, req.Blob.Digest)
 		if err != nil {
 			return nil, fmt.Errorf("getting blob: %w", err)
 		}
@@ -127,7 +153,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 		}
 		// TODO we need to provide backpressure to the upload service here
 		// based on the number of roots we are currently allocating.
-		resp, err := s.PDP().API().AllocatePiece(ctx, types.PieceAllocation{
+		alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
 			Piece: types.Piece{
 				Name: dmh.Name,
 				Hash: req.Blob.Digest,
@@ -139,8 +165,8 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 			return nil, fmt.Errorf("adding to pdp service: %w", err)
 		}
 		var uploadURL url.URL
-		if resp.Allocated {
-			uploadURL, err = s.PDP().API().WritePieceURL(resp.UploadID)
+		if alloc.Allocated {
+			uploadURL, err = deps.Pieces.WritePieceURL(alloc.UploadID)
 			if err != nil {
 				log.Errorw("getting piece write URL", "error", err)
 				return nil, fmt.Errorf("getting piece write URL: %w", err)
@@ -154,7 +180,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 
 	// even if a previous allocation was made in this space, we create
 	// another for the new invocation.
-	err = s.Blobs().Allocations().Put(ctx, allocation.Allocation{
+	err = deps.Allocations.Put(ctx, allocation.Allocation{
 		Space:   req.Space,
 		Blob:    allocation.Blob(req.Blob),
 		Expires: expiresAt,

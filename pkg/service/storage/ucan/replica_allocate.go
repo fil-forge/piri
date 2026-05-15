@@ -18,9 +18,8 @@ import (
 	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/fil-forge/go-ucanto/server"
 	"github.com/fil-forge/go-ucanto/ucan"
+	fxlib "go.uber.org/fx"
 
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/service/replicator"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
@@ -29,14 +28,17 @@ import (
 // Time in seconds we allow ourselves to transfer the blob and conclude the task
 const transferTimeout = time.Hour
 
-type ReplicaAllocateService interface {
-	ID() principal.Signer
-	PDP() pdp.PDP
-	Blobs() blobs.Blobs
-	Replicator() replicator.Replicator
+// ReplicaAllocateDeps is the dependency set populated by fx for the
+// blob/replica/allocate UCAN method. It composes AllocateDeps with the
+// signer and the replicator queue.
+type ReplicaAllocateDeps struct {
+	fxlib.In
+	blobhandler.AllocateDeps
+	ID         principal.Signer
+	Replicator replicator.Replicator
 }
 
-func WithReplicaAllocateMethod(storageService ReplicaAllocateService) server.Option {
+func WithReplicaAllocateMethod(deps ReplicaAllocateDeps) server.Option {
 	return server.WithServiceMethod(
 		replica.AllocateAbility,
 		server.Provide(
@@ -80,7 +82,7 @@ func WithReplicaAllocateMethod(storageService ReplicaAllocateService) server.Opt
 				// TODO: which one do we pick if > 1?
 				replicaAddress := lc.Location[0]
 
-				resp, err := blobhandler.Allocate(ctx, storageService, &blobhandler.AllocateRequest{
+				resp, err := blobhandler.Allocate(ctx, deps.AllocateDeps, &blobhandler.AllocateRequest{
 					Space: cap.Nb().Space,
 					Blob:  cap.Nb().Blob,
 					Cause: inv.Link(),
@@ -91,9 +93,9 @@ func WithReplicaAllocateMethod(storageService ReplicaAllocateService) server.Opt
 
 				// create the transfer invocation: an fx of the allocate invocation receipt.
 				trnsfInv, err := replica.Transfer.Invoke(
-					storageService.ID(),
-					storageService.ID(),
-					storageService.ID().DID().GoString(),
+					deps.ID,
+					deps.ID,
+					deps.ID.DID().GoString(),
 					replica.TransferCaveats{
 						Space: cap.Nb().Space,
 						Blob: types.Blob{
@@ -134,7 +136,7 @@ func WithReplicaAllocateMethod(storageService ReplicaAllocateService) server.Opt
 
 				// will run replication async, sending the receipt of the transfer invocation
 				// to the upload service.
-				if err := storageService.Replicator().Replicate(ctx, &replicahandler.TransferRequest{
+				if err := deps.Replicator.Replicate(ctx, &replicahandler.TransferRequest{
 					Space:  cap.Nb().Space,
 					Blob:   cap.Nb().Blob,
 					Source: replicahandler.TransferSource{ID: claim.Issuer(), URL: replicaAddress},

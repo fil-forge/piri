@@ -20,25 +20,9 @@ type Replicator interface {
 
 type Service struct {
 	queue   *jobqueue.JobQueue[*replicahandler.TransferRequest]
-	adapter *adapter
+	deps    replicahandler.TransferDeps
 	metrics *replicahandler.Metrics
 }
-
-type adapter struct {
-	id         principal.Signer
-	pdp        pdp.PDP
-	blobs      blobs.Blobs
-	claims     claims.Claims
-	receipts   receiptstore.ReceiptStore
-	uploadConn client.Connection
-}
-
-func (a adapter) ID() principal.Signer                { return a.id }
-func (a adapter) PDP() pdp.PDP                        { return a.pdp }
-func (a adapter) Blobs() blobs.Blobs                  { return a.blobs }
-func (a adapter) Claims() claims.Claims               { return a.claims }
-func (a adapter) Receipts() receiptstore.ReceiptStore { return a.receipts }
-func (a adapter) UploadConnection() client.Connection { return a.uploadConn }
 
 func New(
 	id principal.Signer,
@@ -53,19 +37,19 @@ func New(
 	if err != nil {
 		return nil, err
 	}
-	svc := &Service{
+	return &Service{
 		queue: queue,
-		adapter: &adapter{
-			id:         id,
-			pdp:        p,
-			blobs:      b,
-			claims:     c,
-			receipts:   rstore,
-			uploadConn: uploadConn,
+		deps: replicahandler.TransferDeps{
+			ID:          id,
+			Acceptances: b.Acceptances(),
+			Pieces:      p.API(),
+			Commp:       p.CommpCalculate(),
+			Claims:      c,
+			Receipts:    rstore,
+			UploadConn:  uploadConn,
 		},
 		metrics: metrics,
-	}
-	return svc, nil
+	}, nil
 }
 
 const TransferTaskName = "transfer-task"
@@ -76,8 +60,8 @@ func (r *Service) Replicate(ctx context.Context, task *replicahandler.TransferRe
 
 func (r *Service) RegisterTransferTask(queue *jobqueue.JobQueue[*replicahandler.TransferRequest]) error {
 	return queue.Register(TransferTaskName, func(ctx context.Context, request *replicahandler.TransferRequest) error {
-		return replicahandler.Transfer(ctx, r.adapter, request, r.metrics)
+		return replicahandler.Transfer(ctx, r.deps, request, r.metrics)
 	}, jobqueue.WithOnFailure(func(ctx context.Context, msg *replicahandler.TransferRequest, err error) error {
-		return replicahandler.SendFailureReceipt(ctx, r.adapter, msg, err)
+		return replicahandler.SendFailureReceipt(ctx, r.deps, msg, err)
 	}))
 }

@@ -31,12 +31,12 @@ import (
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 func TestFXSpaceContentRetrieve(t *testing.T) {
-	var svc storage.Service
+	var allocs allocationstore.AllocationStore
 	var fakePieces *pdpfake.Pieces
 
 	retrievalServiceID := testutil.Alice
@@ -59,7 +59,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 				uploadServiceID.DID().String(): uploadServiceID.Unwrap().DID().String(),
 			}))(t)
 		}),
-		fx.Populate(&svc, &fakePieces),
+		fx.Populate(&allocs, &fakePieces),
 	)
 
 	testApp.RequireStart()
@@ -74,7 +74,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			cid   cid.Cid
 		}{randBytes, cid.NewCidV1(cid.Raw, testutil.MultihashFromBytes(t, randBytes))}
 
-		svc.Blobs().Allocations().Put(t.Context(), allocation.Allocation{
+		allocs.Put(t.Context(), allocation.Allocation{
 			Blob: allocation.Blob{
 				Digest: blob.cid.Hash(),
 				Size:   uint64(len(blob.bytes)),
@@ -136,7 +136,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			cid   cid.Cid
 		}{randBytes, cid.NewCidV1(cid.Raw, testutil.MultihashFromBytes(t, randBytes))}
 
-		svc.Blobs().Allocations().Put(t.Context(), allocation.Allocation{
+		allocs.Put(t.Context(), allocation.Allocation{
 			Blob: allocation.Blob{
 				Digest: blob.cid.Hash(),
 				Size:   uint64(len(blob.bytes)),
@@ -241,7 +241,6 @@ func assertContentRetrieveOK(
 }
 
 func TestFXBlobRetrieve(t *testing.T) {
-	var svc storage.Service
 	var fakePieces *pdpfake.Pieces
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
@@ -250,7 +249,7 @@ func TestFXBlobRetrieve(t *testing.T) {
 		app.CommonModules(appConfig),
 		app.UCANModule,
 		pdpfake.Module,
-		fx.Populate(&svc, &fakePieces),
+		fx.Populate(&fakePieces),
 	)
 
 	testApp.RequireStart()
