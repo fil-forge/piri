@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"time"
 
@@ -85,22 +84,11 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	received := false
 	// check if we received the blob (only possible if we have an allocation)
 	if anyAllocation {
-		if s.PDP() != nil {
-			has, err := s.PDP().API().Has(ctx, req.Blob.Digest)
-			if err != nil {
-				return nil, fmt.Errorf("getting blob: %w", err)
-			}
-			received = has
-		} else {
-			_, err = s.Blobs().Store().Get(ctx, req.Blob.Digest)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				log.Errorw("getting blob", "error", err)
-				return nil, fmt.Errorf("getting blob: %w", err)
-			}
-			if err == nil {
-				received = true
-			}
+		has, err := s.PDP().API().Has(ctx, req.Blob.Digest)
+		if err != nil {
+			return nil, fmt.Errorf("getting blob: %w", err)
 		}
+		received = has
 	}
 
 	// the size reported in the receipt is the number of bytes allocated
@@ -126,52 +114,40 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	expiresAt := uint64(time.Now().Unix()) + expiresIn
 
 	var address *blob.Address
-	// if not received yet, we need to generate a signed URL for the
-	// upload, and include it in the receipt.
+	// if not received yet, we need to generate an upload URL via PDP and
+	// include it in the receipt.
 	if !received {
+		dmh, err := multihash.Decode(req.Blob.Digest)
+		if err != nil {
+			log.Errorw("decoding digest", "error", err)
+			return nil, fmt.Errorf("decoding digest: %w", err)
+		}
+		if _, ok := presets.HasherRegistry[dmh.Name]; !ok {
+			return nil, fmt.Errorf("unsupported hash: %s", dmh.Name)
+		}
+		// TODO we need to provide backpressure to the upload service here
+		// based on the number of roots we are currently allocating.
+		resp, err := s.PDP().API().AllocatePiece(ctx, types.PieceAllocation{
+			Piece: types.Piece{
+				Name: dmh.Name,
+				Hash: req.Blob.Digest,
+				Size: int64(req.Blob.Size),
+			},
+		})
+		if err != nil {
+			log.Errorw("adding to pdp service", "error", err)
+			return nil, fmt.Errorf("adding to pdp service: %w", err)
+		}
 		var uploadURL url.URL
-		headers := http.Header{}
-		if s.PDP() == nil {
-			// use standard blob upload
-			uploadURL, headers, err = s.Blobs().Presigner().SignUploadURL(ctx, req.Blob.Digest, req.Blob.Size, expiresIn)
+		if resp.Allocated {
+			uploadURL, err = s.PDP().API().WritePieceURL(resp.UploadID)
 			if err != nil {
-				log.Errorw("signing upload URL", "error", err)
-				return nil, fmt.Errorf("signing upload URL: %w", err)
-			}
-		} else {
-			dmh, err := multihash.Decode(req.Blob.Digest)
-			if err != nil {
-				log.Errorw("decoding digest", "error", err)
-				return nil, fmt.Errorf("decoding digest: %w", err)
-			}
-			if _, ok := presets.HasherRegistry[dmh.Name]; !ok {
-				return nil, fmt.Errorf("unsupported hash: %s", dmh.Name)
-			}
-			// use pdp service upload
-			// TODO we need to provide backpressure to the upload service here
-			// based on the number of roots we are currently allocating.
-			resp, err := s.PDP().API().AllocatePiece(ctx, types.PieceAllocation{
-				Piece: types.Piece{
-					Name: dmh.Name,
-					Hash: req.Blob.Digest,
-					Size: int64(req.Blob.Size),
-				},
-			})
-			if err != nil {
-				log.Errorw("adding to pdp service", "error", err)
-				return nil, fmt.Errorf("adding to pdp service: %w", err)
-			}
-			if resp.Allocated {
-				uploadURL, err = s.PDP().API().WritePieceURL(resp.UploadID)
-				if err != nil {
-					log.Errorw("getting piece write URL", "error", err)
-					return nil, fmt.Errorf("getting piece write URL: %w", err)
-				}
+				log.Errorw("getting piece write URL", "error", err)
+				return nil, fmt.Errorf("getting piece write URL: %w", err)
 			}
 		}
 		address = &blob.Address{
 			URL:     uploadURL,
-			Headers: headers,
 			Expires: expiresAt,
 		}
 	}

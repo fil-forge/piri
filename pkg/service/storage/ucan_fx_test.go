@@ -51,7 +51,6 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
-	"github.com/fil-forge/piri/pkg/presigner"
 	"github.com/fil-forge/piri/pkg/principalresolver"
 	"github.com/fil-forge/piri/pkg/service/storage"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
@@ -442,7 +441,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			sourcePath, sinkPath, uploadServicePath := "get", "put", "upload-service"
 
 			// Spin up storage service, using injected values for testing.
-			locationURL, uploadServiceURL, fakeBlobPresigner := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
+			locationURL, uploadServiceURL, sinkURL := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
 
 			// Create test app configuration with custom presigner and upload service
 			var (
@@ -461,12 +460,6 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 				app.CommonModules(appConfig),
 				app.UCANModule,
 				pdpfake.Module,
-				// replace the RequestPresigner with our fake one. Unused on the PDP
-				// path (the handler asks WritePieceURL instead) but the fx graph
-				// still requires a presigner provider in commit 1.
-				fx.Decorate(func() presigner.RequestPresigner {
-					return fakeBlobPresigner
-				}),
 				// use the map resolver so no network calls are made that would fail anyway
 				fx.Decorate(func() validator.PrincipalResolver {
 					return testutil.Must(principalresolver.NewMapResolver(map[string]string{
@@ -482,9 +475,8 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 				fx.Populate(&svc, &srv, &fakePieces),
 			)
 
-			// Route the handler's WritePieceURL to the same sink endpoint the
-			// FakePresigner used to point at.
-			fakePieces.SetWriteURL(fakeBlobPresigner.uploadURL)
+			// Route the handler's WritePieceURL to the test sink endpoint.
+			fakePieces.SetWriteURL(*sinkURL)
 
 			testApp.RequireStart()
 
@@ -653,7 +645,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	sourcePath, sinkPath, uploadServicePath := "get", "put", "upload-service"
 
 	// Spin up storage service, using injected values for testing.
-	locationURL, uploadServiceURL, fakeBlobPresigner := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
+	locationURL, uploadServiceURL, sinkURL := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
 
 	// Create test app configuration with custom presigner and upload service
 	var (
@@ -672,11 +664,6 @@ func TestNewAllocationExistingData(t *testing.T) {
 		app.CommonModules(appConfig),
 		app.UCANModule,
 		pdpfake.Module,
-		// replace the RequestPresigner with our fake one. Unused on the PDP
-		// path but still required in the fx graph for commit 1.
-		fx.Decorate(func() presigner.RequestPresigner {
-			return fakeBlobPresigner
-		}),
 		// use the map resolver so no network calls are made that would fail anyway
 		fx.Decorate(func() validator.PrincipalResolver {
 			return testutil.Must(principalresolver.NewMapResolver(map[string]string{
@@ -692,7 +679,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 		fx.Populate(&svc, &srv, &fakePieces),
 	)
 
-	fakePieces.SetWriteURL(fakeBlobPresigner.uploadURL)
+	fakePieces.SetWriteURL(*sinkURL)
 
 	testApp.RequireStart()
 
@@ -790,22 +777,18 @@ func TestNewAllocationExistingData(t *testing.T) {
 
 }
 
-// Sets up the pre-signed URLs + returns them for use in testing
+// Sets up the URLs for source, sink, and upload service used in testing.
 func setupURLs(
 	t *testing.T,
 	serverAddr string,
 	sourcePath, sinkPath, uploadServicePath string,
-) (*url.URL, *url.URL, *FakePresigned) {
+) (locationURL *url.URL, uploadServiceURL *url.URL, sinkURL *url.URL) {
 	makeURL := func(path string) *url.URL {
 		return testutil.Must(
 			url.Parse(fmt.Sprintf("http://127.0.0.1%s/%s", serverAddr, path)),
 		)(t)
 	}
-	locationURL := makeURL(sourcePath)
-	uploadServiceURL := makeURL(uploadServicePath)
-	presignedURL := makeURL(sinkPath)
-	fakeBlobPresigner := &FakePresigned{uploadURL: *presignedURL}
-	return locationURL, uploadServiceURL, fakeBlobPresigner
+	return makeURL(sourcePath), makeURL(uploadServicePath), makeURL(sinkPath)
 }
 
 // Builds the UCAN delegation proof needed for replicate + allocate
@@ -1213,19 +1196,4 @@ func startTestHTTPServer(
 		require.NoError(t, server.Close())
 	})
 	return server, agentCh, &sourceGetCount, &sinkPutCount
-}
-
-// FakePresigned is a stub for upload URL presigning.
-// TODO turn this into a mock
-type FakePresigned struct {
-	uploadURL url.URL
-}
-
-func (f *FakePresigned) SignUploadURL(_ context.Context, _ multihash.Multihash, _, _ uint64) (url.URL, http.Header, error) {
-	return f.uploadURL, nil, nil
-}
-
-func (f *FakePresigned) VerifyUploadURL(_ context.Context, _ url.URL, _ http.Header) (url.URL, http.Header, error) {
-	// TODO: implement when needed.
-	panic("implement me")
 }

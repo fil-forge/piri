@@ -9,7 +9,6 @@ import (
 	"github.com/fil-forge/piri/pkg/service/retrieval"
 	"github.com/fil-forge/piri/pkg/service/retrieval/ucan"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
-	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var Module = fx.Module("retrieval",
@@ -28,17 +27,11 @@ type RetrievalServiceParams struct {
 
 	ID          principal.Signer
 	Allocations allocationstore.AllocationStore
-	Blobs       blobstore.BlobGetter
-	API         types.PieceReaderAPI `optional:"true"`
+	API         types.PieceReaderAPI
 }
 
 func NewRetrievalService(params RetrievalServiceParams) *retrieval.RetrievalService {
-	blobs := params.Blobs
-	// When PDP is enabled, blobs are stored in the piece store and keyed by piece
-	// hash. We need to adapt it to resolve a blob hash to a piece hash before
-	// fetching.
-	if params.API != nil {
-		blobs = adapter.NewBlobGetterAdapter(params.API)
-	}
-	return retrieval.New(params.ID, blobs, params.Allocations)
+	// Bytes live in the PDP piece store; the adapter exposes them as a
+	// BlobGetter keyed by user hash.
+	return retrieval.New(params.ID, adapter.NewBlobGetterAdapter(params.API), params.Allocations)
 }

@@ -39,11 +39,6 @@ func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
 		server.Provide(
 			pdp.Info,
 			func(ctx context.Context, cap ucan.Capability[pdp.InfoCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[pdp.InfoOk, ufailure.IPLDBuilderFailure], fx.Effects, error) {
-				if storageService.PDP() == nil {
-					log.Error("PDPInfo requested but PDP service is not available")
-					return nil, nil, ufailure.FromError(fmt.Errorf("PDP service not avaliable"))
-				}
-
 				// TODO I think this is backwards, we will get pieces from the nodes for the signing service
 				// try and resolve the blob to its derived pieceCID (commp)
 				resolvedCommp, found, err := storageService.PDP().API().ResolveToPiece(ctx, cap.Nb().Blob)

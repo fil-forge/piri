@@ -84,7 +84,7 @@ type Params struct {
 
 	Config       app.AppConfig
 	ID           principal.Signer
-	PDP          pdp.PDP `optional:"true"`
+	PDP          pdp.PDP
 	Blobs        blobs.Blobs
 	Claims       claims.Claims
 	ReceiptStore receiptstore.ReceiptStore

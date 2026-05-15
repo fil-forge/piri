@@ -41,7 +41,6 @@ import (
 	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
-	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -257,24 +256,13 @@ func sourceLabel(source *url.URL) string {
 	return source.Host
 }
 
-// checkBlobExists checks if the blob already exists in either PDP or Blobs store
+// checkBlobExists checks if the blob already exists in the PDP store.
 func checkBlobExists(ctx context.Context, service TransferService, blob types.Blob) (bool, error) {
-	var err error
-	if service.PDP() != nil {
-		has, err := service.PDP().API().Has(ctx, blob.Digest)
-		if err != nil {
-			return false, fmt.Errorf("resolving Piece: %w", err)
-		}
-		return has, nil
+	has, err := service.PDP().API().Has(ctx, blob.Digest)
+	if err != nil {
+		return false, fmt.Errorf("resolving Piece: %w", err)
 	}
-	_, err = service.Blobs().Store().Get(ctx, blob.Digest)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	return false, fmt.Errorf("checking if blob exists: %w", err)
+	return has, nil
 }
 
 // transferBlobFromSource fetches blob from source and PUTs it to sink
@@ -472,54 +460,30 @@ func requestBlobRetrieveDelegation(
 	)
 }
 
-// createLocationAssertion creates a location assertion for an existing blob
+// createLocationAssertion creates a location assertion for an existing blob.
 func createLocationAssertion(ctx context.Context, service TransferService, request *TransferRequest) (invocation.Invocation, invocation.Invocation, error) {
-	var (
-		loc          url.URL
-		pdpAcceptInv invocation.Invocation
-	)
+	has, err := service.PDP().API().Has(ctx, request.Blob.Digest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("finding piece for blob: %w", err)
+	}
+	if !has {
+		return nil, nil, fmt.Errorf("piece not found")
+	}
 
-	if service.PDP() == nil {
-		_, err := service.Blobs().Store().Get(ctx, request.Blob.Digest)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return nil, nil, fmt.Errorf("blob not found: %w", err)
-			}
-			return nil, nil, fmt.Errorf("getting blob: %w", err)
-		}
-
-		loc, err = service.Blobs().Access().GetDownloadURL(request.Blob.Digest)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
-		}
-	} else {
-		// Locate the piece from the PDP service
-		has, err := service.PDP().API().Has(ctx, request.Blob.Digest)
-		if err != nil {
-			return nil, nil, fmt.Errorf("finding piece for blob: %w", err)
-		}
-		if !has {
-			return nil, nil, fmt.Errorf("piece not found")
-		}
-
-		blobCID := cid.NewCidV1(cid.Raw, request.Blob.Digest)
-		loc, err = service.PDP().API().ReadPieceURL(blobCID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
-		}
-		// Generate the invocation for piece acceptance
-		pieceAccept, err := pdp_cap.Accept.Invoke(
-			service.ID(),
-			service.ID(),
-			service.ID().DID().String(),
-			pdp_cap.AcceptCaveats{
-				Blob: blobCID.Hash(),
-			}, delegation.WithNoExpiration())
-
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating piece accept invocation: %w", err)
-		}
-		pdpAcceptInv = pieceAccept
+	blobCID := cid.NewCidV1(cid.Raw, request.Blob.Digest)
+	loc, err := service.PDP().API().ReadPieceURL(blobCID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
+	}
+	pdpAcceptInv, err := pdp_cap.Accept.Invoke(
+		service.ID(),
+		service.ID(),
+		service.ID().DID().String(),
+		pdp_cap.AcceptCaveats{
+			Blob: blobCID.Hash(),
+		}, delegation.WithNoExpiration())
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating piece accept invocation: %w", err)
 	}
 
 	claim, err := assert.Location.Delegate(

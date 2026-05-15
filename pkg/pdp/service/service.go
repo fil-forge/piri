@@ -49,7 +49,7 @@ type PDPService struct {
 	id              ucan.Signer
 	endpoint        url.URL
 	address         common.Address
-	blobstore       blobstore.PDPStore
+	blobstore       blobstore.Blobstore
 	acceptanceStore acceptancestore.AcceptanceStore
 	receiptStore    receiptstore.ReceiptStore
 	sender          ethereum.Sender
@@ -80,7 +80,7 @@ func New(
 	id ucan.Signer,
 	endpoint url.URL,
 	db *gorm.DB,
-	bs blobstore.PDPStore,
+	bs blobstore.Blobstore,
 	acceptanceStore acceptancestore.AcceptanceStore,
 	receiptStore receiptstore.ReceiptStore,
 	resolver types.PieceResolverAPI,

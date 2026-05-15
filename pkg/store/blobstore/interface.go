@@ -94,9 +94,6 @@ type Blobstore interface {
 	Delete(ctx context.Context, digest multihash.Multihash) error
 }
 
-// PDPStore is deprecated: use Blobstore directly.
-type PDPStore = Blobstore
-
 type GetConfig interface {
 	ProcessOptions([]GetOption)
 	Range() Range

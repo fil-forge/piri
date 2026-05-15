@@ -1,19 +1,12 @@
 package blobs
 
 import (
-	"github.com/fil-forge/piri/pkg/access"
-	"github.com/fil-forge/piri/pkg/presigner"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
-	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 type BlobService struct {
 	*options
-}
-
-func (b *BlobService) Access() access.Access {
-	return b.access
 }
 
 func (b *BlobService) Allocations() allocationstore.AllocationStore {
@@ -22,14 +15,6 @@ func (b *BlobService) Allocations() allocationstore.AllocationStore {
 
 func (b *BlobService) Acceptances() acceptancestore.AcceptanceStore {
 	return b.acceptStore
-}
-
-func (b *BlobService) Presigner() presigner.RequestPresigner {
-	return b.presigner
-}
-
-func (b *BlobService) Store() blobstore.Blobstore {
-	return b.blobStore
 }
 
 var _ Blobs = (*BlobService)(nil)
