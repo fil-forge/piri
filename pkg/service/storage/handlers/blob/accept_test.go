@@ -8,24 +8,20 @@ import (
 	libtypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	libtestutil "github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/fil-forge/go-ucanto/core/delegation"
-	pubstore "github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
-	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
 )
 
-// stubPublisher is a no-op publisher.Publisher used for unit tests. The
-// Accept handler only calls Publish, so Store returning nil is fine.
+// stubPublisher is a no-op publisher.Publisher used for unit tests.
 type stubPublisher struct {
 	published []delegation.Delegation
 }
 
-func (s *stubPublisher) Store() pubstore.PublisherStore { return nil }
 func (s *stubPublisher) Publish(_ context.Context, d delegation.Delegation) error {
 	s.published = append(s.published, d)
 	return nil
@@ -43,7 +39,8 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 		Acceptances: accepts,
 		Pieces:      pieces,
 		Commp:       pdpfake.NewCommp(),
-		Claims:      claims.New(claimStore, pub),
+		ClaimStore:  claimStore,
+		Publisher:   pub,
 	}, pieces, accepts, claimStore, pub
 }
 

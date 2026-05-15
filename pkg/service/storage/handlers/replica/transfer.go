@@ -39,8 +39,9 @@ import (
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
-	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -54,7 +55,8 @@ type TransferDeps struct {
 	Acceptances blobhandler.AcceptanceStore
 	Pieces      blobhandler.PieceReader
 	Commp       commp.Calculator
-	Claims      claims.Claims
+	ClaimStore  delegationstore.DelegationStore
+	Publisher   publisher.Publisher
 	Receipts    receiptstore.ReceiptStore
 	UploadConn  client.Connection
 }
@@ -65,7 +67,8 @@ func (d TransferDeps) acceptDeps() blobhandler.AcceptDeps {
 		Acceptances: d.Acceptances,
 		Pieces:      d.Pieces,
 		Commp:       d.Commp,
-		Claims:      d.Claims,
+		ClaimStore:  d.ClaimStore,
+		Publisher:   d.Publisher,
 	}
 }
 

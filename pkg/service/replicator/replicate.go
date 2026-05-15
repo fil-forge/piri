@@ -9,9 +9,10 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -30,7 +31,8 @@ func New(
 	pieces pdptypes.PieceAPI,
 	commpCalc commp.Calculator,
 	accepts acceptancestore.AcceptanceStore,
-	c claims.Claims,
+	claimStore delegationstore.DelegationStore,
+	pub publisher.Publisher,
 	rstore receiptstore.ReceiptStore,
 	uploadConn client.Connection,
 	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
@@ -46,7 +48,8 @@ func New(
 			Acceptances: accepts,
 			Pieces:      pieces,
 			Commp:       commpCalc,
-			Claims:      c,
+			ClaimStore:  claimStore,
+			Publisher:   pub,
 			Receipts:    rstore,
 			UploadConn:  uploadConn,
 		},

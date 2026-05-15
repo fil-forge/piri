@@ -23,9 +23,10 @@ import (
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 )
 
 // AcceptanceStore is the slice of acceptancestore.AcceptanceStore the
@@ -47,7 +48,8 @@ type AcceptDeps struct {
 	Acceptances AcceptanceStore
 	Pieces      PieceReader
 	Commp       commp.Calculator
-	Claims      claims.Claims
+	ClaimStore  delegationstore.DelegationStore
+	Publisher   publisher.Publisher
 }
 
 var (
@@ -160,13 +162,13 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("putting acceptance for blob: %w", err)
 	}
 
-	err = deps.Claims.Store().Put(ctx, claim)
+	err = deps.ClaimStore.Put(ctx, claim)
 	if err != nil {
 		log.Errorw("putting location claim for blob", "error", err)
 		return nil, fmt.Errorf("putting location claim for blob: %w", err)
 	}
 
-	err = deps.Claims.Publisher().Publish(ctx, claim)
+	err = deps.Publisher.Publish(ctx, claim)
 	if err != nil {
 		log.Errorw("publishing location commitment", "error", err)
 		return nil, fmt.Errorf("publishing location commitment: %w", err)

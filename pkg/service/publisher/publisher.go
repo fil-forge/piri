@@ -48,15 +48,10 @@ var log = logging.Logger("publisher")
 
 type PublisherService struct {
 	id                    principal.Signer
-	store                 store.PublisherStore
 	asyncPublisher        ipnipub.AsyncPublisher
 	provider              peer.AddrInfo
 	indexingService       client.Connection
 	indexingServiceProofs delegation.Proofs
-}
-
-func (pub *PublisherService) Store() store.PublisherStore {
-	return pub.store
 }
 
 func (pub *PublisherService) Publish(ctx context.Context, claim delegation.Delegation) error {
@@ -289,7 +284,6 @@ func New(
 
 	return &PublisherService{
 		id:                    id,
-		store:                 publisherStore,
 		asyncPublisher:        asyncPublisher,
 		provider:              provInfo,
 		indexingService:       o.indexingService,

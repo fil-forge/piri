@@ -9,14 +9,6 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type Server struct {
-	server server.ServerView[retrieval.Service]
-}
-
-func (srv *Server) RegisterRoutes(e *echo.Echo) {
-	e.GET("/piece/:cid", NewHandler(srv.server))
-}
-
 func NewHandler(server server.ServerView[retrieval.Service]) echo.HandlerFunc {
 	return func(ctx echo.Context) error {
 		r := ctx.Request()

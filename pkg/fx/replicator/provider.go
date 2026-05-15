@@ -15,10 +15,11 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/service/replicator"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -88,7 +89,8 @@ type Params struct {
 	Pieces       pdptypes.PieceAPI
 	Commp        commp.Calculator
 	Acceptances  acceptancestore.AcceptanceStore
-	Claims       claims.Claims
+	ClaimStore   delegationstore.DelegationStore
+	Publisher    publisher.Publisher
 	ReceiptStore receiptstore.ReceiptStore
 	Queue        *jobqueue.JobQueue[*replicahandler.TransferRequest]
 }
@@ -99,7 +101,8 @@ func New(params Params) (*replicator.Service, error) {
 		params.Pieces,
 		params.Commp,
 		params.Acceptances,
-		params.Claims,
+		params.ClaimStore,
+		params.Publisher,
 		params.ReceiptStore,
 		params.Config.UCANService.Services.Upload.Connection,
 		params.Queue,

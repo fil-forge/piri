@@ -5,20 +5,9 @@ import (
 
 	"github.com/fil-forge/go-ucanto/server"
 	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/labstack/echo/v4"
 
 	"github.com/fil-forge/piri/pkg/server/handler"
 )
-
-type Server struct {
-	ucanServer server.ServerView[server.Service]
-}
-
-func (srv *Server) RegisterRoutes(e *echo.Echo) {
-	handler := NewHandler(srv.ucanServer).ToEcho()
-	e.POST("/", handler)
-	e.POST("/piece/:cid", handler)
-}
 
 func NewHandler(server server.ServerView[server.Service]) handler.Func {
 	return func(ctx handler.Context) error {

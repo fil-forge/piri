@@ -53,10 +53,10 @@ import (
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 )
 
 func TestFXServer(t *testing.T) {
@@ -67,7 +67,7 @@ func TestFXServer(t *testing.T) {
 		fakePieces *pdpfake.Pieces
 		allocs     allocationstore.AllocationStore
 		accepts    acceptancestore.AcceptanceStore
-		claimsSvc  claims.Claims
+		claimStore delegationstore.DelegationStore
 	)
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
@@ -76,7 +76,7 @@ func TestFXServer(t *testing.T) {
 		app.CommonModules(appConfig),
 		app.UCANModule,
 		pdpfake.Module,
-		fx.Populate(&srv, &fakePieces, &allocs, &accepts, &claimsSvc),
+		fx.Populate(&srv, &fakePieces, &allocs, &accepts, &claimStore),
 	)
 
 	testApp.RequireStart()
@@ -346,7 +346,7 @@ func TestFXServer(t *testing.T) {
 			// With PDP enabled, acceptance records the pdp/accept promise.
 			require.NotNil(t, acc.PDPAccept)
 
-			claim, err := claimsSvc.Store().Get(context.Background(), ok.Site)
+			claim, err := claimStore.Get(context.Background(), ok.Site)
 			require.NoError(t, err)
 
 			require.Equal(t, testutil.Alice.DID(), claim.Issuer())
