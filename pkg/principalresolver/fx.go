@@ -29,20 +29,20 @@ var Module = fx.Module("principalresolver",
 )
 
 // NewFx creates a principal resolver from configuration.
-func NewFx(cfg app.AppConfig) (validator.PrincipalResolver, error) {
+func NewFx(cfg app.UCANServiceConfig) (validator.PrincipalResolver, error) {
 	services := make([]did.DID, 0, 2)
-	if idxSvc := cfg.UCANService.Services.Indexer.Connection; idxSvc != nil {
+	if idxSvc := cfg.Services.Indexer.Connection; idxSvc != nil {
 		if strings.HasPrefix(idxSvc.ID().DID().String(), "did:web:") {
 			services = append(services, idxSvc.ID().DID())
 		}
 	}
-	if uplSvc := cfg.UCANService.Services.Upload.Connection; uplSvc != nil {
+	if uplSvc := cfg.Services.Upload.Connection; uplSvc != nil {
 		if strings.HasPrefix(uplSvc.ID().DID().String(), "did:web:") {
 			services = append(services, uplSvc.ID().DID())
 		}
 	}
 	var opts []Option
-	if cfg.UCANService.InsecureDIDResolution {
+	if cfg.InsecureDIDResolution {
 		opts = append(opts, InsecureResolution())
 	}
 

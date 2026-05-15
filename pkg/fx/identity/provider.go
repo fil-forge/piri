@@ -11,7 +11,7 @@ var Module = fx.Module("identity",
 	fx.Provide(ProvideIdentity),
 )
 
-// ProvideIdentity extracts the principal signer from the app config
-func ProvideIdentity(cfg app.AppConfig) principal.Signer {
-	return cfg.Identity.Signer
+// ProvideIdentity extracts the principal signer from the identity config.
+func ProvideIdentity(cfg app.IdentityConfig) principal.Signer {
+	return cfg.Signer
 }

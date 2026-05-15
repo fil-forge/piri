@@ -11,7 +11,6 @@ import (
 	"github.com/fil-forge/go-libstoracha/capabilities/blob"
 	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
 	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/client"
 	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
 	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/fil-forge/go-ucanto/core/invocation"
@@ -25,6 +24,8 @@ import (
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
 	fxlib "go.uber.org/fx"
+
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 // validity is the time a granted delegation is valid for.
@@ -36,7 +37,7 @@ type AccessGrantDeps struct {
 	fxlib.In
 	ID                     principal.Signer
 	ClaimValidationContext validator.ClaimContext
-	UploadConn             client.Connection
+	Upload                 app.UploadServiceConfig
 }
 
 func WithAccessGrantMethod(deps AccessGrantDeps) server.Option {
@@ -129,8 +130,8 @@ func grantBlobRetrieve(
 		err := access.NewInvalidCauseError(fmt.Sprintf("audience is %s not %s", cause.Audience().DID(), audience.DID()))
 		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
 	}
-	if cause.Issuer().DID() != deps.UploadConn.ID().DID() {
-		err := access.NewInvalidCauseError(fmt.Sprintf("issuer is %s not %s", cause.Issuer().DID(), deps.UploadConn.ID().DID()))
+	if cause.Issuer().DID() != deps.Upload.Connection.ID().DID() {
+		err := access.NewInvalidCauseError(fmt.Sprintf("issuer is %s not %s", cause.Issuer().DID(), deps.Upload.Connection.ID().DID()))
 		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
 	}
 

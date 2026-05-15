@@ -3,17 +3,8 @@ package replicator
 import (
 	"context"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/principal"
-
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
-	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/publisher"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
-	"github.com/fil-forge/piri/pkg/store/acceptancestore"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
-	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 type Replicator interface {
@@ -24,37 +15,6 @@ type Service struct {
 	queue   *jobqueue.JobQueue[*replicahandler.TransferRequest]
 	deps    replicahandler.TransferDeps
 	metrics *replicahandler.Metrics
-}
-
-func New(
-	id principal.Signer,
-	pieces pdptypes.PieceAPI,
-	commpCalc commp.Calculator,
-	accepts acceptancestore.AcceptanceStore,
-	claimStore delegationstore.DelegationStore,
-	pub publisher.Publisher,
-	rstore receiptstore.ReceiptStore,
-	uploadConn client.Connection,
-	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
-) (*Service, error) {
-	metrics, err := replicahandler.NewMetrics()
-	if err != nil {
-		return nil, err
-	}
-	return &Service{
-		queue: queue,
-		deps: replicahandler.TransferDeps{
-			ID:          id,
-			Acceptances: accepts,
-			Pieces:      pieces,
-			Commp:       commpCalc,
-			ClaimStore:  claimStore,
-			Publisher:   pub,
-			Receipts:    rstore,
-			UploadConn:  uploadConn,
-		},
-		metrics: metrics,
-	}, nil
 }
 
 const TransferTaskName = "transfer-task"

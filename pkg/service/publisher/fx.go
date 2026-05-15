@@ -13,7 +13,6 @@ import (
 
 var Module = fx.Module("publisher",
 	fx.Provide(
-		// Also provide the interface
 		fx.Annotate(
 			NewFx,
 			fx.As(new(Publisher)),
@@ -26,12 +25,13 @@ var Module = fx.Module("publisher",
 	),
 )
 
+// NewFx wires the publisher service from its narrow configs.
 func NewFx(
-	cfg app.AppConfig,
+	pubCfg app.PublisherServiceConfig,
+	idxCfg app.IndexingServiceConfig,
 	id principal.Signer,
 	publisherStore store.PublisherStore,
 ) (*PublisherService, error) {
-	pubCfg := cfg.UCANService.Services.Publisher
 	if pubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
 	}
@@ -41,8 +41,8 @@ func NewFx(
 		publisherStore,
 		pubCfg.PublicMaddr,
 		WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		WithIndexingService(cfg.UCANService.Services.Indexer.Connection),
-		WithIndexingServiceProof(cfg.UCANService.Services.Indexer.Proofs...),
+		WithIndexingService(idxCfg.Connection),
+		WithIndexingServiceProof(idxCfg.Proofs...),
 		WithAnnounceAddress(pubCfg.AnnounceMaddr),
 		WithBlobAddress(pubCfg.BlobMaddr),
 	)

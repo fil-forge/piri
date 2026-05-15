@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	fxlib "go.uber.org/fx"
 
+	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/service/publisher"
 	blobhandler "github.com/fil-forge/piri/pkg/service/storage/handlers/blob"
@@ -58,7 +59,7 @@ type TransferDeps struct {
 	ClaimStore  delegationstore.DelegationStore
 	Publisher   publisher.Publisher
 	Receipts    receiptstore.ReceiptStore
-	UploadConn  client.Connection
+	Upload      app.UploadServiceConfig
 }
 
 func (d TransferDeps) acceptDeps() blobhandler.AcceptDeps {
@@ -560,7 +561,7 @@ func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt rec
 
 	concludeInv, err := ucan_cap.Conclude.Invoke(
 		deps.ID,
-		deps.UploadConn.ID().DID(),
+		deps.Upload.Connection.ID().DID(),
 		deps.ID.DID().String(),
 		ucan_cap.ConcludeCaveats{
 			Receipt: rcpt.Root().Link(),
@@ -579,7 +580,7 @@ func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt rec
 		}
 	}
 
-	resp, err := client.Execute(ctx, []invocation.Invocation{concludeInv}, deps.UploadConn)
+	resp, err := client.Execute(ctx, []invocation.Invocation{concludeInv}, deps.Upload.Connection)
 	if err != nil {
 		return fmt.Errorf("executing conclude invocation: %w", err)
 	}

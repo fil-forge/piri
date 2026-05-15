@@ -49,7 +49,7 @@ type Params struct {
 	fx.In
 
 	ID      principal.Signer
-	Config  app.AppConfig
+	Upload  app.UploadServiceConfig
 	Options []ucanretrieval.Option `group:"ucan_retrieval_options"`
 }
 
@@ -59,7 +59,7 @@ func NewServerHandler(p Params) (*ServerHandler, error) {
 	// attestations issued by the upload service.
 	attestDlg, err := delegation.Delegate(
 		p.ID,
-		p.Config.UCANService.Services.Upload.Connection.ID(),
+		p.Upload.Connection.ID(),
 		[]ucan.Capability[ucan.NoCaveats]{
 			ucan.NewCapability(
 				ucancap.AttestAbility,
