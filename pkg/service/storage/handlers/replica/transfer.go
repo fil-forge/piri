@@ -217,15 +217,10 @@ func Transfer(ctx context.Context, deps TransferDeps, request *TransferRequest, 
 			return fmt.Errorf("failed to accept replication source blob %s: %w", request.Blob.Digest, err)
 		}
 
-		forks = []fx.Effect{fx.FromInvocation(acceptResp.Claim)}
-		var pdpLink *ipld.Link
-		if acceptResp.PDP != nil {
-			forks = append(forks, fx.FromInvocation(acceptResp.PDP))
-			tmp := acceptResp.PDP.Link()
-			pdpLink = &tmp
-		}
+		pdpLink := acceptResp.PDP.Link()
+		forks = []fx.Effect{fx.FromInvocation(acceptResp.Claim), fx.FromInvocation(acceptResp.PDP)}
 
-		rcpt, err = issueTransferReceipt(ctx, deps, request, acceptResp.Claim.Link(), pdpLink, forks)
+		rcpt, err = issueTransferReceipt(ctx, deps, request, acceptResp.Claim.Link(), &pdpLink, forks)
 		if err != nil {
 			return err
 		}
@@ -236,15 +231,10 @@ func Transfer(ctx context.Context, deps TransferDeps, request *TransferRequest, 
 			return err
 		}
 
-		forks = []fx.Effect{fx.FromInvocation(claim)}
-		var pdpLink *ipld.Link
-		if pdpAcceptInv != nil {
-			forks = append(forks, fx.FromInvocation(pdpAcceptInv))
-			tmp := pdpAcceptInv.Link()
-			pdpLink = &tmp
-		}
+		pdpLink := pdpAcceptInv.Link()
+		forks = []fx.Effect{fx.FromInvocation(claim), fx.FromInvocation(pdpAcceptInv)}
 
-		rcpt, err = issueTransferReceipt(ctx, deps, request, claim.Link(), pdpLink, forks)
+		rcpt, err = issueTransferReceipt(ctx, deps, request, claim.Link(), &pdpLink, forks)
 		if err != nil {
 			return err
 		}

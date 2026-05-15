@@ -42,17 +42,11 @@ func WithBlobAcceptMethod(deps blobhandler.AcceptDeps) server.Option {
 				if err != nil {
 					return nil, nil, err
 				}
-				forks := []fx.Effect{fx.FromInvocation(resp.Claim)}
-				res := blob.AcceptOk{
+				pdpLink := resp.PDP.Link()
+				return result.Ok[blob.AcceptOk, failure.IPLDBuilderFailure](blob.AcceptOk{
 					Site: resp.Claim.Link(),
-				}
-				if resp.PDP != nil {
-					forks = append(forks, fx.FromInvocation(resp.PDP))
-					tmp := resp.PDP.Link()
-					res.PDP = &tmp
-				}
-
-				return result.Ok[blob.AcceptOk, failure.IPLDBuilderFailure](res), fx.NewEffects(fx.WithFork(forks...)), nil
+					PDP:  &pdpLink,
+				}), fx.NewEffects(fx.WithFork(fx.FromInvocation(resp.Claim), fx.FromInvocation(resp.PDP))), nil
 			},
 		),
 	)

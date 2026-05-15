@@ -52,8 +52,8 @@ func provideEthClientAsInterfaces(c *ethclient.Client) *ethclient.Client {
 	return c
 }
 
-func ProvideEthClient(lc fx.Lifecycle, cfg app.AppConfig) (*ethclient.Client, error) {
-	ethAPI, err := ethclient.Dial(cfg.PDPService.LotusEndpoint.String())
+func ProvideEthClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (*ethclient.Client, error) {
+	ethAPI, err := ethclient.Dial(cfg.LotusEndpoint.String())
 	if err != nil {
 		return nil, fmt.Errorf("providing eth client: %w", err)
 	}
@@ -67,8 +67,8 @@ func ProvideEthClient(lc fx.Lifecycle, cfg app.AppConfig) (*ethclient.Client, er
 	return ethAPI, nil
 }
 
-func ProvideLotusClient(lc fx.Lifecycle, cfg app.AppConfig) (api.FullNode, error) {
-	lotusAPI, closer, err := client.NewFullNodeRPCV1(context.TODO(), cfg.PDPService.LotusEndpoint.String(), nil)
+func ProvideLotusClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (api.FullNode, error) {
+	lotusAPI, closer, err := client.NewFullNodeRPCV1(context.TODO(), cfg.LotusEndpoint.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("providing lotus client: %w", err)
 	}
