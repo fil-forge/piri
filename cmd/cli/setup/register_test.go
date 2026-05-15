@@ -105,8 +105,9 @@ func TestGenerateConfig(t *testing.T) {
 
 		// Database should have empty type (defaults to sqlite)
 		require.Equal(t, "", result.Repo.Database.Type)
-		// S3 should be nil
-		require.Nil(t, result.Repo.S3)
+		// Object store should be zero-valued (no s3 section, no type set)
+		require.Equal(t, "", result.Repo.ObjectStore.Type)
+		require.Nil(t, result.Repo.ObjectStore.S3)
 	})
 
 	t.Run("sqlite database configuration", func(t *testing.T) {
@@ -122,7 +123,7 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "sqlite", result.Repo.Database.Type)
-		require.Nil(t, result.Repo.S3)
+		require.Nil(t, result.Repo.ObjectStore.S3)
 	})
 
 	t.Run("postgres database configuration", func(t *testing.T) {
@@ -148,33 +149,37 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 5, result.Repo.Database.Postgres.MaxIdleConns)
 		require.Equal(t, "1h", result.Repo.Database.Postgres.ConnMaxLifetime)
-		require.Nil(t, result.Repo.S3)
+		require.Nil(t, result.Repo.ObjectStore.S3)
 	})
 
 	t.Run("S3 storage configuration", func(t *testing.T) {
 		setupViperDefaults(t)
 		flags := baseFlags()
 		flags.storage = &storageConfig{
-			s3: &config.S3Config{
-				Endpoint:     "minio.example.com:9000",
-				BucketPrefix: "piri-",
-				Credentials: config.Credentials{
-					AccessKeyID:     "minioadmin",
-					SecretAccessKey: "minioadmin123",
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     "minio.example.com:9000",
+					BucketPrefix: "piri-",
+					Credentials: config.Credentials{
+						AccessKeyID:     "minioadmin",
+						SecretAccessKey: "minioadmin123",
+					},
+					Insecure: true,
 				},
-				Insecure: true,
 			},
 		}
 
 		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
 		require.NoError(t, err)
 
-		require.NotNil(t, result.Repo.S3)
-		require.Equal(t, "minio.example.com:9000", result.Repo.S3.Endpoint)
-		require.Equal(t, "piri-", result.Repo.S3.BucketPrefix)
-		require.Equal(t, "minioadmin", result.Repo.S3.Credentials.AccessKeyID)
-		require.Equal(t, "minioadmin123", result.Repo.S3.Credentials.SecretAccessKey)
-		require.True(t, result.Repo.S3.Insecure)
+		require.Equal(t, "s3", result.Repo.ObjectStore.Type)
+		require.NotNil(t, result.Repo.ObjectStore.S3)
+		require.Equal(t, "minio.example.com:9000", result.Repo.ObjectStore.S3.Endpoint)
+		require.Equal(t, "piri-", result.Repo.ObjectStore.S3.BucketPrefix)
+		require.Equal(t, "minioadmin", result.Repo.ObjectStore.S3.Credentials.AccessKeyID)
+		require.Equal(t, "minioadmin123", result.Repo.ObjectStore.S3.Credentials.SecretAccessKey)
+		require.True(t, result.Repo.ObjectStore.S3.Insecure)
 	})
 
 	t.Run("postgres and S3 combined configuration", func(t *testing.T) {
@@ -190,14 +195,17 @@ func TestGenerateConfig(t *testing.T) {
 					ConnMaxLifetime: "30m",
 				},
 			},
-			s3: &config.S3Config{
-				Endpoint:     "s3.amazonaws.com",
-				BucketPrefix: "prod-piri-",
-				Credentials: config.Credentials{
-					AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
-					SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     "s3.amazonaws.com",
+					BucketPrefix: "prod-piri-",
+					Credentials: config.Credentials{
+						AccessKeyID:     "AKIAIOSFODNN7EXAMPLE",
+						SecretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+					},
+					Insecure: false,
 				},
-				Insecure: false,
 			},
 		}
 
@@ -210,12 +218,13 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, 25, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxIdleConns)
 
-		// Verify S3 config
-		require.NotNil(t, result.Repo.S3)
-		require.Equal(t, "s3.amazonaws.com", result.Repo.S3.Endpoint)
-		require.Equal(t, "prod-piri-", result.Repo.S3.BucketPrefix)
-		require.Equal(t, "AKIAIOSFODNN7EXAMPLE", result.Repo.S3.Credentials.AccessKeyID)
-		require.False(t, result.Repo.S3.Insecure)
+		// Verify S3 config under object_store
+		require.Equal(t, "s3", result.Repo.ObjectStore.Type)
+		require.NotNil(t, result.Repo.ObjectStore.S3)
+		require.Equal(t, "s3.amazonaws.com", result.Repo.ObjectStore.S3.Endpoint)
+		require.Equal(t, "prod-piri-", result.Repo.ObjectStore.S3.BucketPrefix)
+		require.Equal(t, "AKIAIOSFODNN7EXAMPLE", result.Repo.ObjectStore.S3.Credentials.AccessKeyID)
+		require.False(t, result.Repo.ObjectStore.S3.Insecure)
 	})
 
 	t.Run("verifies other config fields are populated", func(t *testing.T) {
@@ -270,14 +279,17 @@ func TestGenerateConfig(t *testing.T) {
 					ConnMaxLifetime: "1h",
 				},
 			},
-			s3: &config.S3Config{
-				Endpoint:     "base-s3.example.com:9000",
-				BucketPrefix: "base-",
-				Credentials: config.Credentials{
-					AccessKeyID:     "basekey",
-					SecretAccessKey: "basesecret",
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     "base-s3.example.com:9000",
+					BucketPrefix: "base-",
+					Credentials: config.Credentials{
+						AccessKeyID:     "basekey",
+						SecretAccessKey: "basesecret",
+					},
+					Insecure: false,
 				},
-				Insecure: false,
 			},
 		}
 
@@ -289,9 +301,9 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, "postgres://flags:user@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 20, result.Repo.Database.Postgres.MaxOpenConns)
 
-		require.NotNil(t, result.Repo.S3)
-		require.Equal(t, "base-s3.example.com:9000", result.Repo.S3.Endpoint)
-		require.Equal(t, "base-", result.Repo.S3.BucketPrefix)
+		require.NotNil(t, result.Repo.ObjectStore.S3)
+		require.Equal(t, "base-s3.example.com:9000", result.Repo.ObjectStore.S3.Endpoint)
+		require.Equal(t, "base-", result.Repo.ObjectStore.S3.BucketPrefix)
 	})
 
 	t.Run("merged config: S3 from flags, postgres from base-config", func(t *testing.T) {
@@ -310,14 +322,17 @@ func TestGenerateConfig(t *testing.T) {
 					ConnMaxLifetime: "30m",
 				},
 			},
-			s3: &config.S3Config{
-				Endpoint:     "flags-s3.example.com:9000",
-				BucketPrefix: "flags-",
-				Credentials: config.Credentials{
-					AccessKeyID:     "flagskey",
-					SecretAccessKey: "flagssecret",
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     "flags-s3.example.com:9000",
+					BucketPrefix: "flags-",
+					Credentials: config.Credentials{
+						AccessKeyID:     "flagskey",
+						SecretAccessKey: "flagssecret",
+					},
+					Insecure: true,
 				},
-				Insecure: true,
 			},
 		}
 
@@ -325,10 +340,10 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both S3 and postgres should be present in the output
-		require.NotNil(t, result.Repo.S3)
-		require.Equal(t, "flags-s3.example.com:9000", result.Repo.S3.Endpoint)
-		require.Equal(t, "flags-", result.Repo.S3.BucketPrefix)
-		require.True(t, result.Repo.S3.Insecure)
+		require.NotNil(t, result.Repo.ObjectStore.S3)
+		require.Equal(t, "flags-s3.example.com:9000", result.Repo.ObjectStore.S3.Endpoint)
+		require.Equal(t, "flags-", result.Repo.ObjectStore.S3.BucketPrefix)
+		require.True(t, result.Repo.ObjectStore.S3.Insecure)
 
 		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://base:config@localhost:5432/piri", result.Repo.Database.Postgres.URL)
@@ -349,9 +364,12 @@ func TestGenerateConfig(t *testing.T) {
 					ConnMaxLifetime: "2h",
 				},
 			},
-			s3: &config.S3Config{
-				Endpoint:     "flags-s3.example.com:9000",
-				BucketPrefix: "flags-winner-",
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     "flags-s3.example.com:9000",
+					BucketPrefix: "flags-winner-",
+				},
 			},
 		}
 
@@ -361,7 +379,7 @@ func TestGenerateConfig(t *testing.T) {
 		// Flag values should be used (they had higher priority during viper merge)
 		require.Equal(t, "postgres://flags:winner@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 50, result.Repo.Database.Postgres.MaxOpenConns)
-		require.Equal(t, "flags-s3.example.com:9000", result.Repo.S3.Endpoint)
-		require.Equal(t, "flags-winner-", result.Repo.S3.BucketPrefix)
+		require.Equal(t, "flags-s3.example.com:9000", result.Repo.ObjectStore.S3.Endpoint)
+		require.Equal(t, "flags-winner-", result.Repo.ObjectStore.S3.BucketPrefix)
 	})
 }

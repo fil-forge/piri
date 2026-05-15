@@ -17,13 +17,12 @@ import (
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
-// Module provides stores backed by S3-compatible storage.
-// Use this module alongside filesystem.LocalOnlyModule which provides
-// stores that must remain on the local filesystem (AggregatorDatastore,
-// PublisherStore, RetrievalJournal, KeyStore).
+// Module provides bulk stores backed by S3-compatible storage. Pair with
+// filesystem.LocalOnlyModule for the four stores that always remain on local
+// filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal,
+// KeyStore).
 var Module = fx.Module("s3-store",
 	fx.Provide(
-		ProvideConfigs,
 		NewStores,
 		NewAllocationStore,
 		NewAcceptanceStore,
@@ -45,34 +44,23 @@ type Stores struct {
 	Consolidation *minio_store.Store
 }
 
-// NewStores creates S3/MinIO stores for each store type.
-// Each store gets its own bucket named with the configured prefix:
-// - {prefix}allocations
-// - {prefix}acceptances
-// - {prefix}claims
-// - {prefix}receipts
-// - {prefix}pdp
-// - {prefix}consolidation
-func NewStores(cfg app.StorageConfig) (*Stores, error) {
-	if cfg.S3 == nil || cfg.S3.Endpoint == "" || cfg.S3.BucketPrefix == "" {
-		return nil, fmt.Errorf("S3 configuration required: endpoint and bucket_prefix must be set")
-	}
-
-	options := minio.Options{Secure: !cfg.S3.Insecure}
-	if cfg.S3.Credentials.AccessKeyID != "" && cfg.S3.Credentials.SecretAccessKey != "" {
+// NewStores creates S3/MinIO stores for each bulk store, each in its own
+// bucket named `{prefix}{store}`.
+func NewStores(cfg app.S3Config) (*Stores, error) {
+	options := minio.Options{Secure: !cfg.Insecure}
+	if cfg.Credentials.AccessKeyID != "" && cfg.Credentials.SecretAccessKey != "" {
 		options.Creds = credentials.NewStaticV4(
-			cfg.S3.Credentials.AccessKeyID,
-			cfg.S3.Credentials.SecretAccessKey,
+			cfg.Credentials.AccessKeyID,
+			cfg.Credentials.SecretAccessKey,
 			"",
 		)
 	}
 
-	prefix := cfg.S3.BucketPrefix
-	endpoint := cfg.S3.Endpoint
+	prefix := cfg.BucketPrefix
+	endpoint := cfg.Endpoint
 	stores := &Stores{}
 	var err error
 
-	// Create a store for each bucket
 	if stores.Allocations, err = minio_store.New(endpoint, prefix+"allocations", options); err != nil {
 		return nil, fmt.Errorf("creating allocations s3 store: %w", err)
 	}
@@ -93,33 +81,6 @@ func NewStores(cfg app.StorageConfig) (*Stores, error) {
 	}
 
 	return stores, nil
-}
-
-// Configs provides storage configs needed by S3-backed stores.
-type Configs struct {
-	fx.Out
-	Allocation    app.AllocationStorageConfig
-	Blob          app.BlobStorageConfig
-	Claim         app.ClaimStorageConfig
-	Receipt       app.ReceiptStorageConfig
-	Stash         app.StashStoreConfig
-	PDP           app.PDPStoreConfig
-	Acceptance    app.AcceptanceStorageConfig
-	Consolidation app.ConsolidationStorageConfig
-}
-
-// ProvideConfigs extracts configs for S3-backed stores.
-func ProvideConfigs(cfg app.StorageConfig) Configs {
-	return Configs{
-		Allocation:    cfg.Allocations,
-		Blob:          cfg.Blobs,
-		Claim:         cfg.Claims,
-		Receipt:       cfg.Receipts,
-		Stash:         cfg.StashStore,
-		PDP:           cfg.PDPStore,
-		Acceptance:    cfg.Acceptance,
-		Consolidation: cfg.Consolidation,
-	}
 }
 
 func NewAllocationStore(stores *Stores) allocationstore.AllocationStore {

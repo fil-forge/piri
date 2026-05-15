@@ -53,12 +53,6 @@ var Module = fx.Module("filesystem-store",
 	),
 )
 
-// KeyStoreModule provides only the KeyStore, backed by filesystem.
-// Use this with s3.Module when S3 is configured (KeyStore must always be on disk).
-var KeyStoreModule = fx.Module("filesystem-keystore",
-	fx.Provide(NewKeyStore),
-)
-
 // LocalOnlyModule provides stores that must always be local (filesystem-based).
 // These stores cannot be backed by S3 due to their usage patterns:
 // - AggregatorDatastore: high-frequency state for PDP aggregation
@@ -88,53 +82,53 @@ var LocalOnlyModule = fx.Module("local-only-store",
 // LocalOnlyConfigs provides configs needed by LocalOnlyModule stores.
 type LocalOnlyConfigs struct {
 	fx.Out
-	Aggregator    app.AggregatorStorageConfig
-	Publisher     app.PublisherStorageConfig
-	EgressTracker app.EgressTrackerStorageConfig
-	KeyStore      app.KeyStoreConfig
+	Aggregator       app.AggregatorStorageConfig
+	Publisher        app.PublisherStorageConfig
+	RetrievalJournal app.RetrievalJournalConfig
+	KeyStore         app.KeyStoreConfig
 }
 
-// ProvideLocalOnlyConfigs extracts configs for local-only stores.
-func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
+// ProvideLocalOnlyConfigs extracts configs for local-only stores from the
+// object-store config's Local sub-struct.
+func ProvideLocalOnlyConfigs(cfg app.ObjectStoreConfig) LocalOnlyConfigs {
 	return LocalOnlyConfigs{
-		Aggregator:    cfg.Aggregator,
-		Publisher:     cfg.Publisher,
-		EgressTracker: cfg.EgressTracker,
-		KeyStore:      cfg.KeyStore,
+		Aggregator:       cfg.Local.Aggregator,
+		Publisher:        cfg.Local.Publisher,
+		RetrievalJournal: cfg.Local.RetrievalJournal,
+		KeyStore:         cfg.Local.KeyStore,
 	}
 }
 
+// Configs provides every per-store config needed by the filesystem backend.
 type Configs struct {
 	fx.Out
-	Aggregator    app.AggregatorStorageConfig
-	Publisher     app.PublisherStorageConfig
-	Allocation    app.AllocationStorageConfig
-	Blob          app.BlobStorageConfig
-	Claim         app.ClaimStorageConfig
-	Receipt       app.ReceiptStorageConfig
-	EgressTracker app.EgressTrackerStorageConfig
-	KeyStore      app.KeyStoreConfig
-	Stash         app.StashStoreConfig
-	PDP           app.PDPStoreConfig
-	Acceptance    app.AcceptanceStorageConfig
-	Consolidation app.ConsolidationStorageConfig
+	Aggregator       app.AggregatorStorageConfig
+	Publisher        app.PublisherStorageConfig
+	Allocation       app.AllocationStorageConfig
+	Claim            app.ClaimStorageConfig
+	Receipt          app.ReceiptStorageConfig
+	RetrievalJournal app.RetrievalJournalConfig
+	KeyStore         app.KeyStoreConfig
+	PDP              app.PDPStoreConfig
+	Acceptance       app.AcceptanceStorageConfig
+	Consolidation    app.ConsolidationStorageConfig
 }
 
-// ProvideConfigs provides the fields of a storage config
-func ProvideConfigs(cfg app.StorageConfig) Configs {
+// ProvideConfigs extracts every per-store config from the object-store
+// config. It pulls always-local paths from Local and bulk paths from
+// Filesystem.
+func ProvideConfigs(cfg app.ObjectStoreConfig) Configs {
 	return Configs{
-		Aggregator:    cfg.Aggregator,
-		Publisher:     cfg.Publisher,
-		Allocation:    cfg.Allocations,
-		Blob:          cfg.Blobs,
-		Claim:         cfg.Claims,
-		Receipt:       cfg.Receipts,
-		EgressTracker: cfg.EgressTracker,
-		KeyStore:      cfg.KeyStore,
-		Stash:         cfg.StashStore,
-		PDP:           cfg.PDPStore,
-		Acceptance:    cfg.Acceptance,
-		Consolidation: cfg.Consolidation,
+		Aggregator:       cfg.Local.Aggregator,
+		Publisher:        cfg.Local.Publisher,
+		RetrievalJournal: cfg.Local.RetrievalJournal,
+		KeyStore:         cfg.Local.KeyStore,
+		Allocation:       cfg.Filesystem.Allocations,
+		Claim:            cfg.Filesystem.Claims,
+		Receipt:          cfg.Filesystem.Receipts,
+		PDP:              cfg.Filesystem.PDP,
+		Acceptance:       cfg.Filesystem.Acceptance,
+		Consolidation:    cfg.Filesystem.Consolidation,
 	}
 }
 
@@ -248,7 +242,7 @@ func NewReceiptStore(cfg app.ReceiptStorageConfig, lc fx.Lifecycle) (receiptstor
 	return receiptstore.NewDatastoreStore(ds), nil
 }
 
-func NewRetrievalJournal(storeCfg app.EgressTrackerStorageConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {
+func NewRetrievalJournal(storeCfg app.RetrievalJournalConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {
 	if storeCfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for retrieval journal")
 	}
@@ -309,6 +303,7 @@ func NewConsolidationStore(cfg app.ConsolidationStorageConfig, lc fx.Lifecycle) 
 	if err != nil {
 		return nil, fmt.Errorf("creating consolidation store: %w", err)
 	}
+
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
 			return ds.Close()

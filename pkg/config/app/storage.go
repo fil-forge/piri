@@ -75,6 +75,85 @@ type PostgresConfig struct {
 	ConnMaxLifetime time.Duration
 }
 
+// ObjectStoreType represents the object-store backend type.
+type ObjectStoreType string
+
+const (
+	// ObjectStoreTypeMemory keeps every store in process memory. For tests.
+	ObjectStoreTypeMemory ObjectStoreType = "memory"
+	// ObjectStoreTypeFilesystem uses local filesystem for every store.
+	ObjectStoreTypeFilesystem ObjectStoreType = "filesystem"
+	// ObjectStoreTypeS3 uses S3-compatible storage for the bulk stores
+	// (blobs, claims, allocations, acceptances, receipts, consolidation).
+	// Four stores stay on the local filesystem regardless: KeyStore,
+	// AggregatorDatastore, PublisherStore, RetrievalJournal.
+	ObjectStoreTypeS3 ObjectStoreType = "s3"
+)
+
+// ObjectStoreConfig configures the object-store layer.
+//
+// A deployment runs with one backend (Type) for the entire object-store
+// layer. Four stores (KeyStore, AggregatorDatastore, PublisherStore,
+// RetrievalJournal) always live on the local filesystem regardless of the
+// chosen backend — their paths live under Local. Only the bulk sub-config
+// matching Type is meaningful for the bulk stores; the others are
+// zero-valued.
+//
+// Adding a future backend (e.g. GCS) means adding another sibling sub-struct,
+// a new ObjectStoreType constant, and one branch in the StorageModule
+// selector.
+type ObjectStoreConfig struct {
+	// Type is the object-store backend type: "memory", "filesystem", or "s3".
+	Type ObjectStoreType
+
+	// Local holds paths for the four stores that always use the local
+	// filesystem. Populated for filesystem and s3 backends; zero-valued for
+	// memory.
+	Local LocalStorePaths
+
+	// Filesystem holds paths for the bulk stores when Type == filesystem.
+	Filesystem FilesystemBulkPaths
+
+	// S3 holds S3-compatible storage settings when Type == s3.
+	S3 S3Config
+}
+
+// IsMemory returns true when the in-memory backend is selected.
+func (c ObjectStoreConfig) IsMemory() bool {
+	return c.Type == ObjectStoreTypeMemory
+}
+
+// IsFilesystem returns true when the filesystem backend is selected (or when
+// Type is empty — filesystem is the default for non-test deployments).
+func (c ObjectStoreConfig) IsFilesystem() bool {
+	return c.Type == "" || c.Type == ObjectStoreTypeFilesystem
+}
+
+// IsS3 returns true when the S3 backend is selected.
+func (c ObjectStoreConfig) IsS3() bool {
+	return c.Type == ObjectStoreTypeS3
+}
+
+// LocalStorePaths holds the on-disk directories for stores that always live
+// on the local filesystem, regardless of the object-store backend.
+type LocalStorePaths struct {
+	Aggregator       AggregatorStorageConfig
+	Publisher        PublisherStorageConfig
+	RetrievalJournal RetrievalJournalConfig
+	KeyStore         KeyStoreConfig
+}
+
+// FilesystemBulkPaths holds the on-disk directories for the bulk stores when
+// running with the filesystem backend.
+type FilesystemBulkPaths struct {
+	Allocations   AllocationStorageConfig
+	Acceptance    AcceptanceStorageConfig
+	Claims        ClaimStorageConfig
+	Receipts      ReceiptStorageConfig
+	PDP           PDPStoreConfig
+	Consolidation ConsolidationStorageConfig
+}
+
 // StorageConfig contains all storage paths and directories
 type StorageConfig struct {
 	// Root directories
@@ -84,27 +163,11 @@ type StorageConfig struct {
 	// Database configuration (sqlite or postgres)
 	Database DatabaseConfig
 
-	// Global S3 config - when set, all supported stores use S3 with separate buckets
-	// named using BucketPrefix (e.g., "piri-blobs", "piri-allocations")
-	S3 *S3Config
-
-	// Service-specific storage subdirectories
-	Aggregator    AggregatorStorageConfig
-	Blobs         BlobStorageConfig
-	Claims        ClaimStorageConfig
-	Publisher     PublisherStorageConfig
-	Receipts      ReceiptStorageConfig
-	EgressTracker EgressTrackerStorageConfig
-	Allocations   AllocationStorageConfig
-	Acceptance    AcceptanceStorageConfig
-	KeyStore      KeyStoreConfig
-	StashStore    StashStoreConfig
-	PDPStore      PDPStoreConfig
-	Consolidation ConsolidationStorageConfig
+	// ObjectStore configuration (memory, filesystem, or s3)
+	ObjectStore ObjectStoreConfig
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
-// When set on StorageConfig, all supported stores use S3 with separate buckets.
 type S3Config struct {
 	Endpoint     string      // API URL (e.g., "minio.example.com:9000")
 	BucketPrefix string      // Prefix for bucket names (e.g., "piri-" creates piri-blobs, piri-allocations, etc.)
@@ -115,12 +178,6 @@ type S3Config struct {
 // AggregatorStorageConfig contains aggregator-specific storage paths
 type AggregatorStorageConfig struct {
 	Dir string
-}
-
-// BlobStorageConfig contains blob-specific storage paths
-type BlobStorageConfig struct {
-	Dir    string
-	TmpDir string
 }
 
 // ClaimStorageConfig contains claim-specific storage paths
@@ -138,8 +195,10 @@ type ReceiptStorageConfig struct {
 	Dir string
 }
 
-// EgressTrackerStorageConfig contains egress tracker store-specific storage paths
-type EgressTrackerStorageConfig struct {
+// RetrievalJournalConfig contains the on-disk directory for the retrieval
+// journal — an append-only file-based journal that the egress-tracker
+// service consumes.
+type RetrievalJournalConfig struct {
 	Dir string
 }
 
@@ -154,10 +213,6 @@ type AcceptanceStorageConfig struct {
 }
 
 type KeyStoreConfig struct {
-	Dir string
-}
-
-type StashStoreConfig struct {
 	Dir string
 }
 

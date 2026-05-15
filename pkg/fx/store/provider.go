@@ -9,19 +9,16 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/store/s3"
 )
 
-// StorageModule returns the appropriate storage module based on configuration.
-// If S3 is configured, returns S3Module + LocalOnlyModule.
-// Otherwise, returns the full filesystem or memory module.
-func StorageModule(cfg app.StorageConfig) fx.Option {
-	if cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != "" {
-		// Use S3 for most stores, but LocalOnlyModule for stores that must remain
-		// on the local filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal, KeyStore)
-		return fx.Options(
-			s3.Module,
-			filesystem.LocalOnlyModule,
-		)
-	} else if cfg.DataDir == "" {
+// StorageModule returns the fx module for the configured object-store backend.
+// S3 mode combines the s3 module (bulk stores) with filesystem.LocalOnlyModule
+// for the four stores that must remain on disk regardless of backend.
+func StorageModule(cfg app.ObjectStoreConfig) fx.Option {
+	switch cfg.Type {
+	case app.ObjectStoreTypeS3:
+		return fx.Options(s3.Module, filesystem.LocalOnlyModule)
+	case app.ObjectStoreTypeMemory:
 		return memory.Module
+	default:
+		return filesystem.Module
 	}
-	return filesystem.Module
 }

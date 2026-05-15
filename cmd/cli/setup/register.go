@@ -139,10 +139,10 @@ type initFlags struct {
 	storage *storageConfig
 }
 
-// storageConfig holds storage configuration parsed from flags or base-config
+// storageConfig holds storage configuration parsed from flags or base-config.
 type storageConfig struct {
-	database config.DatabaseConfig
-	s3       *config.S3Config
+	database    config.DatabaseConfig
+	objectStore config.ObjectStoreConfig
 }
 
 // baseConfigValues holds service and contract configuration from base config or presets
@@ -167,8 +167,8 @@ type baseConfigValues struct {
 	ipniAnnounceURLs        []string
 	principalMapping        map[string]string
 	// Storage configuration from base-config
-	database config.DatabaseConfig
-	s3Config *config.S3Config
+	database    config.DatabaseConfig
+	objectStore config.ObjectStoreConfig
 }
 
 // baseConfig represents the structure of the base config TOML file
@@ -181,8 +181,8 @@ type baseConfig struct {
 
 // baseRepoConfig holds storage configuration from base config TOML file
 type baseRepoConfig struct {
-	Database config.DatabaseConfig `toml:"database,omitempty"`
-	S3       *config.S3Config      `toml:"s3,omitempty"`
+	Database    config.DatabaseConfig    `toml:"database,omitempty"`
+	ObjectStore config.ObjectStoreConfig `toml:"object_store,omitempty"`
 }
 
 type basePDPConfig struct {
@@ -264,7 +264,7 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		ipniAnnounceURLs:        cfg.UCAN.Services.Publisher.IPNIAnnounceURLs,
 		principalMapping:        cfg.UCAN.Services.PrincipalMapping,
 		database:                cfg.Repo.Database,
-		s3Config:                cfg.Repo.S3,
+		objectStore:             cfg.Repo.ObjectStore,
 	}, nil
 }
 
@@ -477,14 +477,17 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		}
 
 		storage = &storageConfig{
-			s3: &config.S3Config{
-				Endpoint:     s3Endpoint,
-				BucketPrefix: s3BucketPrefix,
-				Credentials: config.Credentials{
-					AccessKeyID:     s3AccessKeyID,
-					SecretAccessKey: s3SecretAccessKey,
+			objectStore: config.ObjectStoreConfig{
+				Type: "s3",
+				S3: &config.S3Config{
+					Endpoint:     s3Endpoint,
+					BucketPrefix: s3BucketPrefix,
+					Credentials: config.Credentials{
+						AccessKeyID:     s3AccessKeyID,
+						SecretAccessKey: s3SecretAccessKey,
+					},
+					Insecure: s3Insecure,
 				},
-				Insecure: s3Insecure,
 			},
 		}
 	}
@@ -547,12 +550,12 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 			storage = &storageConfig{}
 		}
 
-		// Use base-config S3 if no S3 flags were explicitly provided
-		if !s3FlagsChanged && baseValues.s3Config != nil {
-			if err := baseValues.s3Config.Validate(); err != nil {
-				return nil, fmt.Errorf("base-config s3: %w", err)
+		// Use base-config object_store if no S3 flags were explicitly provided
+		if !s3FlagsChanged && baseValues.objectStore.S3 != nil {
+			if err := baseValues.objectStore.S3.Validate(); err != nil {
+				return nil, fmt.Errorf("base-config object_store.s3: %w", err)
 			}
-			storage.s3 = baseValues.s3Config
+			storage.objectStore = baseValues.objectStore
 		}
 
 		// Use base-config database if --db-type was not explicitly set
@@ -597,7 +600,7 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 	}
 	if flags.storage != nil {
 		repoConfig.Database = flags.storage.database
-		repoConfig.S3 = flags.storage.s3
+		repoConfig.ObjectStore = flags.storage.objectStore
 	}
 
 	cfg := appcfg.AppConfig{
@@ -894,7 +897,7 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 	}
 	if flags.storage != nil {
 		repoConfig.Database = flags.storage.database
-		repoConfig.S3 = flags.storage.s3
+		repoConfig.ObjectStore = flags.storage.objectStore
 	}
 
 	return config.FullServerConfig{

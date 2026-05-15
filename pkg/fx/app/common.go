@@ -24,6 +24,7 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		fx.Supply(cfg.Server),
 		fx.Supply(cfg.Storage),
 		fx.Supply(cfg.Storage.Database),
+		fx.Supply(cfg.Storage.ObjectStore),
 		fx.Supply(cfg.UCANService),
 		fx.Supply(cfg.UCANService.Services),
 		fx.Supply(cfg.UCANService.Services.Upload),
@@ -45,10 +46,9 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		admin.Module,  // Provides admin module with http routes.
 		health.Module, // Provides health check endpoints.
 
-		// StorageModule returns the appropriate storage module based on configuration.
-		// If S3 is configured, returns S3Module + KeyStoreModule (KeyStore always on disk).
-		// Otherwise, returns the full filesystem module.
-		store.StorageModule(cfg.Storage),
+		// StorageModule selects the object-store backend based on
+		// cfg.Storage.ObjectStore.Type (memory | filesystem | s3).
+		store.StorageModule(cfg.Storage.ObjectStore),
 	}
 
 	return fx.Module("common", modules...)

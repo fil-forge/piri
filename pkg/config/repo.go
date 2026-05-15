@@ -137,10 +137,20 @@ func (c PostgresConfig) ToAppConfig() (app.PostgresConfig, error) {
 }
 
 type RepoConfig struct {
-	DataDir  string         `mapstructure:"data_dir" validate:"required" flag:"data-dir" toml:"data_dir"`
-	TempDir  string         `mapstructure:"temp_dir" validate:"required" flag:"temp-dir" toml:"temp_dir"`
-	Database DatabaseConfig `mapstructure:"database" validate:"omitempty" toml:"database,omitempty"`
-	S3       *S3Config      `mapstructure:"s3" validate:"omitempty" toml:"s3,omitempty"`
+	DataDir     string            `mapstructure:"data_dir" validate:"required" flag:"data-dir" toml:"data_dir"`
+	TempDir     string            `mapstructure:"temp_dir" validate:"required" flag:"temp-dir" toml:"temp_dir"`
+	Database    DatabaseConfig    `mapstructure:"database" validate:"omitempty" toml:"database,omitempty"`
+	ObjectStore ObjectStoreConfig `mapstructure:"object_store" validate:"omitempty" toml:"object_store,omitempty"`
+}
+
+// ObjectStoreConfig configures the object-store layer at the TOML/YAML
+// level. A deployment runs with exactly one backend selected by Type;
+// mixed-backend deployments are not supported.
+type ObjectStoreConfig struct {
+	// Type selects the backend: "memory", "filesystem", or "s3".
+	Type string `mapstructure:"type" validate:"omitempty,oneof=memory filesystem s3" toml:"type,omitempty"`
+	// S3 holds S3-compatible storage settings. Only meaningful when Type is "s3".
+	S3 *S3Config `mapstructure:"s3" validate:"omitempty" toml:"s3,omitempty"`
 }
 
 func (r RepoConfig) Validate() error {
@@ -153,15 +163,16 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		return app.StorageConfig{}, fmt.Errorf("database config: %w", err)
 	}
 
-	// Validate S3 config if provided
-	if err := r.S3.Validate(); err != nil {
-		return app.StorageConfig{}, fmt.Errorf("s3 config: %w", err)
+	objCfg, err := r.toObjectStoreAppConfig()
+	if err != nil {
+		return app.StorageConfig{}, fmt.Errorf("object_store config: %w", err)
 	}
 
 	if r.DataDir == "" {
 		// Return empty config for memory stores
 		return app.StorageConfig{
-			Database: dbCfg,
+			Database:    dbCfg,
+			ObjectStore: objCfg,
 		}, nil
 	}
 
@@ -187,61 +198,91 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		}
 	}
 
-	out := app.StorageConfig{
-		DataDir:  r.DataDir,
-		TempDir:  r.TempDir,
-		Database: dbCfg,
-		Aggregator: app.AggregatorStorageConfig{
-			Dir: filepath.Join(r.DataDir, "aggregator", "datastore"),
-		},
-		Blobs: app.BlobStorageConfig{
-			Dir:    filepath.Join(r.DataDir, "blobs"),
-			TmpDir: filepath.Join(r.TempDir, "storage"),
-		},
-		Claims: app.ClaimStorageConfig{
-			Dir: filepath.Join(r.DataDir, "claim"),
-		},
-		Publisher: app.PublisherStorageConfig{
-			Dir: filepath.Join(r.DataDir, "publisher"),
-		},
-		Receipts: app.ReceiptStorageConfig{
-			Dir: filepath.Join(r.DataDir, "receipt"),
-		},
-		EgressTracker: app.EgressTrackerStorageConfig{
-			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),
-		},
-		Allocations: app.AllocationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "allocation"),
-		},
-		Acceptance: app.AcceptanceStorageConfig{
-			Dir: filepath.Join(r.DataDir, "acceptance"),
-		},
-		KeyStore: app.KeyStoreConfig{
-			Dir: filepath.Join(r.DataDir, "wallet"),
-		},
-		StashStore: app.StashStoreConfig{
-			Dir: filepath.Join(r.DataDir, "pdp"),
-		},
-		PDPStore: app.PDPStoreConfig{
-			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
-		},
-		Consolidation: app.ConsolidationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "consolidation"),
-		},
-	}
-
-	// Copy S3 config if configured (already validated above)
-	if r.S3.IsConfigured() {
-		out.S3 = &app.S3Config{
-			Endpoint:     r.S3.Endpoint,
-			BucketPrefix: r.S3.BucketPrefix,
-			Credentials: app.Credentials{
-				AccessKeyID:     r.S3.Credentials.AccessKeyID,
-				SecretAccessKey: r.S3.Credentials.SecretAccessKey,
-			},
-			Insecure: r.S3.Insecure,
+	// Local-only store paths are populated for filesystem and s3 backends;
+	// they describe four stores that always live on disk regardless of the
+	// bulk-store backend.
+	if !objCfg.IsMemory() {
+		objCfg.Local = app.LocalStorePaths{
+			Aggregator:       app.AggregatorStorageConfig{Dir: filepath.Join(r.DataDir, "aggregator", "datastore")},
+			Publisher:        app.PublisherStorageConfig{Dir: filepath.Join(r.DataDir, "publisher")},
+			RetrievalJournal: app.RetrievalJournalConfig{Dir: filepath.Join(r.DataDir, "retrieval_journal")},
+			KeyStore:         app.KeyStoreConfig{Dir: filepath.Join(r.DataDir, "wallet")},
 		}
 	}
 
+	// Filesystem bulk paths populated only for the filesystem backend.
+	if objCfg.IsFilesystem() {
+		objCfg.Filesystem = app.FilesystemBulkPaths{
+			Allocations:   app.AllocationStorageConfig{Dir: filepath.Join(r.DataDir, "allocation")},
+			Acceptance:    app.AcceptanceStorageConfig{Dir: filepath.Join(r.DataDir, "acceptance")},
+			Claims:        app.ClaimStorageConfig{Dir: filepath.Join(r.DataDir, "claim")},
+			Receipts:      app.ReceiptStorageConfig{Dir: filepath.Join(r.DataDir, "receipt")},
+			PDP:           app.PDPStoreConfig{Dir: filepath.Join(r.DataDir, "pdp", "datastore")},
+			Consolidation: app.ConsolidationStorageConfig{Dir: filepath.Join(r.DataDir, "consolidation")},
+		}
+	}
+
+	return app.StorageConfig{
+		DataDir:     r.DataDir,
+		TempDir:     r.TempDir,
+		Database:    dbCfg,
+		ObjectStore: objCfg,
+	}, nil
+}
+
+// toObjectStoreAppConfig resolves the repo-level ObjectStoreConfig to an
+// app.ObjectStoreConfig with a normalized Type. It validates the cross-field
+// invariants — Type and Backend-section presence must agree — and copies the
+// S3 sub-section through when Type == s3. Filesystem and Local paths are
+// populated by the caller from DataDir.
+func (r RepoConfig) toObjectStoreAppConfig() (app.ObjectStoreConfig, error) {
+	if err := r.ObjectStore.S3.Validate(); err != nil {
+		return app.ObjectStoreConfig{}, err
+	}
+
+	// Default selection: memory when DataDir is empty (test mode), filesystem
+	// otherwise. The user can override with an explicit type.
+	typ := app.ObjectStoreType(r.ObjectStore.Type)
+	if typ == "" {
+		if r.DataDir == "" {
+			typ = app.ObjectStoreTypeMemory
+		} else {
+			typ = app.ObjectStoreTypeFilesystem
+		}
+	}
+
+	// Cross-field validation: the s3 section is only meaningful when Type
+	// is s3. Configuring it under any other type is a user mistake — a
+	// deployment runs with one backend for the entire object-store layer.
+	if typ != app.ObjectStoreTypeS3 && r.ObjectStore.S3.IsConfigured() {
+		return app.ObjectStoreConfig{}, fmt.Errorf(
+			"object_store.s3 section is configured but object_store.type is %q; "+
+				"a deployment uses one backend for the object-store layer — set type to \"s3\" or remove the s3 section",
+			typ,
+		)
+	}
+	if typ == app.ObjectStoreTypeS3 && !r.ObjectStore.S3.IsConfigured() {
+		return app.ObjectStoreConfig{}, fmt.Errorf(
+			"object_store.type is \"s3\" but no object_store.s3 section is configured",
+		)
+	}
+	if typ == app.ObjectStoreTypeFilesystem && r.DataDir == "" {
+		return app.ObjectStoreConfig{}, fmt.Errorf(
+			"object_store.type is \"filesystem\" but data_dir is empty",
+		)
+	}
+
+	out := app.ObjectStoreConfig{Type: typ}
+	if typ == app.ObjectStoreTypeS3 {
+		out.S3 = app.S3Config{
+			Endpoint:     r.ObjectStore.S3.Endpoint,
+			BucketPrefix: r.ObjectStore.S3.BucketPrefix,
+			Credentials: app.Credentials{
+				AccessKeyID:     r.ObjectStore.S3.Credentials.AccessKeyID,
+				SecretAccessKey: r.ObjectStore.S3.Credentials.SecretAccessKey,
+			},
+			Insecure: r.ObjectStore.S3.Insecure,
+		}
+	}
 	return out, nil
 }

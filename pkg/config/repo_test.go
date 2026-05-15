@@ -117,3 +117,98 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestObjectStoreConfig_ToAppConfig(t *testing.T) {
+	t.Run("memory type with empty data_dir", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir: "",
+			ObjectStore: ObjectStoreConfig{Type: "memory"},
+		}
+		result, err := r.ToAppConfig()
+		require.NoError(t, err)
+		assert.Equal(t, app.ObjectStoreTypeMemory, result.ObjectStore.Type)
+		assert.Equal(t, app.S3Config{}, result.ObjectStore.S3)
+		assert.Equal(t, app.LocalStorePaths{}, result.ObjectStore.Local)
+	})
+
+	t.Run("empty type with empty data_dir defaults to memory", func(t *testing.T) {
+		r := RepoConfig{DataDir: ""}
+		result, err := r.ToAppConfig()
+		require.NoError(t, err)
+		assert.Equal(t, app.ObjectStoreTypeMemory, result.ObjectStore.Type)
+	})
+
+	t.Run("filesystem type populates Local and Filesystem paths", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir:     t.TempDir(),
+			TempDir:     t.TempDir(),
+			ObjectStore: ObjectStoreConfig{Type: "filesystem"},
+		}
+		result, err := r.ToAppConfig()
+		require.NoError(t, err)
+		assert.Equal(t, app.ObjectStoreTypeFilesystem, result.ObjectStore.Type)
+		assert.NotEmpty(t, result.ObjectStore.Local.KeyStore.Dir)
+		assert.NotEmpty(t, result.ObjectStore.Local.RetrievalJournal.Dir)
+		assert.NotEmpty(t, result.ObjectStore.Filesystem.Allocations.Dir)
+		assert.NotEmpty(t, result.ObjectStore.Filesystem.PDP.Dir)
+		assert.Equal(t, app.S3Config{}, result.ObjectStore.S3)
+	})
+
+	t.Run("s3 type populates Local + S3, leaves Filesystem empty", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir: t.TempDir(),
+			TempDir: t.TempDir(),
+			ObjectStore: ObjectStoreConfig{
+				Type: "s3",
+				S3: &S3Config{
+					Endpoint:     "minio.example.com:9000",
+					BucketPrefix: "piri-",
+				},
+			},
+		}
+		result, err := r.ToAppConfig()
+		require.NoError(t, err)
+		assert.Equal(t, app.ObjectStoreTypeS3, result.ObjectStore.Type)
+		assert.Equal(t, "minio.example.com:9000", result.ObjectStore.S3.Endpoint)
+		assert.NotEmpty(t, result.ObjectStore.Local.KeyStore.Dir)
+		assert.Equal(t, app.FilesystemBulkPaths{}, result.ObjectStore.Filesystem)
+	})
+
+	t.Run("s3 type without s3 section returns error", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir:     t.TempDir(),
+			TempDir:     t.TempDir(),
+			ObjectStore: ObjectStoreConfig{Type: "s3"},
+		}
+		_, err := r.ToAppConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no object_store.s3 section")
+	})
+
+	t.Run("non-s3 type with s3 section configured returns error", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir: t.TempDir(),
+			TempDir: t.TempDir(),
+			ObjectStore: ObjectStoreConfig{
+				Type: "filesystem",
+				S3: &S3Config{
+					Endpoint:     "minio.example.com:9000",
+					BucketPrefix: "piri-",
+				},
+			},
+		}
+		_, err := r.ToAppConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "one backend")
+	})
+
+	t.Run("filesystem type with empty data_dir returns error", func(t *testing.T) {
+		r := RepoConfig{
+			DataDir:     "",
+			ObjectStore: ObjectStoreConfig{Type: "filesystem"},
+		}
+		_, err := r.ToAppConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "data_dir is empty")
+	})
+}

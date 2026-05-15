@@ -40,8 +40,11 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 			PublicURL: *publicURL,
 		},
 		Storage: app.StorageConfig{
-			DataDir: "", // Empty = memory stores by default
+			DataDir: "", // Empty = memory stores
 			TempDir: "",
+			ObjectStore: app.ObjectStoreConfig{
+				Type: app.ObjectStoreTypeMemory,
+			},
 		},
 		UCANService: app.UCANServiceConfig{
 			Services: app.ExternalServicesConfig{
