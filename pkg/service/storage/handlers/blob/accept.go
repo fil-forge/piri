@@ -2,28 +2,26 @@ package blob
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	pdp_cap "github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	pdp_cap "github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/promise"
+	"github.com/ipfs/go-cid"
 
 	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/service/claims"
-	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 )
 
@@ -36,16 +34,21 @@ type AcceptService interface {
 
 type AcceptRequest struct {
 	Space did.DID
-	Blob  types.Blob
-	Put   blob.Promise
+	Blob  blob.Blob
+	// Put is the promise from blob/allocate that signals the upload completed.
+	// Matches the `_put` field on blob.AcceptArguments.
+	Put promise.AwaitOK
 	// Cause is a link to the `blob/accept` or `blob/replica/transfer` invocation.
-	Cause ipld.Link
+	Cause cid.Cid
 }
 
 type AcceptResponse struct {
-	Claim delegation.Delegation
-	// only present when using PDP
-	PDP invocation.Invocation
+	// Claim is the signed /assert/location invocation attesting that the blob is
+	// retrievable at the given URL for the given space.
+	Claim *invocation.Invocation
+	// PDP is the queued /pdp/accept invocation whose receipt will be produced
+	// once aggregation completes. Only set when PDP is enabled.
+	PDP *invocation.Invocation
 }
 
 func Accept(ctx context.Context, s AcceptService, req *AcceptRequest) (resp *AcceptResponse, err error) {
@@ -59,7 +62,7 @@ func Accept(ctx context.Context, s AcceptService, req *AcceptRequest) (resp *Acc
 	}()
 
 	log := log.With("blob", req.Blob.Digest)
-	log.Infof("%s %s", blob.AcceptAbility, req.Space)
+	log.Infof("%s %s", blob.AcceptCommand, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
 		attribute.Stringer("blob.digest", req.Blob.Digest),
@@ -68,23 +71,10 @@ func Accept(ctx context.Context, s AcceptService, req *AcceptRequest) (resp *Acc
 
 	var (
 		loc          url.URL
-		pdpAcceptInv invocation.Invocation
+		pdpAcceptInv *invocation.Invocation
 	)
 	if s.PDP() == nil {
-		_, err := s.Blobs().Store().Get(ctx, req.Blob.Digest)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return nil, fmt.Errorf("blob not found: %w", err)
-			}
-			log.Errorw("getting blob", "error", err)
-			return nil, fmt.Errorf("getting blob: %w", err)
-		}
-
-		loc, err = s.Blobs().Access().GetDownloadURL(req.Blob.Digest)
-		if err != nil {
-			log.Errorw("creating retrieval URL for blob", "error", err)
-			return nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
-		}
+		panic("pdp service required")
 	} else {
 		span.SetAttributes(attribute.Bool("pdp.enabled", true))
 		// ensure the blob exists, else it cannot be accepted.
@@ -112,11 +102,12 @@ func Accept(ctx context.Context, s AcceptService, req *AcceptRequest) (resp *Acc
 		// generate the invocation that will complete when aggregation is complete and the piece is accepted
 		pieceAccept, err := pdp_cap.Accept.Invoke(
 			s.ID(),
-			s.ID(),
-			s.ID().DID().String(),
-			pdp_cap.AcceptCaveats{
+			s.ID().DID(),
+			&pdp_cap.AcceptArguments{
 				Blob: req.Blob.Digest,
-			}, delegation.WithNoExpiration())
+			},
+			invocation.WithNoExpiration(),
+		)
 		if err != nil {
 			log.Error("creating piece accept invocation", "error", err)
 			return nil, fmt.Errorf("creating piece accept invocation: %w", err)
@@ -125,17 +116,16 @@ func Accept(ctx context.Context, s AcceptService, req *AcceptRequest) (resp *Acc
 	}
 
 	byteRange := assert.Range{Offset: 0, Length: &req.Blob.Size}
-	claim, err := assert.Location.Delegate(
+	claim, err := assert.Location.Invoke(
 		s.ID(),
-		req.Space,
-		s.ID().DID().String(),
-		assert.LocationCaveats{
+		s.ID().DID(),
+		&assert.LocationArguments{
 			Space:    req.Space,
-			Content:  types.FromHash(req.Blob.Digest),
-			Location: []url.URL{loc},
+			Content:  req.Blob.Digest,
+			Location: []capabilities.CborURL{capabilities.CborURL(loc)},
 			Range:    &byteRange,
 		},
-		delegation.WithNoExpiration(),
+		invocation.WithNoExpiration(),
 	)
 	if err != nil {
 		log.Errorw("creating location commitment", "error", err)

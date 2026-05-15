@@ -2,37 +2,11 @@ package ucan
 
 import (
 	"fmt"
-
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/result/failure/datamodel"
-	"github.com/fil-forge/go-ucanto/ucan"
 )
 
-type UnsupportedCapabilityError[C any] struct {
-	capability ucan.Capability[C]
-}
-
-func (ue UnsupportedCapabilityError[C]) Name() string {
-	return "UnsupportedCapability"
-}
-
-func (ue UnsupportedCapabilityError[C]) Capability() ucan.Capability[C] {
-	return ue.capability
-}
-
-func (ue UnsupportedCapabilityError[C]) Error() string {
-	return fmt.Sprintf(`%s does not have a "%s" capability provider`, ue.capability.With(), ue.capability.Can())
-}
-
-func (ue UnsupportedCapabilityError[C]) ToIPLD() (ipld.Node, error) {
-	name := ue.Name()
-	model := datamodel.FailureModel{Name: &name, Message: ue.Error()}
-	return model.ToIPLD()
-}
-
-func NewUnsupportedCapabilityError[C any](capability ucan.Capability[C]) UnsupportedCapabilityError[C] {
-	return UnsupportedCapabilityError[C]{capability}
-}
+// All error types in this file implement [errors.Named] (a single
+// `Name() string` accessor). `*execution.Response.SetFailure` uses the name
+// when issuing a failure receipt.
 
 type BlobSizeLimitExceededError struct {
 	size uint64
@@ -45,12 +19,6 @@ func (be BlobSizeLimitExceededError) Name() string {
 
 func (be BlobSizeLimitExceededError) Error() string {
 	return fmt.Sprintf("Blob of %d bytes, exceeds size limit of %d bytes", be.size, be.max)
-}
-
-func (be BlobSizeLimitExceededError) ToIPLD() (ipld.Node, error) {
-	name := be.Name()
-	model := datamodel.FailureModel{Name: &name, Message: be.Error()}
-	return model.ToIPLD()
 }
 
 func NewBlobSizeLimitExceededError(size uint64, max uint64) BlobSizeLimitExceededError {
@@ -67,12 +35,21 @@ func (ae AllocatedMemoryNotWrittenError) Error() string {
 	return "Blob not found"
 }
 
-func (ae AllocatedMemoryNotWrittenError) ToIPLD() (ipld.Node, error) {
-	name := ae.Name()
-	model := datamodel.FailureModel{Name: &name, Message: ae.Error()}
-	return model.ToIPLD()
-}
-
 func NewAllocatedMemoryNotWrittenError() AllocatedMemoryNotWrittenError {
 	return AllocatedMemoryNotWrittenError{}
+}
+
+// NotMigratedError marks a handler whose body remains stubbed because its
+// semantics depend on an interface that hasn't migrated yet (typically a
+// capability in a peer service, not a missing piri-side primitive).
+type NotMigratedError struct {
+	Command string
+}
+
+func (e NotMigratedError) Name() string {
+	return "HandlerNotMigrated"
+}
+
+func (e NotMigratedError) Error() string {
+	return fmt.Sprintf("%s handler awaits an upstream interface that has not yet migrated to UCAN 1.0", e.Command)
 }

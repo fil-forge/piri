@@ -1,16 +1,16 @@
 package claims
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
+	"github.com/fil-forge/ucantone/ipld/codec/dagcbor"
 	"github.com/ipfs/go-cid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/fil-forge/go-ucanto/core/car"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/server/handler"
 	"github.com/fil-forge/piri/pkg/store"
@@ -40,7 +40,7 @@ func NewHandler(claims claimstore.ClaimStore) handler.Func {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("invalid claim CID: %w", err))
 		}
 
-		dlg, err := claims.Get(r.Context(), cidlink.Link{Cid: c})
+		inv, err := claims.Get(r.Context(), c)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, fmt.Errorf("not found: %s", c))
@@ -48,6 +48,7 @@ func NewHandler(claims claimstore.ClaimStore) handler.Func {
 			return fmt.Errorf("failed to get claim: %w", err)
 		}
 
-		return ctx.Stream(http.StatusOK, car.ContentType, dlg.Archive())
+		// Serve the raw dag-cbor envelope of the invocation.
+		return ctx.Stream(http.StatusOK, dagcbor.ContentType, bytes.NewReader(inv.Bytes()))
 	}
 }

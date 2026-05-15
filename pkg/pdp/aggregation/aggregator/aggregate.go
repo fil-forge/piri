@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"math/bits"
 
-	"github.com/fil-forge/go-libstoracha/piece/digest"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	"github.com/fil-forge/go-libstoracha/piece/size"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-data-segment/merkletree"
+
+	"github.com/fil-forge/libforge/piece/digest"
+	"github.com/fil-forge/libforge/piece/size"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 )
 
 // This code is adapted from
@@ -34,12 +35,23 @@ func (s stackFrame) isLeaf() bool {
 	return s.left == nil
 }
 
+// proofPath converts merkle proof nodes into the [][]byte form stored on an
+// aatodo_types.ProofData.
+func proofPath(nodes []merkletree.Node) [][]byte {
+	path := make([][]byte, len(nodes))
+	for i := range nodes {
+		n := nodes[i]
+		path[i] = n[:]
+	}
+	return path
+}
+
 // NewAggregate generates an aggregate for a list of pieces that combine in size, and are sorted
 // largest to smallest. It returns the aggregate piece link and proof trees for all pieces
-func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
+func NewAggregate(pieceLinks []aatodo_types.PieceLink) (aatodo_types.Aggregate, error) {
 
 	if len(pieceLinks) == 0 {
-		return types.Aggregate{}, errors.New("no pieces provided")
+		return aatodo_types.Aggregate{}, errors.New("no pieces provided")
 	}
 
 	todo := make([]stackFrame, len(pieceLinks))
@@ -48,10 +60,10 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 	lastSize := uint64(0)
 	for i, p := range pieceLinks {
 		if p.PaddedSize() < 128 {
-			return types.Aggregate{}, fmt.Errorf("invalid Size of PieceInfo %d: value %d is too small", i, p.PaddedSize())
+			return aatodo_types.Aggregate{}, fmt.Errorf("invalid Size of PieceInfo %d: value %d is too small", i, p.PaddedSize())
 		}
 		if lastSize > 0 && p.PaddedSize() > lastSize {
-			return types.Aggregate{}, fmt.Errorf("pieces are not sorted correctly largest to smallest")
+			return aatodo_types.Aggregate{}, fmt.Errorf("pieces are not sorted correctly largest to smallest")
 		}
 		todo[i] = stackFrame{size: p.PaddedSize(), commP: p.DataCommitment()}
 		lastSize = p.PaddedSize()
@@ -89,17 +101,17 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 		)
 	}
 
-	aggregatePieces := make([]types.AggregatePiece, 0, len(pieceLinks))
+	aggregatePieces := make([]aatodo_types.AggregatePiece, 0, len(pieceLinks))
 	pieceIndex := 0
 	err := visitLeaves(&stack[0], func(parents []*stackFrame, index uint64, commP []byte) (bool, error) {
 		if !bytes.Equal(pieceLinks[pieceIndex].DataCommitment(), commP) {
 			return false, fmt.Errorf("tree leave does not match piece link")
 		}
 
-		aggregatePieces = append(aggregatePieces, types.AggregatePiece{
+		aggregatePieces = append(aggregatePieces, aatodo_types.AggregatePiece{
 			Link: pieceLinks[pieceIndex],
-			InclusionProof: merkletree.ProofData{
-				Path:  getProof(parents, index),
+			InclusionProof: aatodo_types.ProofData{
+				Path:  proofPath(getProof(parents, index)),
 				Index: index,
 			},
 		})
@@ -107,7 +119,7 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 		return pieceIndex < len(pieceLinks), nil
 	})
 	if err != nil {
-		return types.Aggregate{}, err
+		return aatodo_types.Aggregate{}, err
 	}
 
 	// Ensure the unpadded size for aggregates are calculate as:
@@ -123,18 +135,22 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 
 	// The unpadded size of the aggregate is the sum of the size of each piece
 	// (padded) except the last piece, which is the unpadded size.
-	actualDataSize -= pieceLinks[len(pieceLinks)-1].Padding()
+	lastPadding, err := pieceLinks[len(pieceLinks)-1].Padding()
+	if err != nil {
+		return aatodo_types.Aggregate{}, fmt.Errorf("reading padding of last piece: %w", err)
+	}
+	actualDataSize -= lastPadding
 
 	// Use actual data size, not padded tree size
 	digest, err := digest.FromCommitmentAndSize(stack[0].commP, size.MaxDataSize(actualDataSize))
 	if err != nil {
-		return types.Aggregate{}, fmt.Errorf("error building aggregate link: %w", err)
+		return aatodo_types.Aggregate{}, fmt.Errorf("error building aggregate link: %w", err)
 	}
 
-	aggregateLink := piece.FromPieceDigest(digest)
+	aggregateLink := aatodo_types.FromPieceDigest(digest)
 
-	return types.Aggregate{
-		Root:   aggregateLink,
+	return aatodo_types.Aggregate{
+		Root:   *aggregateLink,
 		Pieces: aggregatePieces,
 	}, nil
 }

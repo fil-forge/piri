@@ -1,138 +1,111 @@
 package ucan
 
 import (
-	"context"
+	"bytes"
+	"errors"
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	ufailure "github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	piece2 "github.com/fil-forge/piri/pkg/pdp/piece"
-	logging "github.com/ipfs/go-log/v2"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	pdpcaps "github.com/fil-forge/libforge/capabilities/pdp"
+	ucantone_errors "github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
 
-	pdpservice "github.com/fil-forge/piri/pkg/pdp"
+	"github.com/fil-forge/piri/pkg/pdp"
+	"github.com/fil-forge/piri/pkg/service/blobs"
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
-var log = logging.Logger("storage/ucan")
+const (
+	// PieceNotFoundErrorName surfaces in the receipt failure model when a
+	// /pdp/info caller asks about a blob the storage node hasn't seen.
+	PieceNotFoundErrorName = "PieceNotFound"
+	// AggregationPendingErrorName surfaces when the blob is known but has
+	// not yet been aggregated into a piece; the caller is expected to retry.
+	AggregationPendingErrorName = "AggregationPending"
+)
 
 type PDPInfoService interface {
 	ID() principal.Signer
+	PDP() pdp.PDP
+	Blobs() blobs.Blobs
 	Receipts() receiptstore.ReceiptStore
-	PDP() pdpservice.PDP
 }
 
-func WithPDPInfoMethod(storageService PDPInfoService) server.Option {
-	return server.WithServiceMethod(
-		pdp.InfoAbility,
-		server.Provide(
-			pdp.Info,
-			func(ctx context.Context, cap ucan.Capability[pdp.InfoCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[pdp.InfoOk, ufailure.IPLDBuilderFailure], fx.Effects, error) {
-				if storageService.PDP() == nil {
-					log.Error("PDPInfo requested but PDP service is not available")
-					return nil, nil, ufailure.FromError(fmt.Errorf("PDP service not avaliable"))
-				}
+// NewPDPInfoHandler returns the /pdp/info handler. It surfaces aggregation
+// progress for a blob: when the blob has been accepted and aggregated, the
+// /pdp/accept receipt's typed OK fields (Aggregate + Piece + InclusionProof)
+// are projected into an InfoOK; when aggregation is still pending, the
+// handler returns an AggregationPending failure.
+func NewPDPInfoHandler(storageService PDPInfoService) Handler {
+	return Handler{
+		Capability: pdpcaps.Info,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*pdpcaps.InfoArguments],
+			res *bindexec.Response[*pdpcaps.InfoOK],
+		) error {
+			args := req.Task().Arguments()
+			digest := args.Blob
 
-				// TODO I think this is backwards, we will get pieces from the nodes for the signing service
-				// try and resolve the blob to its derived pieceCID (commp)
-				resolvedCommp, found, err := storageService.PDP().API().ResolveToPiece(ctx, cap.Nb().Blob)
-				if err != nil {
-					log.Errorw("failed to resolve PDP api", "error", err)
-					return nil, nil, ufailure.FromError(fmt.Errorf("failed to resolve PDP API: %w", err))
+			// Locate the acceptance record for this blob. The same blob may
+			// have been accepted into multiple spaces; the PDP-side fields
+			// (Piece commitment, aggregate) are identical across spaces, so
+			// any acceptance will do.
+			acc, err := storageService.Blobs().Acceptances().GetAny(req.Context(), digest)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return res.SetFailure(ucantone_errors.New(
+						PieceNotFoundErrorName,
+						"no acceptance recorded for blob %s",
+						digest,
+					))
 				}
-				if !found {
-					// we didn't find the commp for this blob, compute it on demand, this means it hasn't been computed yet
-					// and is still likely in the pipeline.
-					// TODO(forrest): this is a bit wastefully, we could instead poll for it to be resolved yolo-ing for now
-					commpResp, err := storageService.PDP().API().CalculateCommP(ctx, cap.Nb().Blob)
-					if err != nil {
-						log.Errorw("failed to compute commp for digest", "digest", cap.Nb().Blob.String(), "error", err)
-						return nil, nil, ufailure.FromError(fmt.Errorf("failed to compute commp for digest: %w", err))
-					}
-					pieceLink, err := piece.FromLink(cidlink.Link{Cid: commpResp.PieceCID})
-					if err != nil {
-						log.Errorw("failed to create piece link for commp piece", "piece", commpResp.PieceCID, "error", err)
-						return nil, nil, ufailure.FromError(fmt.Errorf("failed to create piece link for commp piece: %w", err))
-					}
+				return fmt.Errorf("getting acceptance: %w", err)
+			}
+			if acc.PDPAccept == nil {
+				return res.SetFailure(ucantone_errors.New(
+					AggregationPendingErrorName,
+					"blob %s has not been submitted for PDP aggregation",
+					digest,
+				))
+			}
 
-					// since we could resolve it, this means the blob has not been aggregated yet
-					// so this blob is still pending aggregation
-					return result.Ok[pdp.InfoOk, ufailure.IPLDBuilderFailure](
-						pdp.InfoOk{
-							Piece:      pieceLink,
-							Aggregates: []pdp.InfoAcceptedAggregate{},
-						},
-					), nil, nil
+			// The PDPAccept promise's Link points at the /pdp/accept
+			// invocation that was queued during /blob/accept. Look up its
+			// receipt; absence means aggregation is still in flight.
+			rcpt, err := storageService.Receipts().GetByRan(req.Context(), acc.PDPAccept.UcanAwait.Link)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					return res.SetFailure(ucantone_errors.New(
+						AggregationPendingErrorName,
+						"awaiting /pdp/accept receipt for blob %s",
+						digest,
+					))
+				}
+				return fmt.Errorf("looking up /pdp/accept receipt: %w", err)
+			}
 
-				}
-				// else we resolved the blob to a piece, so a commp has been computed for it, though it still may not
-				// have been aggregated. For example if this is a small blob, then it may take time for aggregation to occure.
+			out := rcpt.Out()
+			if !out.IsOK() {
+				_, errBytes := out.Unpack()
+				return res.SetFailure(fmt.Errorf("/pdp/accept receipt is a failure: %s", string(errBytes)))
+			}
+			okBytes, _ := out.Unpack()
 
-				// generate the invocation that would submit when this was first submitted, allowing the
-				// receipt to be retrieved for it from the receipt store.
-				pieceAccept, err := pdp.Accept.Invoke(
-					storageService.ID(),
-					storageService.ID(),
-					storageService.ID().DID().GoString(),
-					pdp.AcceptCaveats{
-						Blob: cap.Nb().Blob,
-					}, delegation.WithNoExpiration())
-				if err != nil {
-					log.Errorw("unable to invoke pdp accept", "error", err)
-					return nil, nil, ufailure.FromError(fmt.Errorf("unable to invoke pdp accept: %w", err))
-				}
+			var acceptOK pdpcaps.AcceptOK
+			if err := acceptOK.UnmarshalCBOR(bytes.NewReader(okBytes)); err != nil {
+				return fmt.Errorf("decoding /pdp/accept receipt OK: %w", err)
+			}
 
-				// look up the receipt for the accept invocation
-				rcpt, err := storageService.Receipts().GetByRan(ctx, pieceAccept.Link())
-				if err != nil {
-					// This can happen when a piece is still awaiting aggregation
-					// TODO here is where a polling mechanism could be helpful
-					log.Errorw("looking up receipt", "error", err)
-					return nil, nil, ufailure.FromError(fmt.Errorf("looking up receipt: %w", err))
-				}
-				// rebind the receipt to get the specific types for pdp/accept
-				pieceAcceptReceipt, err := receipt.Rebind[pdp.AcceptOk, failure.FailureModel](rcpt, pdp.AcceptOkType(), failure.FailureType(), types.Converters...)
-				if err != nil {
-					log.Errorf("reading piece accept receipt: %w", err)
-					return nil, nil, err
-				}
-				// use the result from the accept receipt to generate the receipt for pdp/info
-				return result.MatchResultR3(pieceAcceptReceipt.Out(),
-					func(ok pdp.AcceptOk) (result.Result[pdp.InfoOk, ufailure.IPLDBuilderFailure], fx.Effects, error) {
-						// sanity check
-						commpCID := piece2.MultihashToCommpCID(resolvedCommp)
-						if ok.Piece.Link().String() != commpCID.String() {
-							log.Errorw("resolved piece CID does not match receipt piece CID", "expect", commpCID, "got", ok.Piece.Link().String())
-							return nil, nil, ufailure.FromError(fmt.Errorf("resolved piece CID %s does not match receipt piece CID %s", ok.Piece.Link().String(), commpCID.String()))
-						}
-						return result.Ok[pdp.InfoOk, ufailure.IPLDBuilderFailure](
-							pdp.InfoOk{
-								Piece: ok.Piece,
-								Aggregates: []pdp.InfoAcceptedAggregate{
-									{
-										Aggregate:      ok.Aggregate,
-										InclusionProof: ok.InclusionProof,
-									},
-								},
-							},
-						), nil, nil
+			return res.SetSuccess(&pdpcaps.InfoOK{
+				Piece: acceptOK.Piece,
+				Aggregates: []pdpcaps.InfoAcceptedAggregate{
+					{
+						Aggregate:      acceptOK.Aggregate,
+						InclusionProof: acceptOK.InclusionProof,
 					},
-					func(err failure.FailureModel) (result.Result[pdp.InfoOk, ufailure.IPLDBuilderFailure], fx.Effects, error) {
-						return nil, nil, failure.FromFailureModel(err)
-					},
-				)
-			},
-		),
-	)
+				},
+			})
+		}),
+	}
 }

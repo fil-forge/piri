@@ -1,15 +1,33 @@
 package aggregator_test
 
 import (
+	"io"
+	"math/rand"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
+	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fil-forge/go-libstoracha/piece/piece"
+	"github.com/fil-forge/libforge/piece/digest"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 )
+
+// randomPiece computes an aatodo_types.PieceLink from `size` bytes of
+// pseudo-random data. Replacement for the legacy testutil.RandomPiece helper.
+func randomPiece(t *testing.T, size int64) aatodo_types.PieceLink {
+	t.Helper()
+	src := io.LimitReader(rand.New(rand.NewSource(rand.Int63())), size)
+	cp := &commp.Calc{}
+	_, err := io.Copy(cp, src)
+	require.NoError(t, err)
+	commP, _, err := cp.Digest()
+	require.NoError(t, err)
+	pd, err := digest.FromCommitmentAndSize(commP, uint64(size))
+	require.NoError(t, err)
+	return *aatodo_types.FromPieceDigest(pd)
+}
 
 // Human-friendly byte sizes
 const (
@@ -172,15 +190,15 @@ func TestAggregatePieces(t *testing.T) {
 			// NB(forrest): run these in parallel since creating MBs of data isn't exactly "fast".
 			t.Parallel()
 			var (
-				buf        types.Buffer
-				aggregates []types.Aggregate
+				buf        aatodo_types.Buffer
+				aggregates []aatodo_types.Aggregate
 				err        error
-				pieces     []piece.PieceLink
+				pieces     []aatodo_types.PieceLink
 			)
 
 			// Build the input pieces
 			for _, size := range tc.pieceSizes {
-				pl := testutil.RandomPiece(t, size)
+				pl := randomPiece(t, size)
 				pieces = append(pieces, pl)
 			}
 

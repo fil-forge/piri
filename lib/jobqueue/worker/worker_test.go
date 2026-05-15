@@ -11,6 +11,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -36,7 +37,7 @@ func TestMain(m *testing.M) {
 
 func TestRunner_Register(t *testing.T) {
 	t.Run("can register a new job", func(t *testing.T) {
-		r, err := worker.New[[]byte](nil, nil)
+		r, err := worker.New[[]byte](nil, passThroughCodec{})
 		require.NoError(t, err)
 		require.NoError(t, r.Register("test", func(ctx context.Context, m []byte) error {
 			return nil
@@ -44,7 +45,7 @@ func TestRunner_Register(t *testing.T) {
 	})
 
 	t.Run("errors if the same job is registered twice", func(t *testing.T) {
-		r, err := worker.New[[]byte](nil, nil)
+		r, err := worker.New[[]byte](nil, passThroughCodec{})
 		require.NoError(t, err)
 		err = r.Register("test", func(ctx context.Context, m []byte) error {
 			return nil
@@ -64,7 +65,7 @@ func TestOnFailure(t *testing.T) {
 			}, backend)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -111,7 +112,7 @@ func TestOnFailure(t *testing.T) {
 			}, backend)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -151,7 +152,7 @@ func TestOnFailure(t *testing.T) {
 			}, backend)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -207,7 +208,7 @@ func TestDeadLetterQueue(t *testing.T) {
 			require.NoError(t, err)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -258,7 +259,7 @@ func TestDeadLetterQueue(t *testing.T) {
 			require.NoError(t, err)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -308,7 +309,7 @@ func TestDeadLetterQueue(t *testing.T) {
 			require.NoError(t, err)
 			r, err := worker.New[[]byte](
 				q,
-				&PassThroughSerializer[[]byte]{},
+				passThroughCodec{},
 				worker.WithLimit(10),
 			)
 			require.NoError(t, err)
@@ -462,7 +463,7 @@ func TestCreateTx(t *testing.T) {
 			db := internaltesting.NewDBForBackend(t, backend)
 			q, err := queue.New(queue.NewOpts{DB: db, Name: "test", Dialect: backend.Dialect()})
 			require.NoError(t, err)
-			r, err := worker.New[[]byte](q, &PassThroughSerializer[[]byte]{})
+			r, err := worker.New[[]byte](q, passThroughCodec{})
 			require.NoError(t, err)
 
 			var ran bool
@@ -491,7 +492,7 @@ func newRunnerForBackend(t *testing.T, backend internaltesting.Backend) (*queue.
 	q := internaltesting.NewQForBackend(t, queue.NewOpts{Timeout: 100 * time.Millisecond}, backend)
 	r, err := worker.New[[]byte](
 		q,
-		&PassThroughSerializer[[]byte]{},
+		passThroughCodec{},
 		worker.WithLimit(10),
 		worker.WithExtend(100*time.Millisecond),
 	)
@@ -499,21 +500,16 @@ func newRunnerForBackend(t *testing.T, backend internaltesting.Backend) (*queue.
 	return q, r
 }
 
-type PassThroughSerializer[T any] struct{}
+// passThroughCodec is a serializer.Codec[[]byte] that writes and reads the
+// payload bytes verbatim. Worker tests use []byte payloads to exercise queue
+// mechanics without depending on a codegen'd type.
+type passThroughCodec struct{}
 
-func (p PassThroughSerializer[T]) Serialize(val T) ([]byte, error) {
-	b, ok := any(val).([]byte)
-	if !ok {
-		return nil, fmt.Errorf("PassThroughSerializer only supports []byte, got %T", val)
-	}
-	return b, nil
+func (passThroughCodec) Encode(w io.Writer, v []byte) error {
+	_, err := w.Write(v)
+	return err
 }
 
-func (p PassThroughSerializer[T]) Deserialize(data []byte) (T, error) {
-	var zero T
-	// We cast []byte back to T, but T must be []byte or we return an error:
-	if _, ok := any(zero).([]byte); !ok {
-		return zero, fmt.Errorf("PassThroughSerializer only supports T = []byte")
-	}
-	return any(data).(T), nil
+func (passThroughCodec) Decode(r io.Reader) ([]byte, error) {
+	return io.ReadAll(r)
 }

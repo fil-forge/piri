@@ -3,11 +3,12 @@ package presigner
 import (
 	"fmt"
 
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/multiformats/go-multihash"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/go-libstoracha/digestutil"
+
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/presigner"
 )
@@ -25,7 +26,7 @@ func NewRequestPresigner(cfg app.AppConfig, id principal.Signer) (presigner.Requ
 	}
 
 	accessKeyID := id.DID().String()
-	idDigest, _ := multihash.Sum(id.Encode(), multihash.SHA2_256, -1)
+	idDigest, _ := multihash.Sum(id.Raw(), multihash.SHA2_256, -1)
 	secretAccessKey := digestutil.Format(idDigest)
 
 	return presigner.NewS3RequestPresigner(accessKeyID, secretAccessKey, cfg.Server.PublicURL, "blob")

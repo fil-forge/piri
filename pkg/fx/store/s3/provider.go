@@ -14,6 +14,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -29,7 +30,9 @@ var Module = fx.Module("s3-store",
 		NewAllocationStore,
 		NewAcceptanceStore,
 		NewClaimStore,
+		NewInvocationStore,
 		NewReceiptStore,
+		NewDelegationStore,
 		fx.Annotate(
 			NewPDPStore,
 			fx.As(fx.Self()),
@@ -45,7 +48,9 @@ type Stores struct {
 	Allocations   *minio_store.Store
 	Acceptances   *minio_store.Store
 	Claims        *minio_store.Store
+	Invocations   *minio_store.Store
 	Receipts      *minio_store.Store
+	Delegations   *minio_store.Store
 	PDP           *minio_store.Store
 	Consolidation *minio_store.Store
 }
@@ -87,8 +92,14 @@ func NewStores(cfg app.StorageConfig) (*Stores, error) {
 	if stores.Claims, err = minio_store.New(endpoint, prefix+"claims", options); err != nil {
 		return nil, fmt.Errorf("creating claims s3 store: %w", err)
 	}
+	if stores.Invocations, err = minio_store.New(endpoint, prefix+"invocations", options); err != nil {
+		return nil, fmt.Errorf("creating invocations s3 store: %w", err)
+	}
 	if stores.Receipts, err = minio_store.New(endpoint, prefix+"receipts", options); err != nil {
 		return nil, fmt.Errorf("creating receipts s3 store: %w", err)
+	}
+	if stores.Delegations, err = minio_store.New(endpoint, prefix+"delegations", options); err != nil {
+		return nil, fmt.Errorf("creating delegations s3 store: %w", err)
 	}
 	if stores.PDP, err = minio_store.New(endpoint, prefix+"pdp", options); err != nil {
 		return nil, fmt.Errorf("creating pdp s3 store: %w", err)
@@ -136,11 +147,23 @@ func NewAcceptanceStore(stores *Stores) acceptancestore.AcceptanceStore {
 }
 
 func NewClaimStore(stores *Stores) claimstore.ClaimStore {
-	return delegationstore.NewS3Store(stores.Claims)
+	return invocationstore.NewS3Store(stores.Claims)
+}
+
+// NewInvocationStore provides the generic invocation store used by the
+// storage UCAN server's Persister to record every inbound invocation.
+// Distinct from the claim store; reserved for /blob/accept,
+// /access/delegate etc. — not signed content claims.
+func NewInvocationStore(stores *Stores) invocationstore.InvocationStore {
+	return invocationstore.NewS3Store(stores.Invocations)
 }
 
 func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {
 	return receiptstore.NewS3Store(stores.Receipts)
+}
+
+func NewDelegationStore(stores *Stores) delegationstore.DelegationStore {
+	return delegationstore.NewS3Store(stores.Delegations)
 }
 
 // NewPDPStore provides the blob store. It also satisfies blobstore.BlobGetter.

@@ -7,20 +7,16 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/capabilities/space/egress"
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/ipfs/go-cid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/space/egress"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 
 	"github.com/fil-forge/piri/pkg/client/receipts"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
@@ -30,13 +26,20 @@ import (
 
 const journalRotationPeriod = time.Hour * 12
 
-// Service stores receipts from `space/content/retrieve` invocations, batches them and sends
-// them to an egress tracking service via `space/egress/track` invocations.
+// ErrNotMigrated indicates the egress tracker's outbound RPC is disabled
+// because no service connection has been configured. Journaling, cleanup,
+// and queue retry still run; only the outbound send is short-circuited.
+var ErrNotMigrated = errors.New("egress tracker outbound RPC disabled: no egress tracker service connection configured")
+
+// Service stores receipts from /content/retrieve invocations, batches them
+// and sends them to an egress tracking service via a /space/egress/track
+// invocation. When the service connection is not configured, the outbound
+// send returns ErrNotMigrated; reception, journaling, and cleanup still run.
 type Service struct {
 	id                   principal.Signer
 	egressTrackerDID     did.DID
-	egressTrackerProofs  delegation.Proofs
-	egressTrackerConn    client.Connection
+	egressTrackerConn    execution.Executor
+	egressTrackerProofs  []cid.Cid
 	batchEndpoint        *url.URL
 	journal              retrievaljournal.Journal
 	journalRotator       *retrievaljournal.PeriodicRotator
@@ -50,8 +53,9 @@ type Service struct {
 
 func New(
 	id principal.Signer,
-	egressTrackerConn client.Connection,
-	egressTrackerProofs delegation.Proofs,
+	egressTrackerDID did.DID,
+	egressTrackerConn execution.Executor,
+	egressTrackerProofs []cid.Cid,
 	batchEndpoint *url.URL,
 	journal retrievaljournal.Journal,
 	consolidationStore consolidationstore.Store,
@@ -59,8 +63,6 @@ func New(
 	rcptsClient *receipts.Client,
 	cleanupCheckInterval time.Duration,
 ) (*Service, error) {
-	// if the journal supports forced rotation, set up a periodic rotator to
-	// ensure batches are rotated even during low traffic periods
 	var journalRotator *retrievaljournal.PeriodicRotator
 	if fr, ok := journal.(retrievaljournal.ForceRotator); ok {
 		journalRotator = retrievaljournal.NewPeriodicRotator(fr, journalRotationPeriod)
@@ -68,9 +70,9 @@ func New(
 
 	svc := &Service{
 		id:                   id,
-		egressTrackerDID:     egressTrackerConn.ID().DID(),
-		egressTrackerProofs:  egressTrackerProofs,
+		egressTrackerDID:     egressTrackerDID,
 		egressTrackerConn:    egressTrackerConn,
+		egressTrackerProofs:  egressTrackerProofs,
 		batchEndpoint:        batchEndpoint,
 		journal:              journal,
 		journalRotator:       journalRotator,
@@ -85,8 +87,6 @@ func New(
 		return nil, fmt.Errorf("registering egress track task: %w", err)
 	}
 
-	// set the RotateFunc to enqueue a track task for the rotated batch when a
-	// rotation occurs periodically
 	if journalRotator != nil {
 		journalRotator.RotateFunc = func(batchID cid.Cid) {
 			if err := svc.enqueueEgressTrackTask(context.Background(), batchID); err != nil {
@@ -98,18 +98,16 @@ func New(
 	return svc, nil
 }
 
-func (s *Service) AddReceipt(ctx context.Context, rcpt receipt.Receipt[content.RetrieveOk, failure.FailureModel]) error {
+func (s *Service) AddReceipt(ctx context.Context, rcpt *receipt.Receipt) error {
 	batchRotated, rotatedBatchCID, err := s.journal.Append(ctx, rcpt)
 	if err != nil {
 		return fmt.Errorf("adding receipt to store: %w", err)
 	}
-
 	if batchRotated {
 		if err := s.enqueueEgressTrackTask(ctx, rotatedBatchCID); err != nil {
 			return fmt.Errorf("enqueuing egress track task: %w", err)
 		}
 	}
-
 	return nil
 }
 
@@ -118,75 +116,60 @@ func (s *Service) enqueueEgressTrackTask(ctx context.Context, batchCID cid.Cid) 
 }
 
 func (s *Service) egressTrack(ctx context.Context, batchCID cid.Cid) error {
+	// No service connection configured: journaling/cleanup still run, but the
+	// outbound /space/egress/track invocation is short-circuited.
+	if s.egressTrackerConn == nil {
+		return ErrNotMigrated
+	}
+	endpoint := capabilities.CborURL(*s.batchEndpoint)
 	trackInv, err := egress.Track.Invoke(
 		s.id,
 		s.egressTrackerDID,
-		s.egressTrackerDID.String(),
-		egress.TrackCaveats{
-			Receipts: cidlink.Link{Cid: batchCID},
-			Endpoint: s.batchEndpoint,
+		&egress.TrackArguments{
+			Receipts: batchCID,
+			Endpoint: endpoint,
 		},
-		delegation.WithProof(s.egressTrackerProofs...),
-		delegation.WithNoExpiration(),
+		invocation.WithAudience(s.egressTrackerDID),
+		invocation.WithProofs(s.egressTrackerProofs...),
+		invocation.WithNoExpiration(),
 	)
 	if err != nil {
 		return fmt.Errorf("creating invocation: %w", err)
 	}
 
-	resp, err := client.Execute(ctx, []invocation.Invocation{trackInv}, s.egressTrackerConn)
+	resp, err := s.egressTrackerConn.Execute(execution.NewRequest(ctx, trackInv))
 	if err != nil {
 		return fmt.Errorf("executing invocation: %w", err)
 	}
 
-	rcptLnk, ok := resp.Get(trackInv.Link())
-	if !ok {
-		return fmt.Errorf("missing receipt for invocation: %s", trackInv.Link().String())
+	rcpt := resp.Receipt()
+	if rcpt == nil {
+		return fmt.Errorf("response missing receipt for invocation: %s", trackInv.Link())
+	}
+	if rcpt.Out().IsErr() {
+		// TODO(forrest)[ucan1]: this error message isn't helpful with just bytes, might need a ucan error schema.
+		_, errBytes := rcpt.Out().Unpack()
+		return fmt.Errorf("invocation failed: %s", string(errBytes))
 	}
 
-	blocks, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(resp.Blocks()))
-	if err != nil {
-		return fmt.Errorf("importing response blocks into blockstore: %w", err)
+	// The egress tracker forks a `/space/egress/consolidate` invocation as a
+	// side effect. In UCAN 1.0 side-effect invocations travel in the response
+	// container metadata rather than on the receipt itself.
+	meta := resp.Metadata()
+	if meta == nil {
+		return fmt.Errorf("response has no metadata container")
 	}
-
-	rcptReader, err := receipt.NewReceiptReaderFromTypes[egress.TrackOk, failure.FailureModel](egress.TrackOkType(), failure.FailureType(), captypes.Converters...)
-	if err != nil {
-		return fmt.Errorf("constructing receipt reader: %w", err)
+	sideEffects := meta.Invocations()
+	if len(sideEffects) != 1 {
+		return fmt.Errorf("expected exactly one side-effect invocation, got: %d", len(sideEffects))
 	}
+	consolidateLink := sideEffects[0].Link()
 
-	rcpt, err := rcptReader.Read(rcptLnk, blocks.Iterator())
-	if err != nil {
-		return fmt.Errorf("reading receipt: %w", err)
-	}
-
-	_, x := result.Unwrap(rcpt.Out())
-	var emptyErr failure.FailureModel
-	if x != emptyErr {
-		return fmt.Errorf("invocation failed: %s", x.Message)
-	}
-
-	// Extract the consolidate invocation from the receipt's effects
-	effects := rcpt.Fx()
-	if effects == nil {
-		return fmt.Errorf("receipt has no effects")
-	}
-
-	forks := effects.Fork()
-	if len(forks) != 1 {
-		return fmt.Errorf("expected exactly one fork effect, but got: %d", len(forks))
-	}
-
-	consolidateInvLink := forks[0].Link()
-
-	// Store the track invocation and consolidate CID (indexed by batch CID)
-	consolidateCID := consolidateInvLink.(cidlink.Link).Cid
-	c := consolidation.Consolidation{
-		TrackInvocation:          trackInv,
-		ConsolidateInvocationCID: consolidateCID,
-	}
+	c := consolidation.New(trackInv, consolidateLink)
 	if err := s.consolidationStore.Put(ctx, batchCID, c); err != nil {
 		return fmt.Errorf("storing track invocation in consolidation store: %w", err)
 	}
-	log.Infof("stored track invocation with consolidate invocation %s for batch %s", consolidateInvLink.String(), batchCID.String())
+	log.Infof("stored track invocation with consolidate invocation %s for batch %s", consolidateLink, batchCID)
 
 	return nil
 }
@@ -280,8 +263,7 @@ func (s *Service) checkAndRemoveConsolidatedBatch(ctx context.Context, batchCID 
 		return nil
 	}
 
-	// Fetch the consolidate receipt from the egress tracker's receipts endpoint
-	rcpt, err := s.rcptsClient.Fetch(ctx, cidlink.Link{Cid: c.ConsolidateInvocationCID})
+	rcpt, err := s.rcptsClient.Fetch(ctx, c.ConsolidateInvocationCID)
 	if err != nil {
 		if errors.Is(err, receipts.ErrNotFound) {
 			log.Debugf("consolidate receipt not yet available for batch %s", batchCID)
@@ -291,12 +273,7 @@ func (s *Service) checkAndRemoveConsolidatedBatch(ctx context.Context, batchCID 
 		return fmt.Errorf("fetching consolidate receipt: %w", err)
 	}
 
-	log.Debugf("consolidate receipt fetched for batch %s", batchCID.String())
-
-	// Use the track invocation from the consolidation data
-	trackInv := c.TrackInvocation
-
-	if err := s.validateConsolidateReceipt(rcpt, trackInv); err != nil {
+	if err := s.validateConsolidateReceipt(rcpt); err != nil {
 		return fmt.Errorf("receipt failed validation: %w", err)
 	}
 
@@ -316,7 +293,7 @@ func (s *Service) checkAndRemoveConsolidatedBatch(ctx context.Context, batchCID 
 	return nil
 }
 
-func (s *Service) validateConsolidateReceipt(receipt receipt.AnyReceipt, trackInv invocation.Invocation) error {
+func (s *Service) validateConsolidateReceipt(_ ucan.Receipt) error {
 	// TODO: Validate the receipt. This will include checking the receipt matches the original track invocation
 	// and confirming that the consolidated amount of bytes matches our records.
 	return nil

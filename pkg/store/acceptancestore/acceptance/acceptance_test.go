@@ -5,13 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
-	"github.com/ipld/go-ipld-prime/codec/dagjson"
+	"github.com/fil-forge/libforge/testutil"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 )
 
 func TestRoundtrip(t *testing.T) {
+	codec := acceptance.Codec{}
+
 	t.Run("without PDP", func(t *testing.T) {
 		a := acceptance.Acceptance{
 			Space: testutil.RandomDID(t),
@@ -23,11 +25,10 @@ func TestRoundtrip(t *testing.T) {
 			Cause:      testutil.RandomCID(t),
 		}
 
-		buf, err := acceptance.Encode(a, dagjson.Encode)
+		buf, err := codec.Encode(a)
 		require.NoError(t, err)
-		t.Log(string(buf))
 
-		a2, err := acceptance.Decode(buf, dagjson.Decode)
+		a2, err := codec.Decode(buf)
 		require.NoError(t, err)
 		require.Equal(t, a, a2)
 	})
@@ -49,11 +50,10 @@ func TestRoundtrip(t *testing.T) {
 			Cause:      testutil.RandomCID(t),
 		}
 
-		buf, err := acceptance.Encode(a, dagjson.Encode)
+		buf, err := codec.Encode(a)
 		require.NoError(t, err)
-		t.Log(string(buf))
 
-		a2, err := acceptance.Decode(buf, dagjson.Decode)
+		a2, err := codec.Decode(buf)
 		require.NoError(t, err)
 		require.Equal(t, a, a2)
 	})

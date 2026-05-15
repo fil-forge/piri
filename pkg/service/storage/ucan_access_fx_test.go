@@ -1,342 +1,155 @@
 package storage_test
 
 import (
+	"io"
+	"net/http"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/go-ucanto/validator"
-	"github.com/fil-forge/piri/pkg/fx/app"
-	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
-	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/multiformats/go-multihash"
+	accesscaps "github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ipld/codec/dagcbor"
+	ucanserver "github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/command"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
+
+	"github.com/fil-forge/piri/pkg/fx/app"
+	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 )
 
-func TestFXAccessGrant(t *testing.T) {
-	var svc storage.Service
+// TestFXAccessDelegateAndClaim exercises the round-trip:
+//
+//  1. An agent (Bob) builds a delegation that piri (the service) grants to
+//     itself for `/test/test` against itself, and pushes the delegation to
+//     piri via `/access/delegate` (with the delegation bytes attached as a
+//     proof block).
+//  2. The same agent invokes `/access/claim` against piri to retrieve the
+//     stored delegation.
+//
+// The /access/delegate handler stores delegations into piri's delegation
+// store keyed by root CID. /access/claim looks up delegations whose
+// audience matches the invocation's issuer DID and returns their CIDs in
+// the receipt, with the delegation bytes attached in the response container.
+func TestFXAccessDelegateAndClaim(t *testing.T) {
+	type srvParam struct {
+		fx.In
+		Server *ucanserver.HTTPServer `name:"storage_ucan_server"`
+	}
+	var srv srvParam
 
-	granter := testutil.Alice
-	strnde := testutil.Bob
-	idxsvc := testutil.Mallory
-	upsvc := testutil.WebService
+	piriID := testutil.Alice
+	bob := testutil.Bob
 
-	appConfig := piritestutil.NewTestConfig(
-		t,
-		piritestutil.WithSigner(granter),
-		piritestutil.WithUploadServiceConfig(upsvc.DID(), testutil.TestURL),
-	)
+	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(piriID))
 	testApp := fxtest.New(t,
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		// use the map resolver so no network calls are made that would fail anyway
-		fx.Decorate(func() validator.PrincipalResolver {
-			return testutil.Must(principalresolver.NewMapResolver(map[string]string{
-				upsvc.DID().String(): upsvc.Unwrap().DID().String(),
-			}))(t)
-		}),
-		fx.Populate(&svc),
+		fx.Populate(&srv),
 	)
-
 	testApp.RequireStart()
 	defer testApp.RequireStop()
-	piritestutil.WaitForHealthy(t, &appConfig.Server.PublicURL)
 
-	channel := http.NewChannel(&appConfig.Server.PublicURL)
-	conn, err := client.NewConnection(granter, channel)
+	testCmd, err := command.Parse("/test/test")
 	require.NoError(t, err)
 
-	cid := testutil.RandomCID(t)
-	digest := testutil.RandomMultihash(t)
+	// Build a delegation: piri delegates `/test/test` to Bob.
+	dlg, err := delegation.Delegate(
+		piriID,
+		bob.DID(),
+		piriID.DID(),
+		testCmd,
+		delegation.WithNoExpiration(),
+	)
+	require.NoError(t, err)
 
-	testCases := []struct {
-		name         string
-		granter      ucan.Signer
-		grantee      ucan.Signer
-		ability      ucan.Ability
-		cause        invocation.Invocation
-		expectDigest multihash.Multihash
-		expectError  string
-	}{
-		{
-			name:    "grant blob/retrieve for blob/replica/allocate",
-			granter: granter,
-			grantee: strnde,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				replica.Allocate.Invoke(
-					upsvc,
-					strnde,
-					strnde.DID().String(),
-					replica.AllocateCaveats{
-						Space: testutil.RandomDID(t),
-						Blob: types.Blob{
-							Digest: digest,
-							Size:   1234,
-						},
-						Site:  testutil.RandomCID(t),
-						Cause: testutil.RandomCID(t),
-					},
-					delegation.WithProof(
-						delegation.FromDelegation(
-							testutil.Must(
-								delegation.Delegate(
-									strnde,
-									upsvc,
-									[]ucan.Capability[ucan.NoCaveats]{
-										ucan.NewCapability(replica.AllocateAbility, strnde.DID().String(), ucan.NoCaveats{}),
-									},
-								),
-							)(t),
-						),
-					),
-				),
-			)(t),
-			expectDigest: digest,
-		},
-		{
-			name:    "unauthorized blob/replica/allocate cause",
-			granter: granter,
-			grantee: strnde,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				replica.Allocate.Invoke(
-					upsvc,
-					strnde,
-					strnde.DID().String(),
-					replica.AllocateCaveats{
-						Space: testutil.RandomDID(t),
-						Blob: types.Blob{
-							Digest: digest,
-							Size:   1234,
-						},
-						Site:  testutil.RandomCID(t),
-						Cause: testutil.RandomCID(t),
-					},
-				),
-			)(t),
-			expectError: access.UnauthorizedCauseErrorName,
-		},
-		{
-			name:    "grant blob/retrieve for assert/index",
-			granter: granter,
-			grantee: idxsvc,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				assert.Index.Invoke(
-					upsvc,
-					idxsvc,
-					idxsvc.DID().String(),
-					assert.IndexCaveats{
-						Content: testutil.RandomCID(t),
-						Index:   cid,
-					},
-					delegation.WithProof(
-						delegation.FromDelegation(
-							testutil.Must(
-								delegation.Delegate(
-									idxsvc,
-									upsvc,
-									[]ucan.Capability[ucan.NoCaveats]{
-										ucan.NewCapability(assert.IndexAbility, idxsvc.DID().String(), ucan.NoCaveats{}),
-									},
-								),
-							)(t),
-						),
-					),
-				),
-			)(t),
-			expectDigest: cid.(cidlink.Link).Hash(),
-		},
-		{
-			name:    "unauthorized assert/index cause",
-			granter: granter,
-			grantee: idxsvc,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				assert.Index.Invoke(
-					upsvc,
-					idxsvc,
-					idxsvc.DID().String(),
-					assert.IndexCaveats{
-						Content: testutil.RandomCID(t),
-						Index:   cid,
-					},
-				),
-			)(t),
-			expectError: access.UnauthorizedCauseErrorName,
-		},
-		{
-			name:    "cause audience mismatch",
-			granter: granter,
-			grantee: idxsvc,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				replica.Allocate.Invoke(
-					upsvc,
-					strnde,
-					strnde.DID().String(),
-					replica.AllocateCaveats{
-						Space: testutil.RandomDID(t),
-						Blob: types.Blob{
-							Digest: digest,
-							Size:   1234,
-						},
-						Site:  testutil.RandomCID(t),
-						Cause: testutil.RandomCID(t),
-					},
-					delegation.WithProof(
-						delegation.FromDelegation(
-							testutil.Must(
-								delegation.Delegate(
-									strnde,
-									upsvc,
-									[]ucan.Capability[ucan.NoCaveats]{
-										ucan.NewCapability(replica.AllocateAbility, strnde.DID().String(), ucan.NoCaveats{}),
-									},
-								),
-							)(t),
-						),
-					),
-				),
-			)(t),
-			expectError: access.InvalidCauseErrorName,
-		},
-		{
-			name:    "cause issuer mismatch",
-			granter: granter,
-			grantee: strnde,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				replica.Allocate.Invoke(
-					strnde,
-					strnde,
-					strnde.DID().String(),
-					replica.AllocateCaveats{
-						Space: testutil.RandomDID(t),
-						Blob: types.Blob{
-							Digest: digest,
-							Size:   1234,
-						},
-						Site:  testutil.RandomCID(t),
-						Cause: testutil.RandomCID(t),
-					},
-				),
-			)(t),
-			expectError: access.InvalidCauseErrorName,
-		},
-		{
-			name:        "request grant for unknown capability",
-			granter:     granter,
-			grantee:     strnde,
-			ability:     "unknown/ability",
-			expectError: access.UnknownAbilityErrorName,
-		},
-		{
-			name:    "unknown cause invocation",
-			granter: granter,
-			grantee: strnde,
-			ability: blob.RetrieveAbility,
-			cause: testutil.Must(
-				assert.Equals.Invoke(
-					upsvc,
-					strnde,
-					strnde.DID().String(),
-					assert.EqualsCaveats{
-						Content: types.FromHash(digest),
-						Equals:  testutil.RandomCID(t),
-					},
-					delegation.WithProof(
-						delegation.FromDelegation(
-							testutil.Must(
-								delegation.Delegate(
-									strnde,
-									upsvc,
-									[]ucan.Capability[ucan.NoCaveats]{
-										ucan.NewCapability(assert.EqualsAbility, strnde.DID().String(), ucan.NoCaveats{}),
-									},
-								),
-							)(t),
-						),
-					),
-				),
-			)(t),
-			expectError: access.UnknownCauseErrorName,
-		},
-		{
-			name:        "missing cause",
-			granter:     granter,
-			grantee:     strnde,
-			ability:     blob.RetrieveAbility,
-			expectError: access.MissingCauseErrorName,
-		},
-	}
+	// Step 1: /access/delegate — Bob pushes the delegation to piri. Bob is
+	// both the issuer and subject of the invocation (he's storing
+	// delegations he authored). The audience is piri's identity, the
+	// service that holds the storage.
+	t.Run("delegate stores the delegation", func(t *testing.T) {
+		delegateInv, err := accesscaps.Delegate.Invoke(
+			bob,
+			bob.DID(),
+			&accesscaps.DelegateArguments{Delegations: []cid.Cid{dlg.Link()}},
+			invocation.WithAudience(piriID.DID()),
+		)
+		require.NoError(t, err)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			nb := access.GrantCaveats{
-				Att: []access.CapabilityRequest{{Can: tc.ability}},
+		ct := container.New(
+			container.WithInvocations(delegateInv),
+			container.WithDelegations(dlg),
+		)
+		rcpts := roundTrip(t, srv.Server, ct)
+		require.Len(t, rcpts, 1)
+		o, x := rcpts[0].Out().Unpack()
+		require.Nil(t, x, "unexpected failure receipt")
+		require.NotNil(t, o)
+	})
+
+	// Step 2: /access/claim — Bob retrieves delegations addressed to him.
+	t.Run("claim returns the stored delegation", func(t *testing.T) {
+		claimInv, err := accesscaps.Claim.Invoke(
+			bob,
+			bob.DID(),
+			&accesscaps.ClaimArguments{},
+			invocation.WithAudience(piriID.DID()),
+		)
+		require.NoError(t, err)
+
+		ct := container.New(container.WithInvocations(claimInv))
+		rcpts := roundTrip(t, srv.Server, ct)
+		require.Len(t, rcpts, 1)
+
+		// The response container should also carry the delegation bytes.
+		// roundTrip returns only the receipts, so re-do the round-trip
+		// directly here to inspect the container.
+		respCt := serverRoundTrip(t, srv.Server, ct)
+		require.Len(t, respCt.Receipts(), 1)
+		require.GreaterOrEqual(t, len(respCt.Delegations()), 1, "expected at least one delegation in response container")
+
+		var foundCID bool
+		for _, d := range respCt.Delegations() {
+			if d.Link() == dlg.Link() {
+				foundCID = true
+				break
 			}
-			if tc.cause != nil {
-				nb.Cause = tc.cause.Link()
-			}
+		}
+		require.True(t, foundCID, "claimed delegation %s not present in response container", dlg.Link())
+	})
+}
 
-			inv, err := access.Grant.Invoke(tc.grantee, tc.granter, tc.grantee.DID().String(), nb)
-			require.NoError(t, err)
+// roundTrip POSTs a container to the storage UCAN server and returns the
+// response container's receipts.
+func roundTrip(t *testing.T, srv *ucanserver.HTTPServer, ct *container.Container) []ucan.Receipt {
+	t.Helper()
+	respCt := serverRoundTrip(t, srv, ct)
+	return respCt.Receipts()
+}
 
-			if tc.cause != nil {
-				for b, err := range tc.cause.Export() {
-					require.NoError(t, err)
-					inv.Attach(b)
-				}
-			}
+func serverRoundTrip(t *testing.T, srv *ucanserver.HTTPServer, ct *container.Container) *container.Container {
+	t.Helper()
+	r, w := io.Pipe()
+	go func() {
+		err := ct.MarshalCBOR(w)
+		w.CloseWithError(err)
+	}()
 
-			xres, err := client.Execute(t.Context(), []invocation.Invocation{inv}, conn)
-			require.NoError(t, err)
+	req := http.Request{Header: http.Header{}, Body: r}
+	req.Header.Set("Content-Type", dagcbor.ContentType)
 
-			rcptLink, ok := xres.Get(inv.Link())
-			require.True(t, ok)
+	resp, err := srv.RoundTrip(&req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
 
-			rcptReader, err := access.NewGrantReceiptReader()
-			require.NoError(t, err)
-
-			rcpt, err := rcptReader.Read(rcptLink, xres.Blocks())
-			require.NoError(t, err)
-
-			o, x := result.Unwrap(rcpt.Out())
-
-			if tc.expectError != "" {
-				require.Empty(t, o)
-				t.Logf("%s: %s", x.Name(), x.Error())
-				require.Equal(t, tc.expectError, x.Name())
-			} else {
-				require.Empty(t, x)
-				require.Len(t, o.Delegations.Values, 1)
-
-				dlgBytes := o.Delegations.Values[o.Delegations.Keys[0]]
-				dlg, err := delegation.Extract(dlgBytes)
-				require.NoError(t, err)
-				require.Equal(t, blob.RetrieveAbility, dlg.Capabilities()[0].Can())
-
-				match, err := blob.Retrieve.Match(validator.NewSource(dlg.Capabilities()[0], dlg))
-				require.NoError(t, err)
-				require.Equal(t, tc.expectDigest, match.Value().Nb().Blob.Digest)
-			}
-		})
-	}
+	respCt := &container.Container{}
+	err = respCt.UnmarshalCBOR(resp.Body)
+	require.NoError(t, err)
+	return respCt
 }

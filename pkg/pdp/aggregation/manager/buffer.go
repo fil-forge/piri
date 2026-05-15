@@ -2,46 +2,25 @@ package manager
 
 import (
 	"context"
-	// for go:embed
-	_ "embed"
 	"fmt"
 	"sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"github.com/ipld/go-ipld-prime"
-	"github.com/ipld/go-ipld-prime/datamodel"
-	"github.com/ipld/go-ipld-prime/schema"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/internal/ipldstore"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 )
-
-//go:embed buffer.ipldsch
-var bufferSchema []byte
-
-var bufferTS *schema.TypeSystem
-
-func init() {
-	ts, err := ipld.LoadSchemaBytes(bufferSchema)
-	if err != nil {
-		panic(fmt.Errorf("loading submission buffer schema: %w", err))
-	}
-	bufferTS = ts
-}
-
-type Aggregation struct {
-	Roots []datamodel.Link
-}
 
 // BufferStore provides persistent storage for submission state
 type BufferStore interface {
 	// Aggregation retrieves the pending pieces aggregation.
-	Aggregation(context.Context) (Aggregation, error)
+	Aggregation(context.Context) (aatodo_types.Aggregation, error)
 	// AppendRoots adds roots to the pending aggregation
-	AppendRoots(context.Context, []datamodel.Link) error
+	AppendRoots(context.Context, []cid.Cid) error
 	// ClearRoots removes all roots from the current aggregation.
 	ClearRoots(context.Context) error
 }
@@ -53,7 +32,7 @@ func (aggBufferKey) String() string { return "aggregate_buffer" }
 
 type submissionWorkspace struct {
 	storeMu sync.RWMutex
-	store   ipldstore.KVStore[aggBufferKey, Aggregation]
+	store   ipldstore.KVStore[aggBufferKey, aatodo_types.Aggregation]
 }
 
 type SubmissionWorkspaceParams struct {
@@ -67,48 +46,38 @@ const ManagerKey = "manager/"
 func NewSubmissionWorkspace(params SubmissionWorkspaceParams) (BufferStore, error) {
 	ss := store.SimpleStoreFromDatastore(namespace.Wrap(params.Datastore, datastore.NewKey(ManagerKey)))
 	sw := &submissionWorkspace{
-		store: ipldstore.IPLDStore[aggBufferKey, Aggregation](
-			ss,
-			bufferTS.TypeByName("Aggregates"),
-			types.Converters...,
-		),
+		store: ipldstore.CBORStore[aggBufferKey, aatodo_types.Aggregation](ss),
 	}
 
 	// Initialize empty buffer at creation time to avoid race conditions
 	// and side effects in read operations
 	ctx := context.Background()
-	emptyBuffer := Aggregation{
-		Roots: []datamodel.Link{},
-	}
-	err := sw.store.Put(ctx, aggBufferKey{}, emptyBuffer)
-	if err != nil {
+	if err := sw.store.Put(ctx, aggBufferKey{}, aatodo_types.Aggregation{Roots: []cid.Cid{}}); err != nil {
 		return nil, fmt.Errorf("putting empty buffer: %w", err)
 	}
 
 	return sw, nil
 }
 
-// Aggregates retrieves the current submission buffer state
-func (sw *submissionWorkspace) Aggregation(ctx context.Context) (Aggregation, error) {
+// Aggregation retrieves the current submission buffer state
+func (sw *submissionWorkspace) Aggregation(ctx context.Context) (aatodo_types.Aggregation, error) {
 	sw.storeMu.RLock()
 	defer sw.storeMu.RUnlock()
 
 	buf, err := sw.store.Get(ctx, aggBufferKey{})
 	if err != nil {
-		// If not found, return empty aggregates (should not happen after initialization)
+		// If not found, return empty aggregation (should not happen after initialization)
 		if store.IsNotFound(err) {
-			return Aggregation{
-				Roots: []datamodel.Link{},
-			}, nil
+			return aatodo_types.Aggregation{Roots: []cid.Cid{}}, nil
 		}
-		return Aggregation{}, fmt.Errorf("reading submission buffer: %w", err)
+		return aatodo_types.Aggregation{}, fmt.Errorf("reading submission buffer: %w", err)
 	}
 	return buf, nil
 }
 
-// AppendAggregates atomically appends new aggregates to the buffer
-func (sw *submissionWorkspace) AppendRoots(ctx context.Context, aggregates []datamodel.Link) error {
-	if len(aggregates) == 0 {
+// AppendRoots atomically appends new roots to the buffer
+func (sw *submissionWorkspace) AppendRoots(ctx context.Context, roots []cid.Cid) error {
+	if len(roots) == 0 {
 		return nil
 	}
 
@@ -118,10 +87,8 @@ func (sw *submissionWorkspace) AppendRoots(ctx context.Context, aggregates []dat
 	buffer, err := sw.store.Get(ctx, aggBufferKey{})
 	if err != nil {
 		return fmt.Errorf("getting buffer for append: %w", err)
-	} else {
-		// Append to existing buffer
-		buffer.Roots = append(buffer.Roots, aggregates...)
 	}
+	buffer.Roots = append(buffer.Roots, roots...)
 
 	if err := sw.store.Put(ctx, aggBufferKey{}, buffer); err != nil {
 		return fmt.Errorf("saving buffer after append: %w", err)
@@ -130,12 +97,10 @@ func (sw *submissionWorkspace) AppendRoots(ctx context.Context, aggregates []dat
 	return nil
 }
 
-// ClearAggregates atomically clears the pending aggregates while preserving other state
+// ClearRoots atomically clears the pending roots
 func (sw *submissionWorkspace) ClearRoots(ctx context.Context) error {
 	sw.storeMu.Lock()
 	defer sw.storeMu.Unlock()
 
-	return sw.store.Put(ctx, aggBufferKey{}, Aggregation{
-		Roots: []datamodel.Link{},
-	})
+	return sw.store.Put(ctx, aggBufferKey{}, aatodo_types.Aggregation{Roots: []cid.Cid{}})
 }

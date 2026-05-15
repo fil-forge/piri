@@ -3,32 +3,33 @@ package delegationstore
 import (
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDelegationStore(t *testing.T) {
 	t.Run("roundtrip", func(t *testing.T) {
-		store := NewDatastoreStore(datastore.NewMapDatastore())
+		s := NewDatastoreStore(datastore.NewMapDatastore())
+
+		issuer := testutil.RandomSigner(t)
+		audience := testutil.RandomDID(t)
 
 		dlg, err := delegation.Delegate(
-			testutil.RandomSigner(t),
-			testutil.RandomDID(t),
-			[]ucan.Capability[ok.Unit]{
-				ucan.NewCapability("test/test", testutil.RandomDID(t).String(), ok.Unit{}),
-			},
+			issuer,
+			audience,
+			issuer.DID(),
+			"/test/test",
+			delegation.WithNoExpiration(),
 		)
 		require.NoError(t, err)
 
-		err = store.Put(t.Context(), dlg)
+		err = s.Put(t.Context(), dlg)
 		require.NoError(t, err)
 
-		res, err := store.Get(t.Context(), dlg.Link())
+		got, err := s.Get(t.Context(), dlg.Link())
 		require.NoError(t, err)
-		testutil.RequireEqualDelegation(t, dlg, res)
+		require.Equal(t, dlg.Bytes(), got.Bytes())
 	})
 }

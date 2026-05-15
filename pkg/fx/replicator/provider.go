@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/fil-forge/go-ucanto/principal"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
@@ -51,10 +52,10 @@ func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.Job
 		d = dialect.Postgres
 	}
 
-	replicationQueue, err := jobqueue.New[*replicahandler.TransferRequest](
+	replicationQueue, err := jobqueue.New(
 		"replication",
 		params.DB,
-		&serializer.JSON[*replicahandler.TransferRequest]{},
+		serializer.JSON[*replicahandler.TransferRequest](),
 		jobqueue.WithLogger(log.With("queue", "replication")),
 		jobqueue.WithMaxRetries(params.Config.MaxRetries),
 		jobqueue.WithMaxWorkers(params.Config.MaxWorkers),

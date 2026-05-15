@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/libforge/testutil"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 

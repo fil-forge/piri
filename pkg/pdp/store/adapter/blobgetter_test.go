@@ -7,18 +7,20 @@ import (
 	"io"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/multiformats/go-multihash"
+	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/libforge/testutil"
+
 	"github.com/fil-forge/piri/pkg/pdp/store/adapter"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/multiformats/go-multihash"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBlobGetterAdapter(t *testing.T) {
 	t.Run("gets a piece from blob hash", func(t *testing.T) {
 		data := testutil.RandomBytes(t, 128)
-		digest := testutil.MultihashFromBytes(t, data)
+		digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 
 		reader := mockPieceReader{map[string][]byte{digest.String(): data}}
 
@@ -32,7 +34,7 @@ func TestBlobGetterAdapter(t *testing.T) {
 
 	t.Run("gets a byte range of a piece from blob hash", func(t *testing.T) {
 		data := testutil.RandomBytes(t, 128)
-		digest := testutil.MultihashFromBytes(t, data)
+		digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 
 		reader := mockPieceReader{map[string][]byte{digest.String(): data}}
 

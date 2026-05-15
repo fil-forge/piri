@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +17,7 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 )
@@ -34,7 +33,7 @@ func NewAddRootsTaskHandler(
 	proofSet pdptypes.ProofSetIDProvider,
 	store types.Store,
 	accepter *PieceAcceptor,
-) jobqueue.TaskHandler[[]datamodel.Link] {
+) jobqueue.TaskHandler[*aatodo_types.Aggregation] {
 	return &AddRootsTaskHandler{
 		api:           api,
 		proofSet:      proofSet,
@@ -54,7 +53,7 @@ func (a *AddRootsTaskHandler) Name() string {
 	return HandlerName
 }
 
-func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link) (retErr error) {
+func (a *AddRootsTaskHandler) Handle(ctx context.Context, batch *aatodo_types.Aggregation) (retErr error) {
 	ctx, span := traceutil.StartSpan(ctx, tracer, "manager.Handle")
 	defer func() {
 		if retErr != nil {
@@ -64,7 +63,7 @@ func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link
 		span.End()
 	}()
 
-	if err := a.pieceAcceptor.AcceptPieces(ctx, links); err != nil {
+	if err := a.pieceAcceptor.AcceptPieces(ctx, batch.Roots); err != nil {
 		return fmt.Errorf("failed to accept pieces: %w", err)
 	}
 	span.AddEvent("accepted pieces")
@@ -76,29 +75,20 @@ func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link
 	span.SetAttributes(attribute.Int64("dataset.id", int64(proofSetID)))
 
 	// build the set of roots we will add
-	roots := make([]pdptypes.RootAdd, len(links))
-	for i, aggregateLink := range links {
+	roots := make([]pdptypes.RootAdd, len(batch.Roots))
+	for i, aggregateLink := range batch.Roots {
 		// fetch each aggregate to submit
-		a, err := a.store.Get(ctx, aggregateLink)
+		agg, err := a.store.Get(ctx, aggregateLink)
 		if err != nil {
 			return fmt.Errorf("reading aggregates: %w", err)
 		}
-		// record its root
-		rootCID, err := cid.Decode(a.Root.Link().String())
-		if err != nil {
-			return fmt.Errorf("failed to decode aggregate root CID: %w", err)
-		}
 		// subroots
-		subRoots := make([]cid.Cid, len(a.Pieces))
-		for j, p := range a.Pieces {
-			pcid, err := cid.Decode(p.Link.Link().String())
-			if err != nil {
-				return fmt.Errorf("failed to decode piece CID: %w", err)
-			}
-			subRoots[j] = pcid
+		subRoots := make([]cid.Cid, len(agg.Pieces))
+		for j, p := range agg.Pieces {
+			subRoots[j] = p.Link.Link()
 		}
 		roots[i] = pdptypes.RootAdd{
-			Root:     rootCID,
+			Root:     agg.Root.Link(),
 			SubRoots: subRoots,
 		}
 		log.Infow("root aggregate added", "root", aggregateLink.String())
@@ -120,20 +110,17 @@ type QueueParams struct {
 	StorageConfig app.StorageConfig
 }
 
-func NewQueue(params QueueParams) (jobqueue.Service[[]datamodel.Link], error) {
+func NewQueue(params QueueParams) (jobqueue.Service[*aatodo_types.Aggregation], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 
-	managerQueue, err := jobqueue.New[[]datamodel.Link](
+	managerQueue, err := jobqueue.New(
 		QueueName,
 		params.DB,
-		&serializer.IPLDCBOR[[]datamodel.Link]{
-			Typ:  bufferTS.TypeByName("AggregateLinks"),
-			Opts: captypes.Converters,
-		},
+		serializer.CBOR[aatodo_types.Aggregation](),
 		jobqueue.WithLogger(log.With("queue", QueueName)),
 		jobqueue.WithMaxRetries(50),
 		// 3 workers means 3 roots can be added in parallel.

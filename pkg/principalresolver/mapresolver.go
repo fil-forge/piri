@@ -4,23 +4,25 @@ import (
 	"context"
 	"errors"
 
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/did"
+	verrs "github.com/fil-forge/ucantone/validator/errors"
 )
 
+// MapResolver resolves a non-did:key DID (e.g. did:web) to one or more
+// did:key principals via an in-memory map. Satisfies
+// [validator.DIDResolverFunc] (use `r.Resolve` as the function value).
 type MapResolver struct {
 	mapping map[did.DID]did.DID
 }
 
-var _ validator.PrincipalResolver = (*MapResolver)(nil)
-
-func (r *MapResolver) ResolveDIDKey(_ context.Context, input did.DID) (did.DID, validator.UnresolvedDID) {
-	// ctx is unused; this implementation only looks in a local mapping.
+// Resolve looks up the input DID in the map. Returns a single-element slice
+// on success; an error when no mapping is present.
+func (r *MapResolver) Resolve(_ context.Context, input did.DID) ([]did.DID, error) {
 	dk, ok := r.mapping[input]
 	if !ok {
-		return did.Undef, validator.NewDIDKeyResolutionError(input, errors.New("not found in mapping"))
+		return nil, verrs.NewDIDKeyResolutionError(input, errors.New("not found in mapping"))
 	}
-	return dk, nil
+	return []did.DID{dk}, nil
 }
 
 func NewMapResolver(smap map[string]string) (*MapResolver, error) {

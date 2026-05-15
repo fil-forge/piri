@@ -1,10 +1,7 @@
 package ucan
 
 import (
-	"fmt"
-
-	"github.com/fil-forge/go-ucanto/principal"
-	ucanserver "github.com/fil-forge/go-ucanto/server"
+	ucanserver "github.com/fil-forge/ucantone/server"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
@@ -12,12 +9,14 @@ import (
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/fx/storage/ucan/handlers"
 	"github.com/fil-forge/piri/pkg/service/storage"
+	ucanhandlers "github.com/fil-forge/piri/pkg/service/storage/ucan"
+	"github.com/fil-forge/ucantone/principal"
 )
 
 var log = logging.Logger("fx/storage/ucan")
 
 type Handler struct {
-	ucanServer ucanserver.ServerView[ucanserver.Service]
+	ucanServer *ucanserver.HTTPServer
 }
 
 var Module = fx.Module("storage/ucan/server",
@@ -27,7 +26,10 @@ var Module = fx.Module("storage/ucan/server",
 			AsRouteRegistrar,
 			fx.ResultTags(`group:"route_registrar"`),
 		),
-		ProvideServerView,
+		fx.Annotate(
+			ProvideServer,
+			fx.ResultTags(`name:"storage_ucan_server"`),
+		),
 	),
 	handlers.Module,
 )
@@ -35,27 +37,20 @@ var Module = fx.Module("storage/ucan/server",
 type Params struct {
 	fx.In
 
-	ID      principal.Signer
-	Options []ucanserver.Option `group:"ucan_options"`
+	ID       principal.Signer
+	Handlers []ucanhandlers.Handler `group:"ucan_handlers"`
+	Options  []ucanserver.HTTPOption `group:"ucan_options"`
 }
 
-func NewHandler(p Params) (*Handler, error) {
-	options := []ucanserver.Option{
-		ucanserver.WithErrorHandler(func(err ucanserver.HandlerExecutionError[any]) {
-			l := log.With("error", err.Error())
-			if s := err.Stack(); s != "" {
-				l = l.With("stack", s)
-			}
-			l.Error("ucan storage handler execution error")
-		}),
+// NewHandler builds the storage node's UCAN HTTP server and registers each
+// fx-collected handler on it.
+func NewHandler(p Params) *Handler {
+	srv := ucanserver.NewHTTP(p.ID, p.Options...)
+	for _, h := range p.Handlers {
+		srv.Handle(h.Capability, h.Handler)
+		log.Infow("registered UCAN handler", "command", h.Capability.Command())
 	}
-	options = append(options, p.Options...)
-	ucanSvr, err := ucanserver.NewServer(p.ID, options...)
-	if err != nil {
-		return nil, fmt.Errorf("creating ucan server: %w", err)
-	}
-
-	return &Handler{ucanSvr}, nil
+	return &Handler{ucanServer: srv}
 }
 
 // RegisterRoutes registers the UCAN routes with Echo
@@ -70,7 +65,7 @@ func AsRouteRegistrar(h *Handler) echofx.RouteRegistrar {
 	return h
 }
 
-// ProvideServerView provides the UCAN ServerView for testing
-func ProvideServerView(h *Handler) ucanserver.ServerView[ucanserver.Service] {
+// ProvideServer provides the UCAN server for tests / integration.
+func ProvideServer(h *Handler) *ucanserver.HTTPServer {
 	return h.ucanServer
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/labstack/echo/v4"
 
-	"github.com/fil-forge/go-ucanto/core/car"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
@@ -16,7 +15,13 @@ import (
 
 var _ echofx.RouteRegistrar = (*Server)(nil)
 
-const ReceiptsPath = "/receipts"
+const (
+	ReceiptsPath = "/receipts"
+	// carContentType is the IANA-registered media type for IPLD CAR files.
+	// The egress journal stores receipts as a multi-block CAR; consumers
+	// fetch the CAR and decode it themselves.
+	carContentType = "application/vnd.ipld.car"
+)
 
 type Server struct {
 	egressBatches retrievaljournal.Journal
@@ -42,11 +47,10 @@ func NewHandler(egressBatches retrievaljournal.Journal) echo.HandlerFunc {
 			if errors.Is(err, store.ErrNotFound) {
 				return echo.NewHTTPError(http.StatusNotFound, fmt.Errorf("batch not found: %s", cid))
 			}
-
 			return fmt.Errorf("failed to get batch from store: %w", err)
 		}
 		defer batch.Close()
 
-		return ctx.Stream(http.StatusOK, car.ContentType, batch)
+		return ctx.Stream(http.StatusOK, carContentType, batch)
 	}
 }

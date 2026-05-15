@@ -6,30 +6,40 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/command"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 )
 
-// ProofService requests proofs from other UCAN enabled nodes by making
-// `access/grant` invocations.
+// ProofService requests delegation proofs from a remote UCAN service.
+//
+// In UCAN 0.x this was a synchronous `/access/grant` invocation that returned
+// the requested delegation inline. The libforge equivalents (`access.Request`,
+// `access.Confirm`, `access.Claim`) model a two-step request/confirm flow. The
+// Phase 4 client migration has not yet rewritten this call path; the current
+// CachingProofService returns ErrNotMigrated.
 type ProofService interface {
-	// Request access to be granted from the service for the passed ability.
+	// RequestAccess fetches a delegation granting `issuer` permission to
+	// invoke `command` on `audience`. Cause is the invocation that motivates
+	// the access request (typically the invocation that needs the delegation
+	// as a proof).
 	RequestAccess(
 		ctx context.Context,
 		issuer ucan.Signer,
-		audience ucan.Principal,
-		ability ucan.Ability,
-		cause invocation.Invocation,
+		audience did.DID,
+		command command.Command,
+		cause *invocation.Invocation,
 		options ...Option,
-	) (delegation.Delegation, error)
+	) (*delegation.Delegation, error)
 }
 
 type requestConfig struct {
 	httpClient *http.Client
 	url        *url.URL
-	conn       client.Connection
+	httpClnt   *client.HTTPClient
 	minTTL     *time.Duration
 }
 
@@ -50,11 +60,11 @@ func WithServiceURL(url *url.URL) Option {
 	}
 }
 
-// WithConnection configures the connection to use for the request. If set, the
-// HTTP client and service URL options are ignored.
-func WithConnection(conn client.Connection) Option {
+// WithHTTPClnt overrides the underlying ucantone client used to issue the
+// request. If set, the HTTPClient and ServiceURL options are ignored.
+func WithHTTPClnt(c *client.HTTPClient) Option {
 	return func(cfg *requestConfig) {
-		cfg.conn = conn
+		cfg.httpClnt = c
 	}
 }
 

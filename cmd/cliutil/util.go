@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/labstack/gommon/color"
 
 	"github.com/fil-forge/piri/pkg/build"

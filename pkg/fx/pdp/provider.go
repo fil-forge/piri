@@ -133,7 +133,7 @@ func ProvideProofSetIDProvider(cfg app.UCANServiceConfig) (types.ProofSetIDProvi
 
 func ProvideSigningService(cfg app.PDPServiceConfig, proofService proofs.ProofService) (signertypes.SigningService, error) {
 	if cfg.SigningService.Connection != nil {
-		return signer.NewProofServiceSigner(cfg.SigningService.Connection, proofService), nil
+		return signer.NewProofServiceSigner(cfg.SigningService.Connection.DID, cfg.SigningService.Connection.Client, proofService), nil
 	} else if cfg.SigningService.PrivateKey != nil {
 		s := signingservice.NewSigner(
 			cfg.SigningService.PrivateKey,

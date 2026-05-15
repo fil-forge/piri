@@ -6,9 +6,11 @@ import (
 	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/samber/lo"
 )
+
+// TODO(forrest): probs delete this whole this, this is not the right way to configure the application
 
 // Network represents the network the node will operate on
 type Network string
@@ -193,7 +195,7 @@ func stagingServiceSettings() ServiceSettings {
 		UploadServiceURL:        stagingUploadServiceURL,
 		UploadServiceDID:        stagingUploadServiceDID,
 		SigningServiceURL:       nil,
-		SigningServiceDID:       did.Undef,
+		SigningServiceDID:       did.DID{},
 		RegistrarServiceURL:     nil,
 		PrincipalMapping:        stagingPrincipalMapping,
 	}
@@ -228,7 +230,7 @@ func prodServiceSettings() ServiceSettings {
 		UploadServiceURL:        prodUploadServiceURL,
 		UploadServiceDID:        prodUploadServiceDID,
 		SigningServiceURL:       nil,
-		SigningServiceDID:       did.Undef,
+		SigningServiceDID:       did.DID{},
 		RegistrarServiceURL:     nil,
 		PrincipalMapping:        prodPrincipalMapping,
 	}

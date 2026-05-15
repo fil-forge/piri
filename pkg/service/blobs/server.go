@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/libforge/digestutil"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
 	"github.com/multiformats/go-multibase"

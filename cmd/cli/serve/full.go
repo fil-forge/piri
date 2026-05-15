@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
@@ -295,7 +295,7 @@ func loadPresets() error {
 	if preset.Services.SigningServiceURL != nil {
 		viper.SetDefault("pdp.signing_service.url", preset.Services.SigningServiceURL.String())
 	}
-	if preset.Services.SigningServiceDID != did.Undef {
+	if preset.Services.SigningServiceDID != (did.DID{}) {
 		viper.SetDefault("pdp.signing_service.did", preset.Services.SigningServiceDID.String())
 	}
 	if preset.Services.RegistrarServiceURL != nil {

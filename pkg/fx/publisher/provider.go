@@ -4,8 +4,9 @@ import (
 	"fmt"
 
 	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-ucanto/principal"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
@@ -43,9 +44,7 @@ func NewService(
 		pubCfg.PublicMaddr,
 		publisher.WithDirectAnnounce(pubCfg.AnnounceURLs...),
 		publisher.WithIndexingService(cfg.UCANService.Services.Indexer.Connection),
-		publisher.WithIndexingServiceProof(cfg.UCANService.Services.Indexer.Proofs...),
 		publisher.WithAnnounceAddress(pubCfg.AnnounceMaddr),
 		publisher.WithBlobAddress(pubCfg.BlobMaddr),
 	)
-
 }

@@ -5,11 +5,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	libforge_testutil "github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 
@@ -19,20 +17,23 @@ import (
 // TestConfigOption is a function that modifies a test config
 type TestConfigOption func(*testing.T, *app.AppConfig)
 
-// NewTestConfig creates a new test config with sensible defaults
-// This follows the functional options pattern for easy customization
+// NewTestConfig creates a new test config with sensible defaults.
+//
+// NOTE: the Upload service connection is left nil during the UCAN 1.0
+// migration. The `app.UploadServiceConfig.Connection` field is `any` until
+// the ucantone outbound RPC client is wired into the config layer (Phase 6
+// follow-up). Tests exercising outbound RPC must inject their own connection
+// via WithUploadServiceConfig once that lands.
 func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 	t.Helper()
 
-	// Get an OS-assigned port to avoid conflicts in parallel tests
 	port := GetFreePort(t)
 	publicURL, err := url.Parse(fmt.Sprintf("http://localhost:%d", port))
 	require.NoError(t, err)
 
-	// Start with sensible defaults for testing
 	cfg := app.AppConfig{
 		Identity: app.IdentityConfig{
-			Signer: testutil.Alice, // Default test signer
+			Signer: libforge_testutil.Alice,
 		},
 		Server: app.ServerConfig{
 			Host:      "localhost",
@@ -40,24 +41,16 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 			PublicURL: *publicURL,
 		},
 		Storage: app.StorageConfig{
-			DataDir: "", // Empty = memory stores by default
+			DataDir: "",
 			TempDir: "",
 		},
 		UCANService: app.UCANServiceConfig{
 			Services: app.ExternalServicesConfig{
-				PrincipalMapping: map[string]string{},
-				Upload: app.UploadServiceConfig{
-					Connection: testutil.Must(
-						client.NewConnection(
-							testutil.Must(did.Parse("did:web:up.test.storacha.network"))(t),
-							ucanhttp.NewChannel(testutil.Must(url.Parse("http://up.test.storacha.network"))(t)),
-						),
-					)(t),
-				},
+				Upload: app.UploadServiceConfig{},
 				Publisher: app.PublisherServiceConfig{
-					PublicMaddr:   testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
-					AnnounceMaddr: testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
-					AnnounceURLs:  []url.URL{}, // Empty by default for tests
+					PublicMaddr:   libforge_testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
+					AnnounceMaddr: libforge_testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
+					AnnounceURLs:  []url.URL{},
 				},
 			},
 			ProofSetID: 0,
@@ -65,7 +58,6 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 		Replicator: app.DefaultReplicatorConfig(),
 	}
 
-	// Apply all options
 	for _, opt := range opts {
 		opt(t, &cfg)
 	}
@@ -80,15 +72,11 @@ func WithSigner(signer principal.Signer) TestConfigOption {
 	}
 }
 
-// WithUploadServiceConfig sets the upload service configuration
-func WithUploadServiceConfig(id did.DID, url *url.URL) TestConfigOption {
-	return func(t *testing.T, cfg *app.AppConfig) {
-		if id == did.Undef {
-			// Use Alice as a fallback for tests
-			id = testutil.Alice.DID()
-		}
-		cfg.UCANService.Services.Upload.Connection = testutil.Must(
-			client.NewConnection(id, ucanhttp.NewChannel(url)),
-		)(t)
-	}
+// WithUploadServiceConfig is a stub during the UCAN 1.0 migration. The
+// `app.UploadServiceConfig.Connection` field is `any` until the ucantone
+// outbound client is wired into the config layer. Callers needing to
+// inject a real connection should override the field manually after
+// NewTestConfig until that lands.
+func WithUploadServiceConfig(_ did.DID, _ *url.URL) TestConfigOption {
+	return func(_ *testing.T, _ *app.AppConfig) {}
 }

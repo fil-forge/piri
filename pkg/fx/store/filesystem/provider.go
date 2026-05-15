@@ -19,6 +19,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
@@ -46,7 +47,9 @@ var Module = fx.Module("filesystem-store",
 		NewAllocationStore,
 		NewAcceptanceStore,
 		NewClaimStore,
+		NewInvocationStore,
 		NewReceiptStore,
+		NewDelegationStore,
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
@@ -214,7 +217,29 @@ func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (claimstore.Clai
 		},
 	})
 
-	return delegationstore.NewDatastoreStore(ds), nil
+	return invocationstore.NewDatastoreStore(ds), nil
+}
+
+// NewInvocationStore provides the generic invocation store used by the
+// storage UCAN server's Persister to record every inbound invocation.
+// Co-located with the claim store directory but namespaced under
+// "invocations" to avoid key collisions.
+func NewInvocationStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (invocationstore.InvocationStore, error) {
+	if cfg.Dir == "" {
+		return nil, fmt.Errorf("no data dir provided for invocation store")
+	}
+
+	ds, err := newDs(filepath.Join(cfg.Dir, "invocations"))
+	if err != nil {
+		return nil, fmt.Errorf("creating invocation store: %w", err)
+	}
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return ds.Close()
+		},
+	})
+
+	return invocationstore.NewDatastoreStore(ds), nil
 }
 
 func NewPublisherStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (store.FullStore, error) {
@@ -251,6 +276,24 @@ func NewReceiptStore(cfg app.ReceiptStorageConfig, lc fx.Lifecycle) (receiptstor
 	})
 
 	return receiptstore.NewDatastoreStore(ds), nil
+}
+
+func NewDelegationStore(cfg app.ReceiptStorageConfig, lc fx.Lifecycle) (delegationstore.DelegationStore, error) {
+	if cfg.Dir == "" {
+		return nil, fmt.Errorf("no data dir provided for delegation store")
+	}
+
+	ds, err := newDs(filepath.Join(cfg.Dir, "delegations"))
+	if err != nil {
+		return nil, fmt.Errorf("creating delegation store: %w", err)
+	}
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return ds.Close()
+		},
+	})
+
+	return delegationstore.NewDatastoreStore(ds), nil
 }
 
 func NewRetrievalJournal(storeCfg app.EgressTrackerStorageConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {

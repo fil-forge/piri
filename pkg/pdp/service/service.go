@@ -6,9 +6,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-ucanto/ucan"
-	signer "github.com/fil-forge/piri-signing-service/pkg/types"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"
 	filtypes "github.com/filecoin-project/lotus/chain/types"
@@ -16,7 +13,11 @@ import (
 	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
-	appconfig "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/filecoin-services/go/eip712"
+	signer "github.com/fil-forge/piri-signing-service/pkg/types"
+	"github.com/fil-forge/ucantone/ucan"
+
+	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/chainsched"
 	"github.com/fil-forge/piri/pkg/pdp/ethereum"
 	"github.com/fil-forge/piri/pkg/pdp/scheduler"
@@ -45,7 +46,7 @@ type EthClient interface {
 }
 
 type PDPService struct {
-	cfg             appconfig.PDPServiceConfig
+	cfg             app.PDPServiceConfig
 	id              ucan.Signer
 	endpoint        url.URL
 	address         common.Address
@@ -76,7 +77,7 @@ type PDPService struct {
 }
 
 func New(
-	cfg appconfig.PDPServiceConfig,
+	cfg app.PDPServiceConfig,
 	id ucan.Signer,
 	endpoint url.URL,
 	db *gorm.DB,

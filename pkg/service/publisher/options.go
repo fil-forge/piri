@@ -4,12 +4,10 @@ import (
 	"net/url"
 
 	ipnipub "github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
-	"github.com/fil-forge/go-ucanto/client"
 	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
-	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type options struct {
@@ -17,7 +15,7 @@ type options struct {
 	blobAddr              multiaddr.Multiaddr
 	announceAddr          multiaddr.Multiaddr
 	announceURLs          []url.URL
-	indexingService       client.Connection
+	indexingService       app.ServiceConnection
 	indexingServiceProofs delegation.Proofs
 }
 
@@ -57,40 +55,9 @@ func WithDirectAnnounce(announceURLs ...url.URL) Option {
 }
 
 // WithIndexingService sets the client connection to the indexing UCAN service.
-func WithIndexingService(conn client.Connection) Option {
+func WithIndexingService(conn app.ServiceConnection) Option {
 	return func(opts *options) error {
 		opts.indexingService = conn
-		return nil
-	}
-}
-
-// WithIndexingServiceConfig configures UCAN service invocation details for
-// communicating with the indexing service.
-func WithIndexingServiceConfig(serviceDID ucan.Principal, serviceURL url.URL) Option {
-	return func(opts *options) error {
-		channel := http.NewChannel(&serviceURL)
-		conn, err := client.NewConnection(serviceDID, channel)
-		if err != nil {
-			return err
-		}
-		opts.indexingService = conn
-		return nil
-	}
-}
-
-// WithIndexingServiceProof configures proofs for UCAN invocations to the
-// indexing service.
-func WithIndexingServiceProof(proof ...delegation.Proof) Option {
-	return func(opts *options) error {
-		opts.indexingServiceProofs = proof
-		return nil
-	}
-}
-
-// WithLogLevel changes the log level for the publisher subsystem.
-func WithLogLevel(level string) Option {
-	return func(c *options) error {
-		logging.SetLogLevel("publisher", level)
 		return nil
 	}
 }

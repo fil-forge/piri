@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/piri/pkg/access"
 	"github.com/fil-forge/piri/pkg/presigner"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
@@ -72,7 +72,7 @@ func WithPublicURLPresigner(id principal.Signer, publicURL url.URL) Option {
 	return func(o *options) error {
 
 		accessKeyID := id.DID().String()
-		idDigest, _ := multihash.Sum(id.Encode(), multihash.SHA2_256, -1)
+		idDigest, _ := multihash.Sum(id.Bytes(), multihash.SHA2_256, -1)
 		secretAccessKey := digestutil.Format(idDigest)
 		presigner, err := presigner.NewS3RequestPresigner(accessKeyID, secretAccessKey, publicURL, "blob")
 		if err != nil {

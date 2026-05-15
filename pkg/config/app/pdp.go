@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/client"
 )
 
 type ContractAddresses struct {
@@ -62,12 +61,16 @@ func DefaultGasConfig() GasConfig {
 	}
 }
 
-// SigningServiceConfig configures the signing service for PDP operations
+// SigningServiceConfig configures the signing service for PDP operations.
+// In remote mode (DID + Connection set), piri's signer wrapper invokes the
+// /pdp/sign/* capabilities against the remote service. In local mode
+// (PrivateKey set), piri signs in-process via filecoin-services/eip712.
 type SigningServiceConfig struct {
-	// Connection to the signing service backend.
-	Connection client.Connection
-	// Private key for in-process signing (if using local signer)
-	// NB: this should only be used for development purposes
+	// Connection contains a ucan executor and did, the field is optional
+	// when a private key is provided
+	Connection *ServiceConnection
+	// PrivateKey is the local ECDSA key used by the in-process signer.
+	// NB: should only be used for development purposes.
 	PrivateKey *ecdsa.PrivateKey
 }
 

@@ -1,23 +1,16 @@
 package receiptstore
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/fil-forge/go-ucanto/core/car"
-	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	rdm "github.com/fil-forge/go-ucanto/core/receipt/datamodel"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"github.com/ipld/go-ipld-prime/datamodel"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/genericstore"
@@ -28,44 +21,45 @@ import (
 
 // ReceiptStore stores UCAN invocation receipts.
 type ReceiptStore interface {
-	// Get retrieves a receipt by its CID.
-	Get(context.Context, ucan.Link) (receipt.AnyReceipt, error)
-	// GetByRan retrieves a receipt by "ran" CID.
-	GetByRan(context.Context, ucan.Link) (receipt.AnyReceipt, error)
+	// Get retrieves a receipt by its CID (the receipt's own root link).
+	Get(context.Context, cid.Cid) (*receipt.Receipt, error)
+	// GetByRan retrieves a receipt by the CID of the invocation it attests to.
+	GetByRan(context.Context, cid.Cid) (*receipt.Receipt, error)
 	// Put adds or replaces a receipt in the store.
-	Put(context.Context, receipt.AnyReceipt) error
+	Put(context.Context, *receipt.Receipt) error
 }
 
-// RanLinkIndex maps "ran" links to receipt root links.
+// RanLinkIndex maps the "ran" CID (the executed invocation's link) to the
+// receipt's own root CID.
 type RanLinkIndex interface {
-	Put(ctx context.Context, ran datamodel.Link, lnk datamodel.Link) error
-	Get(ctx context.Context, ran datamodel.Link) (datamodel.Link, error)
+	Put(ctx context.Context, ran cid.Cid, lnk cid.Cid) error
+	Get(ctx context.Context, ran cid.Cid) (cid.Cid, error)
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
 type KeyEncoder interface {
-	EncodeKey(link ucan.Link) string
+	EncodeKey(link cid.Cid) string
 }
 
 // Store implements ReceiptStore backed by genericstore.
 type Store struct {
-	store        *genericstore.Store[receipt.AnyReceipt]
+	store        *genericstore.Store[*receipt.Receipt]
 	ranLinkIndex RanLinkIndex
 	encoder      KeyEncoder
 }
 
 var _ ReceiptStore = (*Store)(nil)
 
-// New creates a ReceiptStore with the given backend,  key encoder, and ran link index.
+// New creates a ReceiptStore with the given backend, key encoder, and ran link index.
 func New(backend objectstore.ListableStore, encoder KeyEncoder, ranLinkIndex RanLinkIndex) *Store {
 	return &Store{
-		store:        genericstore.New[receipt.AnyReceipt](backend, Codec{}),
+		store:        genericstore.New[*receipt.Receipt](backend, Codec{}),
 		ranLinkIndex: ranLinkIndex,
 		encoder:      encoder,
 	}
 }
 
-func (s *Store) Get(ctx context.Context, link ucan.Link) (receipt.AnyReceipt, error) {
+func (s *Store) Get(ctx context.Context, link cid.Cid) (*receipt.Receipt, error) {
 	rcpt, err := s.store.Get(ctx, s.encoder.EncodeKey(link))
 	if err != nil {
 		return nil, fmt.Errorf("getting receipt: %w", err)
@@ -73,12 +67,11 @@ func (s *Store) Get(ctx context.Context, link ucan.Link) (receipt.AnyReceipt, er
 	return rcpt, nil
 }
 
-func (s *Store) GetByRan(ctx context.Context, ran ucan.Link) (receipt.AnyReceipt, error) {
+func (s *Store) GetByRan(ctx context.Context, ran cid.Cid) (*receipt.Receipt, error) {
 	root, err := s.ranLinkIndex.Get(ctx, ran)
 	if err != nil {
 		return nil, fmt.Errorf("looking up root by ran: %w", err)
 	}
-	// Convert datamodel.Link to ucan.Link for the key encoder
 	rcpt, err := s.store.Get(ctx, s.encoder.EncodeKey(root))
 	if err != nil {
 		return nil, fmt.Errorf("getting receipt: %w", err)
@@ -86,53 +79,40 @@ func (s *Store) GetByRan(ctx context.Context, ran ucan.Link) (receipt.AnyReceipt
 	return rcpt, nil
 }
 
-func (s *Store) Put(ctx context.Context, rcpt receipt.AnyReceipt) error {
-	err := s.store.Put(ctx, s.encoder.EncodeKey(rcpt.Root().Link()), rcpt)
-	if err != nil {
+func (s *Store) Put(ctx context.Context, rcpt *receipt.Receipt) error {
+	if err := s.store.Put(ctx, s.encoder.EncodeKey(rcpt.Link()), rcpt); err != nil {
 		return fmt.Errorf("storing receipt: %w", err)
 	}
-	err = s.ranLinkIndex.Put(ctx, rcpt.Ran().Link(), rcpt.Root().Link())
-	if err != nil {
+	if err := s.ranLinkIndex.Put(ctx, rcpt.Ran(), rcpt.Link()); err != nil {
 		return fmt.Errorf("indexing receipt by ran: %w", err)
 	}
 	return nil
 }
 
-// Codec implements genericstore.Codec for receipt.AnyReceipt.
+// Codec implements genericstore.Codec for *receipt.Receipt. The stored value
+// is the receipt's raw dag-cbor envelope (a self-contained UCAN invocation
+// envelope tagged with the /ucan/assert/receipt command).
 type Codec struct{}
 
-func (Codec) Encode(rcpt receipt.AnyReceipt) ([]byte, error) {
-	r := car.Encode([]datamodel.Link{rcpt.Root().Link()}, rcpt.Blocks())
-	return io.ReadAll(r)
+func (Codec) Encode(rcpt *receipt.Receipt) ([]byte, error) {
+	return rcpt.Bytes(), nil
 }
 
-func (Codec) Decode(data []byte) (receipt.AnyReceipt, error) {
-	roots, blocks, err := car.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("decoding car: %w", err)
-	}
-	br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(blocks))
-	if err != nil {
-		return nil, fmt.Errorf("creating block reader: %w", err)
-	}
-	rcpt, err := receipt.NewReceipt[datamodel.Node, datamodel.Node](roots[0], br, rdm.TypeSystem().TypeByName("Receipt"))
-	if err != nil {
-		return nil, fmt.Errorf("decoding receipt: %w", err)
-	}
-	return rcpt, nil
+func (Codec) Decode(data []byte) (*receipt.Receipt, error) {
+	return receipt.Decode(data)
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends.
 type S3KeyEncoder struct{}
 
-func (S3KeyEncoder) EncodeKey(link ucan.Link) string {
+func (S3KeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
 }
 
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends.
 type DatastoreKeyEncoder struct{}
 
-func (DatastoreKeyEncoder) EncodeKey(link ucan.Link) string {
+func (DatastoreKeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
 }
 
@@ -142,31 +122,31 @@ type S3RanLinkIndex struct {
 	prefix string
 }
 
-func (idx *S3RanLinkIndex) Put(ctx context.Context, ran datamodel.Link, lnk datamodel.Link) error {
+func (idx *S3RanLinkIndex) Put(ctx context.Context, ran cid.Cid, lnk cid.Cid) error {
 	key := idx.prefix + ran.String() + ".ref"
 	cidStr := lnk.String()
 	return idx.store.Put(ctx, key, uint64(len(cidStr)), strings.NewReader(cidStr))
 }
 
-func (idx *S3RanLinkIndex) Get(ctx context.Context, ran datamodel.Link) (datamodel.Link, error) {
+func (idx *S3RanLinkIndex) Get(ctx context.Context, ran cid.Cid) (cid.Cid, error) {
 	key := idx.prefix + ran.String() + ".ref"
 	obj, err := idx.store.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, objectstore.ErrNotExist) {
-			return nil, store.ErrNotFound
+			return cid.Undef, store.ErrNotFound
 		}
-		return nil, err
+		return cid.Undef, err
 	}
 	defer obj.Body().Close()
 	data, err := io.ReadAll(obj.Body())
 	if err != nil {
-		return nil, err
+		return cid.Undef, err
 	}
 	c, err := cid.Parse(string(data))
 	if err != nil {
-		return nil, err
+		return cid.Undef, err
 	}
-	return cidlink.Link{Cid: c}, nil
+	return c, nil
 }
 
 // DatastoreRanLinkIndex implements RanLinkIndex using datastore.
@@ -174,20 +154,20 @@ type DatastoreRanLinkIndex struct {
 	ds datastore.Datastore
 }
 
-func (idx *DatastoreRanLinkIndex) Put(ctx context.Context, ran datamodel.Link, lnk datamodel.Link) error {
-	return idx.ds.Put(ctx, datastore.NewKey(ran.String()), []byte(lnk.Binary()))
+func (idx *DatastoreRanLinkIndex) Put(ctx context.Context, ran cid.Cid, lnk cid.Cid) error {
+	return idx.ds.Put(ctx, datastore.NewKey(ran.String()), lnk.Bytes())
 }
 
-func (idx *DatastoreRanLinkIndex) Get(ctx context.Context, ran datamodel.Link) (datamodel.Link, error) {
+func (idx *DatastoreRanLinkIndex) Get(ctx context.Context, ran cid.Cid) (cid.Cid, error) {
 	data, err := idx.ds.Get(ctx, datastore.NewKey(ran.String()))
 	if err != nil {
-		return nil, err
+		return cid.Undef, err
 	}
 	c, err := cid.Cast(data)
 	if err != nil {
-		return nil, err
+		return cid.Undef, err
 	}
-	return cidlink.Link{Cid: c}, nil
+	return c, nil
 }
 
 // NewS3Store creates a ReceiptStore for S3/MinIO backends.

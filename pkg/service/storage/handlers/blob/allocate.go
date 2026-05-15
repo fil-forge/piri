@@ -8,21 +8,19 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
-
-	"github.com/fil-forge/go-libstoracha/digestutil"
-
-	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
@@ -37,13 +35,13 @@ type AllocateService interface {
 
 type AllocateRequest struct {
 	Space did.DID
-	Blob  captypes.Blob
-	Cause ucan.Link
+	Blob  blob.Blob
+	Cause cid.Cid
 }
 
 type AllocateResponse struct {
 	Size    uint64
-	Address *blob.Address
+	Address *blob.BlobAddress
 }
 
 func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (resp *AllocateResponse, err error) {
@@ -57,7 +55,7 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	}()
 
 	log := log.With("blob", digestutil.Format(req.Blob.Digest))
-	log.Infof("%s space: %s", blob.AllocateAbility, req.Space)
+	log.Infof("%s space: %s", blob.AllocateCommand, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
 		attribute.Stringer("blob.digest", req.Blob.Digest),
@@ -125,19 +123,14 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 	expiresIn := uint64(60 * 60 * 24) // 1 day
 	expiresAt := uint64(time.Now().Unix()) + expiresIn
 
-	var address *blob.Address
+	var address *blob.BlobAddress
 	// if not received yet, we need to generate a signed URL for the
 	// upload, and include it in the receipt.
 	if !received {
 		var uploadURL url.URL
 		headers := http.Header{}
 		if s.PDP() == nil {
-			// use standard blob upload
-			uploadURL, headers, err = s.Blobs().Presigner().SignUploadURL(ctx, req.Blob.Digest, req.Blob.Size, expiresIn)
-			if err != nil {
-				log.Errorw("signing upload URL", "error", err)
-				return nil, fmt.Errorf("signing upload URL: %w", err)
-			}
+			panic("PDP Service Required")
 		} else {
 			dmh, err := multihash.Decode(req.Blob.Digest)
 			if err != nil {
@@ -169,10 +162,10 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 				}
 			}
 		}
-		address = &blob.Address{
-			URL:     uploadURL,
-			Headers: headers,
-			Expires: expiresAt,
+		address = &blob.BlobAddress{
+			URL:     capabilities.CborURL(uploadURL),
+			Headers: flattenHeaders(headers),
+			Expires: int64(expiresAt),
 		}
 	}
 
@@ -193,4 +186,21 @@ func Allocate(ctx context.Context, s AllocateService, req *AllocateRequest) (res
 		Size:    size,
 		Address: address,
 	}, nil
+}
+
+// flattenHeaders projects an http.Header (map[string][]string) onto the
+// single-value-per-key shape that libforge BlobAddress requires. Presigned URL
+// helpers we use only emit one value per header, so this is lossless in
+// practice.
+func flattenHeaders(h http.Header) map[string]string {
+	if len(h) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(h))
+	for k, v := range h {
+		if len(v) > 0 {
+			out[k] = v[0]
+		}
+	}
+	return out
 }

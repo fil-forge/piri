@@ -2,8 +2,10 @@ package jobqueue_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -13,7 +15,6 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	internaltesting "github.com/fil-forge/piri/lib/jobqueue/internal/testing"
-	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/worker"
 	"github.com/stretchr/testify/require"
 )
@@ -34,6 +35,21 @@ type TestMessage struct {
 	ID      string
 	Payload string
 	Delay   time.Duration
+}
+
+// jsonCodec is a serializer.Codec[T] backed by encoding/json. JobQueue tests
+// use a plain struct payload to exercise queue behavior; production payload
+// types are cbor-gen and are constructed with serializer.CBOR instead.
+type jsonCodec[T any] struct{}
+
+func (jsonCodec[T]) Encode(w io.Writer, v T) error {
+	return json.NewEncoder(w).Encode(v)
+}
+
+func (jsonCodec[T]) Decode(r io.Reader) (T, error) {
+	var v T
+	err := json.NewDecoder(r).Decode(&v)
+	return v, err
 }
 
 type queueImplementation string
@@ -108,7 +124,7 @@ func newTestJobQueueForBackend(t *testing.T, impl queueImplementation, backend i
 		require.NoError(t, err)
 	}
 
-	ser := serializer.JSON[TestMessage]{}
+	ser := jsonCodec[TestMessage]{}
 	allOpts := append([]jobqueue.Option{}, opts...)
 	allOpts = append(allOpts, impl.optionsWithDialect(backend.Dialect())...)
 	allOpts = append(allOpts, jobqueue.WithDialect(backend.Dialect()))

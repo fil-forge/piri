@@ -4,18 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/ran"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/ipld/go-ipld-prime/datamodel"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	libforge_pdp "github.com/fil-forge/libforge/capabilities/pdp"
+	libforge_merkletree "github.com/fil-forge/libforge/merkletree"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	ucantone_receipt "github.com/fil-forge/ucantone/ucan/receipt"
+	"github.com/ipfs/go-cid"
 
-	"github.com/fil-forge/piri/internal/ipldstore"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	apitypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
@@ -23,7 +19,7 @@ import (
 
 type PieceAcceptor struct {
 	issuer         principal.Signer
-	aggregateStore ipldstore.KVStore[datamodel.Link, types.Aggregate]
+	aggregateStore types.Store
 	receiptStore   receiptstore.ReceiptStore
 	resolver       apitypes.PieceResolverAPI
 }
@@ -37,9 +33,9 @@ func NewPieceAccepter(issuer principal.Signer, aggregateStore types.Store, recei
 	}
 }
 
-func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []datamodel.Link) error {
+func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []cid.Cid) error {
 	// TODO we can run this in parallel since receipt generation requires resolving pdp pieces in links to blobs
-	aggregates := make([]types.Aggregate, 0, len(aggregateLinks))
+	aggregates := make([]aatodo_types.Aggregate, 0, len(aggregateLinks))
 	for _, aggregateLink := range aggregateLinks {
 		aggregate, err := pa.aggregateStore.Get(ctx, aggregateLink)
 		if err != nil {
@@ -52,37 +48,51 @@ func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []data
 	if err != nil {
 		return fmt.Errorf("generating receipts: %w", err)
 	}
-	for _, receipt := range receipts {
-		if err := pa.receiptStore.Put(ctx, receipt); err != nil {
+	for _, rcpt := range receipts {
+		if err := pa.receiptStore.Put(ctx, rcpt); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.Aggregate, resolver apitypes.PieceResolverAPI) ([]receipt.AnyReceipt, error) {
-	receipts := make([]receipt.AnyReceipt, 0, len(aggregate.Pieces))
+func GenerateReceipts(ctx context.Context, issuer principal.Signer, aggregate aatodo_types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*ucantone_receipt.Receipt, error) {
+	receipts := make([]*ucantone_receipt.Receipt, 0, len(aggregate.Pieces))
 	for _, aggregatePiece := range aggregate.Pieces {
-		blob, found, err := resolver.ResolveToBlob(ctx, aggregatePiece.Link.Link().(cidlink.Link).Cid.Hash())
+		pieceCID := aggregatePiece.Link.Link()
+		blob, found, err := resolver.ResolveToBlob(ctx, pieceCID.Hash())
 		if err != nil {
 			return nil, fmt.Errorf("resolving piece for receipt: %w", err)
 		}
 		if !found {
-			return nil, fmt.Errorf("piece not found for receipt generation: %s", aggregatePiece.Link.Link().String())
+			return nil, fmt.Errorf("piece not found for receipt generation: %s", pieceCID)
 		}
-		inv, err := pdp.Accept.Invoke(issuer, issuer, issuer.DID().String(), pdp.AcceptCaveats{
-			Blob: blob,
-		}, delegation.WithNoExpiration())
-
+		inv, err := libforge_pdp.Accept.Invoke(
+			issuer,
+			issuer.DID(),
+			&libforge_pdp.AcceptArguments{Blob: blob},
+			invocation.WithNoExpiration(),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("generating invocation: %w", err)
 		}
-		ok := result.Ok[pdp.AcceptOk, ipld.Builder](pdp.AcceptOk{
-			Aggregate:      aggregate.Root,
-			InclusionProof: aggregatePiece.InclusionProof,
-			Piece:          aggregatePiece.Link,
-		})
-		rcpt, err := receipt.Issue(issuer, ok, ran.FromInvocation(inv))
+
+		proof := libforge_merkletree.ProofData{
+			Path:  make([][]byte, len(aggregatePiece.InclusionProof.Path)),
+			Index: aggregatePiece.InclusionProof.Index,
+		}
+		for i, n := range aggregatePiece.InclusionProof.Path {
+			b := make([]byte, len(n))
+			copy(b, n[:])
+			proof.Path[i] = b
+		}
+
+		ok := &libforge_pdp.AcceptOK{
+			Aggregate:      aggregate.Root.Link(),
+			InclusionProof: proof,
+			Piece:          pieceCID,
+		}
+		rcpt, err := ucantone_receipt.IssueOK(issuer, inv.Link(), ok)
 		if err != nil {
 			return nil, fmt.Errorf("issuing receipt: %w", err)
 		}
@@ -91,12 +101,12 @@ func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.A
 	return receipts, nil
 }
 
-func GenerateReceiptsForAggregates(ctx context.Context, issuer ucan.Signer, aggregates []types.Aggregate, resolver apitypes.PieceResolverAPI) ([]receipt.AnyReceipt, error) {
+func GenerateReceiptsForAggregates(ctx context.Context, issuer principal.Signer, aggregates []aatodo_types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*ucantone_receipt.Receipt, error) {
 	size := 0
 	for _, aggregate := range aggregates {
 		size += len(aggregate.Pieces)
 	}
-	receipts := make([]receipt.AnyReceipt, 0, size)
+	receipts := make([]*ucantone_receipt.Receipt, 0, size)
 	for _, aggregate := range aggregates {
 		aggregateReceipts, err := GenerateReceipts(ctx, issuer, aggregate, resolver)
 		if err != nil {

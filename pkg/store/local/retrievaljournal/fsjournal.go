@@ -12,9 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-ucanto/core/receipt"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-car"
@@ -134,26 +132,15 @@ func (j *fsJournal) newBatch(truncate bool) error {
 	return nil
 }
 
-func (j *fsJournal) Append(ctx context.Context, rcpt receipt.Receipt[content.RetrieveOk, failure.FailureModel]) (bool, cid.Cid, error) {
+func (j *fsJournal) Append(ctx context.Context, rcpt *receipt.Receipt) (bool, cid.Cid, error) {
 	if rcpt == nil {
 		return false, cid.Cid{}, fmt.Errorf("receipt is nil")
 	}
 
-	rcptArchive := rcpt.Archive()
-	archiveBytes, err := io.ReadAll(rcptArchive)
-	if err != nil {
-		return false, cid.Cid{}, fmt.Errorf("reading receipt archive: %w", err)
-	}
-
-	archiveCID, err := cid.V1Builder{
-		Codec:  uint64(multicodec.Car),
-		MhType: uint64(multihash.SHA2_256),
-	}.Sum(archiveBytes)
-	if err != nil {
-		return false, cid.Cid{}, fmt.Errorf("creating receipt archive CID: %w", err)
-	}
-
-	// cid to bytes
+	// A UCAN 1.0 receipt is a single self-contained dag-cbor envelope; its
+	// own CID identifies it inside the journal CAR.
+	archiveBytes := rcpt.Bytes()
+	archiveCID := rcpt.Link()
 	cidBytes := archiveCID.Bytes()
 
 	j.mu.Lock()

@@ -4,14 +4,22 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/execution"
 	"github.com/multiformats/go-multiaddr"
 )
 
-type ExternalServicesConfig struct {
-	PrincipalMapping map[string]string
+// ServiceConnection bundles the DID of an upstream service with the
+// ucantone HTTP client used to invoke capabilities on it.
+//
+// This is the canonical "connection" shape that the storage, retrieval,
+// signer, egress-tracker and principal resolver code paths all consume.
+type ServiceConnection struct {
+	DID    did.DID
+	Client execution.Executor
+}
 
+type ExternalServicesConfig struct {
 	Indexer       IndexingServiceConfig
 	EgressTracker EgressTrackerServiceConfig
 	Upload        UploadServiceConfig
@@ -21,20 +29,18 @@ type ExternalServicesConfig struct {
 // IndexingServiceConfig contains indexing service connection and proof(s) for
 // using the service
 type IndexingServiceConfig struct {
-	Connection client.Connection
-	Proofs     delegation.Proofs
+	Connection ServiceConnection
 }
 
 type EgressTrackerServiceConfig struct {
-	Connection           client.Connection
-	Proofs               delegation.Proofs
+	Connection           ServiceConnection
 	ReceiptsEndpoint     *url.URL
 	MaxBatchSizeBytes    int64
 	CleanupCheckInterval time.Duration
 }
 
 type UploadServiceConfig struct {
-	Connection client.Connection
+	Connection ServiceConnection
 }
 
 type PublisherServiceConfig struct {

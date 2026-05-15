@@ -3,11 +3,12 @@ package service
 import (
 	"fmt"
 
-	"github.com/fil-forge/piri/pkg/pdp/proof"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
+
+	"github.com/fil-forge/piri/pkg/pdp/proof"
 )
 
 var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()

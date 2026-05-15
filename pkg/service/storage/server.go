@@ -1,40 +1,32 @@
 package storage
 
 import (
-	"fmt"
-
-	"github.com/fil-forge/go-ucanto/server"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/labstack/echo/v4"
 
 	"github.com/fil-forge/piri/pkg/server/handler"
 )
 
 type Server struct {
-	ucanServer server.ServerView[server.Service]
+	ucanServer *server.HTTPServer
+}
+
+// NewServer wraps a ucantone HTTP UCAN server for Echo route registration.
+func NewServer(s *server.HTTPServer) *Server {
+	return &Server{ucanServer: s}
 }
 
 func (srv *Server) RegisterRoutes(e *echo.Echo) {
-	handler := NewHandler(srv.ucanServer).ToEcho()
-	e.POST("/", handler)
-	e.POST("/piece/:cid", handler)
+	h := NewHandler(srv.ucanServer).ToEcho()
+	e.POST("/", h)
+	e.POST("/piece/:cid", h)
 }
 
-func NewHandler(server server.ServerView[server.Service]) handler.Func {
+// NewHandler returns a piri handler.Func that dispatches incoming HTTP UCAN
+// requests to the underlying ucantone server.
+func NewHandler(s *server.HTTPServer) handler.Func {
 	return func(ctx handler.Context) error {
-		r := ctx.Request()
-		res, err := server.Request(r.Context(), ucanhttp.NewRequest(r.Body, r.Header))
-		if err != nil {
-			return fmt.Errorf("handling UCAN request: %w", err)
-		}
-
-		for key, vals := range res.Headers() {
-			for _, v := range vals {
-				ctx.Response().Header().Add(key, v)
-			}
-		}
-
-		// content type is empty as it will have been set by ucanto transport codec
-		return ctx.Stream(res.Status(), "", res.Body())
+		s.ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
 	}
 }

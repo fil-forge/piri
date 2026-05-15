@@ -9,6 +9,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 )
 
 var log = logging.Logger("aggregation/commp")
@@ -20,13 +21,13 @@ type Calculator interface {
 type ComperParams struct {
 	fx.In
 
-	Queue   jobqueue.Service[multihash.Multihash]
-	Handler jobqueue.TaskHandler[multihash.Multihash]
+	Queue   jobqueue.Service[*aatodo_types.Blob]
+	Handler jobqueue.TaskHandler[*aatodo_types.Blob]
 }
 
 type Comper struct {
-	queue   jobqueue.Service[multihash.Multihash]
-	handler jobqueue.TaskHandler[multihash.Multihash]
+	queue   jobqueue.Service[*aatodo_types.Blob]
+	handler jobqueue.TaskHandler[*aatodo_types.Blob]
 }
 
 func NewQueuingCommpCalculator(lc fx.Lifecycle, params ComperParams) (Calculator, error) {
@@ -36,7 +37,7 @@ func NewQueuingCommpCalculator(lc fx.Lifecycle, params ComperParams) (Calculator
 	}
 	if err := c.queue.RegisterHandler(
 		params.Handler,
-		jobqueue.WithOnFailure(func(ctx context.Context, msg multihash.Multihash, err error) error {
+		jobqueue.WithOnFailure(func(ctx context.Context, msg *aatodo_types.Blob, err error) error {
 			// NB(forrest): failed tasks will go to the dead-letter queue, meaning the failure is detectable,
 			// and could be retried later.
 			// TODO(forrest): in the very rare case a failure happens, node operators may want to take action by:
@@ -45,7 +46,7 @@ func NewQueuingCommpCalculator(lc fx.Lifecycle, params ComperParams) (Calculator
 			// thus no payment for its storage.
 			// 3. Communicate to the client that this data is no longer being stored for the client.
 			// 4. Manually retry the failed task from the job queue.
-			log.Errorw("failed to handle commp task", "multihash", msg.String(), "err", err)
+			log.Errorw("failed to handle commp task", "multihash", multihash.Multihash(msg.Digest).String(), "err", err)
 			return nil
 		})); err != nil {
 		return nil, fmt.Errorf("registering comper task handler: %w", err)
@@ -67,5 +68,5 @@ func NewQueuingCommpCalculator(lc fx.Lifecycle, params ComperParams) (Calculator
 
 func (c *Comper) Enqueue(ctx context.Context, blob multihash.Multihash) error {
 	log.Infow("enqueuing commp", "blob", blob.String())
-	return c.queue.Enqueue(ctx, c.handler.Name(), blob)
+	return c.queue.Enqueue(ctx, c.handler.Name(), &aatodo_types.Blob{Digest: blob})
 }

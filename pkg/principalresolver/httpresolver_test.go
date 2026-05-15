@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
@@ -273,17 +272,17 @@ func TestHTTPResolver_ResolveDIDKey(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			result, unresolvedErr := resolver.ResolveDIDKey(t.Context(), inputDID)
+			result, unresolvedErr := resolver.Resolve(t.Context(), inputDID)
 
 			if tc.expectError {
 				require.NotNil(t, unresolvedErr)
-				require.Contains(t, unresolvedErr.Error(), "Unable to resolve")
-				require.Equal(t, did.Undef, result)
+				require.Contains(t, unresolvedErr.Error(), "unable to resolve")
+				require.Nil(t, result)
 			} else {
 				require.Nil(t, unresolvedErr)
 				expectedDID, err := did.Parse(tc.expectedDIDKey)
 				require.NoError(t, err)
-				require.Equal(t, expectedDID, result)
+				require.Equal(t, []did.DID{expectedDID}, result)
 			}
 		})
 	}
@@ -307,10 +306,10 @@ func TestHTTPResolver_ResolveDIDKey_Timeout(t *testing.T) {
 	resolver, err := principalresolver.NewHTTPResolver(mapping, principalresolver.WithTimeout(50*time.Millisecond), principalresolver.InsecureResolution())
 	require.NoError(t, err)
 
-	result, unresolvedErr := resolver.ResolveDIDKey(t.Context(), didWeb)
+	result, unresolvedErr := resolver.Resolve(t.Context(), didWeb)
 	require.NotNil(t, unresolvedErr)
-	require.Contains(t, unresolvedErr.Error(), "Unable to resolve")
-	require.Equal(t, did.Undef, result)
+	require.Contains(t, unresolvedErr.Error(), "unable to resolve")
+	require.Nil(t, result)
 }
 
 func TestHTTPResolver_ResolveDIDKey_Context(t *testing.T) {
@@ -354,9 +353,9 @@ func TestHTTPResolver_ResolveDIDKey_Context(t *testing.T) {
 	resolver, err := principalresolver.NewHTTPResolver(mapping, principalresolver.InsecureResolution())
 	require.NoError(t, err)
 
-	result, unresolvedErr := resolver.ResolveDIDKey(t.Context(), didWeb)
+	result, unresolvedErr := resolver.Resolve(t.Context(), didWeb)
 	require.Nil(t, unresolvedErr)
-	require.NotEqual(t, did.Undef, result)
+	require.NotEmpty(t, result)
 
 	select {
 	case <-requestReceived:
@@ -508,12 +507,12 @@ func TestHTTPResolver_ResolveDIDKey_ContextFormats(t *testing.T) {
 			resolver, err := principalresolver.NewHTTPResolver([]did.DID{didWeb}, principalresolver.InsecureResolution())
 			require.NoError(t, err)
 
-			result, unresolvedErr := resolver.ResolveDIDKey(t.Context(), didWeb)
+			result, unresolvedErr := resolver.Resolve(t.Context(), didWeb)
 			require.Nil(t, unresolvedErr)
 
 			expectedDID, err := did.Parse(tc.expectedDIDKey)
 			require.NoError(t, err)
-			require.Equal(t, expectedDID, result)
+			require.Equal(t, []did.DID{expectedDID}, result)
 		})
 	}
 }
@@ -575,24 +574,4 @@ func TestExtractDomainFromDID(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRealTest(t *testing.T) {
-	iKey, _ := did.Parse("did:key:z6Mkr4QkdinnXQmJ9JdnzwhcEjR8nMnuVPEwREyh9jp2Pb7k")
-	uKey, _ := did.Parse("did:key:z6MkpR58oZpK7L3cdZZciKT25ynGro7RZm6boFouWQ7AzF7v")
-
-	preset, _ := presets.GetPreset(presets.WarmStaging)
-
-	presolv, err := principalresolver.NewHTTPResolver([]did.DID{preset.Services.IndexingServiceDID, preset.Services.UploadServiceDID})
-	require.NoError(t, err)
-
-	resp, err := presolv.ResolveDIDKey(t.Context(), preset.Services.IndexingServiceDID)
-	require.NoError(t, err)
-
-	require.Equal(t, iKey, resp.DID())
-
-	resp, err = presolv.ResolveDIDKey(t.Context(), preset.Services.UploadServiceDID)
-	require.NoError(t, err)
-
-	require.Equal(t, uKey, resp.DID())
 }

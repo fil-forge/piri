@@ -9,11 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -24,6 +19,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
+
+	"github.com/fil-forge/filecoin-services/go/eip712"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
 
 	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
@@ -429,21 +428,23 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		metadata[i] = []eip712.MetadataEntry{}
 	}
 
-	proofs := make([][]ipld.Link, 0, len(request))
-	proofData := make([][]message.AgentMessage, 0, len(request))
+	proofs := make([][]cid.Cid, 0, len(request))
+	proofData := make([]*container.Container, 0, len(request))
 	for _, req := range request {
-		tasks := make([]ipld.Link, 0, len(req.SubRoots))
-		msgs := make([]message.AgentMessage, 0, len(req.SubRoots))
+		tsks := make([]cid.Cid, 0, len(req.SubRoots))
+		ct := container.New()
 		for _, subroot := range req.SubRoots {
-			task, msg, err := getAddPieceProofs(ctx, p.pieceResolver, p.acceptanceStore, p.receiptStore, subroot)
+			task, bundleCt, err := getAddPieceProofs(ctx, p.pieceResolver, p.acceptanceStore, p.receiptStore, subroot)
 			if err != nil {
 				return common.Hash{}, fmt.Errorf("getting proofs to add piece %s: %w", subroot, err)
 			}
-			tasks = append(tasks, task)
-			msgs = append(msgs, msg)
+			tsks = append(tsks, task)
+			_ = bundleCt
+			// TODO(phase 7d): merge bundleCt into ct once container merge helper is
+			// available; current stub returns nil container.
 		}
-		proofs = append(proofs, tasks)
-		proofData = append(proofData, msgs)
+		proofs = append(proofs, tsks)
+		proofData = append(proofData, ct)
 	}
 
 	// Request a signature for adding pieces from the signing service.
@@ -562,67 +563,60 @@ type blobResolvable interface {
 	ResolveToBlob(ctx context.Context, piece multihash.Multihash) (multihash.Multihash, bool, error)
 }
 
+// getAddPieceProofs looks up the acceptance record for `piece`, fetches the
+// blob/accept and pdp/accept receipts produced during acceptance, and bundles
+// them into a container for the signing service.
+//
+// The returned task CID is the blob/accept invocation's link (the "ran" of
+// the bundled receipts) — the signing service uses this to identify which
+// proof bundle attests to which piece in the SignAddPieces call.
+//
+// PARTIAL IMPLEMENTATION: the returned container currently only carries the
+// receipts. Adding the corresponding invocations requires a piri-side
+// invocation-store write in the /blob/accept handler (the pdp/accept
+// invocation is generated inline; the original /blob/accept invocation
+// arrives at the UCAN server and is not yet persisted). See Phase 7d
+// follow-up in the migration plan.
 func getAddPieceProofs(
 	ctx context.Context,
 	resolver blobResolvable,
 	accStore acceptancestore.AcceptanceStore,
 	rcptStore receiptstore.ReceiptStore,
 	piece cid.Cid,
-) (ipld.Link, message.AgentMessage, error) {
-	blob, ok, err := resolver.ResolveToBlob(ctx, piece.Hash())
+) (cid.Cid, *container.Container, error) {
+	// 1. Resolve piece CID → blob digest.
+	blobDigest, found, err := resolver.ResolveToBlob(ctx, piece.Hash())
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolving piece to blob hash: %w", err)
+		return cid.Undef, nil, fmt.Errorf("resolving piece %s: %w", piece, err)
 	}
-	if !ok {
-		return nil, nil, fmt.Errorf("missing piece to blob mapping: %s", piece)
+	if !found {
+		return cid.Undef, nil, fmt.Errorf("piece %s has no associated blob", piece)
 	}
 
-	// We can accept the same blob in multiple _spaces_, but we only add a root
-	// for the blob to PDP once. So it doesn't really matter which acceptance
-	// record we retrieve here, but there will only be one anyway, since this will
-	// be the first (and only) time this blob is added to PDP.
-	acc, err := accStore.GetAny(ctx, blob)
+	// 2. Look up the acceptance record for the blob.
+	acc, err := accStore.GetAny(ctx, blobDigest)
 	if err != nil {
-		return nil, nil, fmt.Errorf("getting acceptance: %w", err)
-	}
-	if acc.PDPAccept == nil {
-		return nil, nil, errors.New("missing PDP accept promise")
+		return cid.Undef, nil, fmt.Errorf("getting acceptance for blob %s: %w", blobDigest, err)
 	}
 
-	// The `blob/accept` invocation and receipt proves the node was asked to store
-	// the data, or more accurately, it was asked _and_ it confirmed it received
-	// the data.
-	blobAccRcpt, err := rcptStore.GetByRan(ctx, acc.Cause)
+	// 3. Fetch the /blob/accept receipt by ran link.
+	blobAcceptRcpt, err := rcptStore.GetByRan(ctx, acc.Cause)
 	if err != nil {
-		return nil, nil, fmt.Errorf("getting blob/accept receipt: %w", err)
-	}
-	// expect invocation to be attached to receipt
-	blobAccInv, ok := blobAccRcpt.Ran().Invocation()
-	if !ok {
-		return nil, nil, fmt.Errorf("missing blob/accept invocation: %w", err)
+		return cid.Undef, nil, fmt.Errorf("getting blob/accept receipt for %s: %w", acc.Cause, err)
 	}
 
-	// The `pdp/accept` invocation and receipt proves the node calculated a CommP
-	// for the blob and aggregated it into an aggregate piece. Note: It doesn't
-	// prove the equality relationship between the blob hash and the piece CID.
-	pdpAccRcpt, err := rcptStore.GetByRan(ctx, acc.PDPAccept.UcanAwait.Link)
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting pdp/accept receipt: %w", err)
-	}
-	pdpAccInv, ok := pdpAccRcpt.Ran().Invocation()
-	if !ok {
-		return nil, nil, fmt.Errorf("missing pdp/accept invocation: %w", err)
+	// 4. Fetch the /pdp/accept receipt, if PDP was enabled.
+	rcpts := []ucan.Receipt{blobAcceptRcpt}
+	if acc.PDPAccept != nil {
+		pdpRcpt, err := rcptStore.GetByRan(ctx, acc.PDPAccept.UcanAwait.Link)
+		if err != nil {
+			return cid.Undef, nil, fmt.Errorf("getting pdp/accept receipt for %s: %w", acc.PDPAccept.UcanAwait.Link, err)
+		}
+		rcpts = append(rcpts, pdpRcpt)
 	}
 
-	// The blob/accept receipt contains the link to the pdp/accept invocation in
-	// effects. Here we combine the blocks of these two related receipts (and
-	// invocations) in an agent message.
-	msg, err := message.Build(
-		[]invocation.Invocation{blobAccInv, pdpAccInv},
-		[]receipt.AnyReceipt{blobAccRcpt, pdpAccRcpt},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("building agent message: %w", err)
-	}
-	return acc.Cause, msg, nil
+	// 5. Bundle the receipts into a container. Adding the corresponding
+	// invocations is the Phase 7d follow-up.
+	ct := container.New(container.WithReceipts(rcpts...))
+	return acc.Cause, ct, nil
 }

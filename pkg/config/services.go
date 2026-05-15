@@ -5,15 +5,36 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/ipni/go-libipni/maurl"
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
+
+// buildServiceConnection constructs a piri ServiceConnection from a
+// service DID and URL. It performs the URL+DID parse and wires up a
+// ucantone HTTP client. Returns nil if didStr or urlStr is empty (so
+// callers can keep optional services optional).
+func buildServiceConnection(didStr, urlStr string) (app.ServiceConnection, error) {
+	if didStr == "" || urlStr == "" {
+		return app.ServiceConnection{}, fmt.Errorf("did and url are required")
+	}
+	d, err := did.Parse(didStr)
+	if err != nil {
+		return app.ServiceConnection{}, fmt.Errorf("parsing service DID %q: %w", didStr, err)
+	}
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return app.ServiceConnection{}, fmt.Errorf("parsing service URL %q: %w", urlStr, err)
+	}
+	c, err := client.NewHTTP(u)
+	if err != nil {
+		return app.ServiceConnection{}, fmt.Errorf("creating HTTP client for %q: %w", urlStr, err)
+	}
+	return app.ServiceConnection{DID: d, Client: c}, nil
+}
 
 type ServicesConfig struct {
 	ServicePrincipalMapping map[string]string `mapstructure:"principal_mapping" flag:"service-principal-mapping" toml:"principal_mapping,omitempty"`
@@ -61,19 +82,12 @@ func (s ServicesConfig) ToAppConfig(publicURL url.URL) (app.ExternalServicesConf
 		return app.ExternalServicesConfig{}, fmt.Errorf("creating publisher service app config: %w", err)
 	}
 
-	if s.ServicePrincipalMapping != nil {
-		out.PrincipalMapping = s.ServicePrincipalMapping
-	} else {
-		out.PrincipalMapping = make(map[string]string)
-	}
-
 	return out, nil
 }
 
 type IndexingServiceConfig struct {
-	DID   string `mapstructure:"did" validate:"required" flag:"indexing-service-did" toml:"did,omitempty"`
-	URL   string `mapstructure:"url" validate:"required,url" flag:"indexing-service-url" toml:"url,omitempty"`
-	Proof string `mapstructure:"proof" flag:"indexing-service-proof" toml:"proof,omitempty"`
+	DID string `mapstructure:"did" validate:"required" flag:"indexing-service-did" toml:"did,omitempty"`
+	URL string `mapstructure:"url" validate:"required,url" flag:"indexing-service-url" toml:"url,omitempty"`
 }
 
 func (s *IndexingServiceConfig) Validate() error {
@@ -81,39 +95,13 @@ func (s *IndexingServiceConfig) Validate() error {
 }
 
 func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error) {
-	sdid, err := did.Parse(s.DID)
+	conn, err := buildServiceConnection(s.DID, s.URL)
 	if err != nil {
-		return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service DID: %w", err)
+		return app.IndexingServiceConfig{}, fmt.Errorf("creating index service app config: %w", err)
 	}
-	surl, err := url.Parse(s.URL)
-	if err != nil {
-		return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service URL: %w", err)
-	}
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
-	if err != nil {
-		return app.IndexingServiceConfig{}, fmt.Errorf("creating indexing service connection: %w", err)
-	}
-	out := app.IndexingServiceConfig{
-		Connection: sconn,
-	}
-	// Parse indexing service proofs if provided
-	if s.Proof != "" {
-		dlg, err := delegation.Parse(s.Proof)
-		if err != nil {
-			return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service proof: %w", err)
-		}
-		out.Proofs = delegation.Proofs{delegation.FromDelegation(dlg)}
-	} else {
-		// TODO(forrest): in the event a node is run without an indexing service proof, it will
-		// almost always fail to index...obviously.
-		// The TODO here is one of:
-		//   1. Fail to start the node (will be annoying for testing
-		//   2. Return an app config with a nil indexing service connection
-		//      dependencies of this config are usually fine with a nil connection, as they check it before use.
-		log.Warn("no indexing service proof provided, indexing will likely fail, please provide indexing proof")
-	}
-	return out, nil
+	return app.IndexingServiceConfig{
+		Connection: conn,
+	}, nil
 }
 
 type EgressTrackerServiceConfig struct {
@@ -122,8 +110,7 @@ type EgressTrackerServiceConfig struct {
 	ReceiptsEndpoint string `mapstructure:"receipts_endpoint" flag:"egress-tracker-service-receipts-endpoint" toml:"receipts_endpoint,omitempty"`
 	// According to the spec, batch size should be between 10MiB and 1GiB
 	// (see https://github.com/storacha/specs/blob/main/w3-egress-tracking.md)
-	MaxBatchSizeBytes int64  `mapstructure:"max_batch_size_bytes" validate:"min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
-	Proof             string `mapstructure:"proof" flag:"egress-tracker-service-proof" toml:"proof,omitempty"`
+	MaxBatchSizeBytes int64 `mapstructure:"max_batch_size_bytes" validate:"min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
 }
 
 func (c *EgressTrackerServiceConfig) Validate() error {
@@ -141,18 +128,7 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 		return app.EgressTrackerServiceConfig{}, nil
 	}
 
-	sdid, err := did.Parse(c.DID)
-	if err != nil {
-		return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service DID: %w", err)
-	}
-
-	surl, err := url.Parse(c.URL)
-	if err != nil {
-		return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service URL: %w", err)
-	}
-
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
+	conn, err := buildServiceConnection(c.DID, c.URL)
 	if err != nil {
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("creating egress tracker service connection: %w", err)
 	}
@@ -162,25 +138,12 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service receipts endpoint: %w", err)
 	}
 
-	out := app.EgressTrackerServiceConfig{
-		Connection:           sconn,
+	return app.EgressTrackerServiceConfig{
+		Connection:           conn,
 		ReceiptsEndpoint:     receiptsEndpoint,
 		MaxBatchSizeBytes:    c.MaxBatchSizeBytes,
 		CleanupCheckInterval: 1 * time.Hour,
-	}
-
-	// Parse egress tracker service proofs if provided
-	if c.Proof != "" {
-		dlg, err := delegation.Parse(c.Proof)
-		if err != nil {
-			return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service proof: %w", err)
-		}
-		out.Proofs = delegation.Proofs{delegation.FromDelegation(dlg)}
-	} else {
-		log.Warn("no egress tracker service proof provided, egress tracking is disabled")
-	}
-
-	return out, nil
+	}, nil
 }
 
 type UploadServiceConfig struct {
@@ -193,22 +156,11 @@ func (s *UploadServiceConfig) Validate() error {
 }
 
 func (s *UploadServiceConfig) ToAppConfig() (app.UploadServiceConfig, error) {
-	sdid, err := did.Parse(s.DID)
-	if err != nil {
-		return app.UploadServiceConfig{}, fmt.Errorf("parsing upload service DID: %w", err)
-	}
-	surl, err := url.Parse(s.URL)
-	if err != nil {
-		return app.UploadServiceConfig{}, fmt.Errorf("parsing upload service URL: %w", err)
-	}
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
+	conn, err := buildServiceConnection(s.DID, s.URL)
 	if err != nil {
 		return app.UploadServiceConfig{}, fmt.Errorf("creating upload service connection: %w", err)
 	}
-	return app.UploadServiceConfig{
-		Connection: sconn,
-	}, nil
+	return app.UploadServiceConfig{Connection: conn}, nil
 }
 
 type PublisherServiceConfig struct {

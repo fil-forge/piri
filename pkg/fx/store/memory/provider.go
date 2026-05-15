@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
@@ -42,7 +43,9 @@ var Module = fx.Module("memory-store",
 		NewAllocationStore,
 		NewAcceptanceStore,
 		NewClaimStore,
+		NewInvocationStore,
 		NewReceiptStore,
+		NewDelegationStore,
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
@@ -70,7 +73,16 @@ func NewAcceptanceStore() acceptancestore.AcceptanceStore {
 
 func NewClaimStore() claimstore.ClaimStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return delegationstore.NewDatastoreStore(ds)
+	return invocationstore.NewDatastoreStore(ds)
+}
+
+// NewInvocationStore provides the generic invocation store used by the
+// storage UCAN server's Persister to record every inbound invocation.
+// Distinct from the claim store, which is reserved for signed content
+// claims (e.g. /assert/location).
+func NewInvocationStore() invocationstore.InvocationStore {
+	ds := sync.MutexWrap(datastore.NewMapDatastore())
+	return invocationstore.NewDatastoreStore(ds)
 }
 
 func NewPublisherStore() store.FullStore {
@@ -81,6 +93,11 @@ func NewPublisherStore() store.FullStore {
 func NewReceiptStore() receiptstore.ReceiptStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
 	return receiptstore.NewDatastoreStore(ds)
+}
+
+func NewDelegationStore() delegationstore.DelegationStore {
+	ds := sync.MutexWrap(datastore.NewMapDatastore())
+	return delegationstore.NewDatastoreStore(ds)
 }
 
 // TODO need an in-memory impl of the retrieval journal...

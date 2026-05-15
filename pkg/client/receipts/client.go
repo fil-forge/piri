@@ -4,17 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/transport"
-	"github.com/fil-forge/go-ucanto/transport/car"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/ipfs/go-cid"
 )
 
 var ErrNotFound = errors.New("receipt not found")
@@ -22,16 +19,9 @@ var ErrNotFound = errors.New("receipt not found")
 type Client struct {
 	endpoint *url.URL
 	client   *http.Client
-	codec    transport.ResponseDecoder
 }
 
 type Option func(c *Client)
-
-func WithCodec(codec transport.ResponseDecoder) Option {
-	return func(c *Client) {
-		c.codec = codec
-	}
-}
 
 func WithHTTPClient(client *http.Client) Option {
 	return func(c *Client) {
@@ -40,10 +30,7 @@ func WithHTTPClient(client *http.Client) Option {
 }
 
 func NewClient(endpoint *url.URL, options ...Option) *Client {
-	c := Client{
-		endpoint: endpoint,
-		codec:    car.NewOutboundCodec(),
-	}
+	c := Client{endpoint: endpoint}
 	for _, o := range options {
 		o(&c)
 	}
@@ -57,7 +44,7 @@ func NewClient(endpoint *url.URL, options ...Option) *Client {
 
 // Fetch a receipt from the receipt API. Returns [ErrNotFound] if the API
 // responds with [http.StatusNotFound].
-func (c *Client) Fetch(ctx context.Context, lnk ucan.Link) (receipt.AnyReceipt, error) {
+func (c *Client) Fetch(ctx context.Context, lnk cid.Cid) (ucan.Receipt, error) {
 	receiptURL := c.endpoint.JoinPath(lnk.String())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, receiptURL.String(), nil)
 	if err != nil {
@@ -70,24 +57,29 @@ func (c *Client) Fetch(ctx context.Context, lnk ucan.Link) (receipt.AnyReceipt, 
 	}
 	defer resp.Body.Close()
 
-	var msg message.AgentMessage
 	switch resp.StatusCode {
 	case http.StatusOK:
-		msg, err = c.codec.Decode(ucanhttp.NewResponse(resp.StatusCode, resp.Body, resp.Header))
-		if err != nil {
-			return nil, fmt.Errorf("decoding message: %w", err)
-		}
+		// fall through
 	case http.StatusNotFound:
 		return nil, ErrNotFound
 	default:
 		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 
-	rcptlnk, ok := msg.Get(lnk)
-	if !ok {
-		return nil, errors.New("receipt not found in agent message")
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
-	reader := receipt.NewAnyReceiptReader(types.Converters...)
-	return reader.Read(rcptlnk, msg.Blocks())
+	ct, err := container.Decode(body)
+	if err != nil {
+		return nil, fmt.Errorf("decoding container: %w", err)
+	}
+
+	for _, rcpt := range ct.Receipts() {
+		if rcpt.Link().Equals(lnk) {
+			return rcpt, nil
+		}
+	}
+	return nil, fmt.Errorf("receipt %s not found in container", lnk)
 }

@@ -1,15 +1,9 @@
 package ucan
 
 import (
-	"context"
-
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
+	blobcaps "github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
@@ -19,50 +13,41 @@ import (
 const maxUploadSize = 127 * (1 << 25)
 
 type BlobAllocateService interface {
+	ID() principal.Signer
 	PDP() pdp.PDP
 	Blobs() blobs.Blobs
 }
 
-func WithBlobAllocateMethod(storageService BlobAllocateService) server.Option {
-	return server.WithServiceMethod(
-		blob.AllocateAbility,
-		server.Provide(
-			blob.Allocate,
-			func(ctx context.Context, cap ucan.Capability[blob.AllocateCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[blob.AllocateOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				//
-				// UCAN Validation
-				//
+// NewBlobAllocateHandler returns the /blob/allocate UCAN handler. The space is
+// read from the invocation's Subject (the entity being invoked-against, i.e.
+// the space the allocation is for). Authorization (only delegated callers can
+// invoke against a space) is enforced by the validator/dispatcher.
+func NewBlobAllocateHandler(storageService BlobAllocateService) Handler {
+	return Handler{
+		Capability: blobcaps.Allocate,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*blobcaps.AllocateArguments],
+			res *bindexec.Response[*blobcaps.AllocateOK],
+		) error {
+			args := req.Task().Arguments()
 
-				// only service principal can perform an allocation
-				if cap.With() != iCtx.ID().DID().String() {
-					return result.Error[blob.AllocateOk, failure.IPLDBuilderFailure](NewUnsupportedCapabilityError(cap)), nil, nil
-				}
+			if args.Blob.Size > maxUploadSize {
+				return res.SetFailure(NewBlobSizeLimitExceededError(args.Blob.Size, maxUploadSize))
+			}
 
-				// enforce max upload size requirements
-				if cap.Nb().Blob.Size > maxUploadSize {
-					return result.Error[blob.AllocateOk, failure.IPLDBuilderFailure](NewBlobSizeLimitExceededError(cap.Nb().Blob.Size, maxUploadSize)), nil, nil
-				}
+			resp, err := blobhandler.Allocate(req.Context(), storageService, &blobhandler.AllocateRequest{
+				Space: req.Invocation().Subject(),
+				Blob:  args.Blob,
+				Cause: req.Invocation().Task().Link(),
+			})
+			if err != nil {
+				return res.SetFailure(err)
+			}
 
-				//
-				// end UCAN Validation
-				//
-
-				resp, err := blobhandler.Allocate(ctx, storageService, &blobhandler.AllocateRequest{
-					Space: cap.Nb().Space,
-					Blob:  cap.Nb().Blob,
-					Cause: inv.Link(),
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-
-				return result.Ok[blob.AllocateOk, failure.IPLDBuilderFailure](
-					blob.AllocateOk{
-						Size:    resp.Size,
-						Address: resp.Address,
-					},
-				), nil, nil
-			},
-		),
-	)
+			return res.SetSuccess(&blobcaps.AllocateOK{
+				Size:    resp.Size,
+				Address: resp.Address,
+			})
+		}),
+	}
 }

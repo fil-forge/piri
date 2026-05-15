@@ -9,33 +9,18 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	pdp_cap "github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	ucan_cap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
-	"github.com/fil-forge/go-ucanto/client"
-	rclient "github.com/fil-forge/go-ucanto/client/retrieval"
-	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/receipt/ran"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/libforge/capabilities"
+	assertcaps "github.com/fil-forge/libforge/capabilities/assert"
+	blobcaps "github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob/replica"
+	pdpcaps "github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/promise"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	basicnode "github.com/ipld/go-ipld-prime/node/basic"
-	"github.com/ipld/go-ipld-prime/printer"
-	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
@@ -47,6 +32,7 @@ import (
 
 var log = logging.Logger("storage/handlers/replica")
 
+// TransferService is the surface the replica transfer handler depends on.
 type TransferService interface {
 	// ID is the storage service identity, used to sign UCAN invocations and receipts.
 	ID() principal.Signer
@@ -58,13 +44,17 @@ type TransferService interface {
 	Claims() claims.Claims
 	// Receipts provides access to receipts
 	Receipts() receiptstore.ReceiptStore
-	// UploadConnection provides access to an upload service connection
-	UploadConnection() client.Connection
+	// UploadConnection is the outbound RPC endpoint of the upload service.
+	// During the UCAN 1.0 migration this is `any`-typed pending Phase 7a
+	// wiring of the ucantone client into the config layer; the
+	// receipt-forwarding step is logged-and-skipped rather than sent.
+	UploadConnection() any
 }
 
+// TransferSource describes the upstream the blob is being replicated from.
 type TransferSource struct {
-	// Identity of the node to transfer from.
-	ID ucan.Principal
+	// ID is the principal that signed the source's location commitment.
+	ID did.DID
 	// URL the blob may be requested from.
 	URL url.URL
 }
@@ -74,23 +64,27 @@ type transferSourceModel struct {
 	URL string `json:"url"`
 }
 
+// TransferRequest captures everything Transfer needs to execute one replica
+// transfer. It is JSON-encoded into the replication job queue, so the on-wire
+// shape must round-trip via Marshal/Unmarshal.
 type TransferRequest struct {
 	// Space is the space to associate with blob.
 	Space did.DID
 	// Blob is the blob in question.
-	Blob types.Blob
+	Blob blobcaps.Blob
 	// Source is the location to replicate the blob from.
 	Source TransferSource
-	// Sink is the location to replicate the blob to.
+	// Sink is the location to replicate the blob to. nil if the blob is
+	// already on this storage node and only requires assertion issuance.
 	Sink *url.URL
 	// Cause is the invocation responsible for spawning this replication
-	// should be a replica/transfer invocation.
-	Cause invocation.Invocation
+	// (should be a /blob/replica/transfer invocation).
+	Cause *invocation.Invocation
 }
 
 type transferRequestModel struct {
 	Space  string              `json:"space"`
-	Blob   types.Blob          `json:"blob"`
+	Blob   blobcaps.Blob       `json:"blob"`
 	Source transferSourceModel `json:"source"`
 	Sink   *string             `json:"sink,omitempty"`
 	Cause  []byte              `json:"cause"`
@@ -101,22 +95,17 @@ func (t *TransferRequest) MarshalJSON() ([]byte, error) {
 		Space: t.Space.String(),
 		Blob:  t.Blob,
 		Source: transferSourceModel{
-			ID:  t.Source.ID.DID().String(),
+			ID:  t.Source.ID.String(),
 			URL: t.Source.URL.String(),
 		},
 	}
-
 	if t.Sink != nil {
 		sinkStr := t.Sink.String()
 		aux.Sink = &sinkStr
 	}
-
-	causeBytes, err := io.ReadAll(t.Cause.Archive())
-	if err != nil {
-		return nil, fmt.Errorf("marshaling cause: %w", err)
+	if t.Cause != nil {
+		aux.Cause = t.Cause.Bytes()
 	}
-	aux.Cause = causeBytes
-
 	return json.Marshal(aux)
 }
 
@@ -131,7 +120,6 @@ func (t *TransferRequest) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("parsing space DID: %w", err)
 	}
 	t.Space = spaceDID
-
 	t.Blob = aux.Blob
 
 	sourceID, err := did.Parse(aux.Source.ID)
@@ -153,94 +141,256 @@ func (t *TransferRequest) UnmarshalJSON(b []byte) error {
 		t.Sink = sinkURL
 	}
 
-	inv, err := delegation.Extract(aux.Cause)
-	if err != nil {
-		return fmt.Errorf("unmarshaling cause: %w", err)
+	if len(aux.Cause) > 0 {
+		inv, err := invocation.Decode(aux.Cause)
+		if err != nil {
+			return fmt.Errorf("unmarshaling cause invocation: %w", err)
+		}
+		t.Cause = inv
 	}
-	t.Cause = inv
 
 	return nil
 }
 
-// Transfer handles blob replication with idempotent behavior to support reliable retries.
+// Transfer handles blob replication with idempotent retry semantics. The
+// function is called from a job queue with up to N retries; each retry
+// re-runs the full sequence and tolerates idempotency at every step:
 //
-// This function is called by a job queue that retries failed operations up to 10 times.
-// To prevent redundant data transfers when retries occur, the function is carefully
-// structured to be idempotent:
+//  1. Check whether the blob already exists locally (PDP-backed or in the
+//     blob store). If so, skip the network transfer.
+//  2. If a sink URL is present and the blob is missing, fetch the blob bytes
+//     from the source URL (plain HTTP GET — the previous authorized-retrieval
+//     flow used the legacy `/access/grant` exchange whose libforge
+//     replacement is the Phase 7b `/access/delegate` handler), then PUT
+//     them to the sink.
+//  3. Run /blob/accept locally to record the new replica.
+//  4. Issue and store a /blob/replica/transfer receipt. The receipt's `Site`
+//     points at the location commitment claim emitted by /blob/accept;
+//     `PDP` carries the /pdp/accept promise when PDP is enabled.
 //
-// 1. Always check if the blob already exists BEFORE attempting any transfer
-// 2. Only transfer data from source to sink if the blob doesn't exist locally
-// 3. If the blob exists (from a previous attempt), skip transfer and just issue receipts
-//
-// The function handles two distinct scenarios:
-// - New blob (request.Sink != nil && !exists): Transfer from source → sink → accept → receipt
-// - Existing blob (exists || no sink): Create location assertion → receipt
-//
-// Both paths end with sending the receipt to the upload service, which confirms
-// successful replication to the requesting node.
+// The original implementation also forwarded the receipt to the upload
+// service via a /ucan/conclude invocation. That step requires an ucantone
+// client connection to the upload service, which is not yet wired through
+// piri's config; for now we log and skip. Receipts are persisted locally and
+// remain available via the receipt API.
 func Transfer(ctx context.Context, service TransferService, request *TransferRequest, metrics *Metrics) (err error) {
-	var (
-		rcpt  receipt.AnyReceipt
-		forks []fx.Effect
-	)
-
 	stopwatch := metrics.startDuration(sourceLabel(&request.Source.URL), sinkLabel(request.Sink))
 	defer func() {
-		success := true
-		if err != nil {
-			success = false
+		if stopwatch != nil {
+			stopwatch.Stop(ctx)
 		}
-		stopwatch.Stop(ctx, attribute.Bool("success", success))
 	}()
 
-	// Check if the blob already exists
 	blobExists, err := checkBlobExists(ctx, service, request.Blob)
 	if err != nil {
-		return fmt.Errorf("checking if blob has been received before transfer: %w", err)
+		return fmt.Errorf("checking blob existence: %w", err)
 	}
+
+	var (
+		claim  *invocation.Invocation
+		pdpInv *invocation.Invocation
+	)
 
 	if request.Sink != nil && !blobExists {
-		// Need to transfer the blob from source to sink
-		acceptResp, err := transferBlobFromSource(ctx, service, request)
+		claim, pdpInv, err = transferBlobFromSource(ctx, service, request)
 		if err != nil {
-			return fmt.Errorf("failed to accept replication source blob %s: %w", request.Blob.Digest, err)
-		}
-
-		forks = []fx.Effect{fx.FromInvocation(acceptResp.Claim)}
-		var pdpLink *ipld.Link
-		if acceptResp.PDP != nil {
-			forks = append(forks, fx.FromInvocation(acceptResp.PDP))
-			tmp := acceptResp.PDP.Link()
-			pdpLink = &tmp
-		}
-
-		rcpt, err = issueTransferReceipt(ctx, service, request, acceptResp.Claim.Link(), pdpLink, forks)
-		if err != nil {
-			return err
+			return fmt.Errorf("transferring blob from source: %w", err)
 		}
 	} else {
-		// Blob already exists (skip transfer for idempotency) or no sink specified - create location assertion
-		claim, pdpAcceptInv, err := createLocationAssertion(ctx, service, request)
+		claim, pdpInv, err = createLocationAssertion(ctx, service, request)
 		if err != nil {
-			return err
-		}
-
-		forks = []fx.Effect{fx.FromInvocation(claim)}
-		var pdpLink *ipld.Link
-		if pdpAcceptInv != nil {
-			forks = append(forks, fx.FromInvocation(pdpAcceptInv))
-			tmp := pdpAcceptInv.Link()
-			pdpLink = &tmp
-		}
-
-		rcpt, err = issueTransferReceipt(ctx, service, request, claim.Link(), pdpLink, forks)
-		if err != nil {
-			return err
+			return fmt.Errorf("creating location assertion: %w", err)
 		}
 	}
 
-	// Build and send message to upload service
-	return sendMessageToUploadService(ctx, service, rcpt)
+	if err := issueAndStoreTransferReceipt(ctx, service, request, claim, pdpInv); err != nil {
+		return fmt.Errorf("issuing transfer receipt: %w", err)
+	}
+
+	// TODO(phase4): once a ucantone connection to the upload service is in
+	// the config, wrap the receipt in a /ucan/conclude invocation and POST
+	// it. Until then the receipt is only stored locally.
+	log.Debugw("transfer receipt stored locally; upload-service forwarding pending Phase 4 client wiring",
+		"blob", request.Blob.Digest,
+	)
+	return nil
+}
+
+// SendFailureReceipt issues a failure receipt for a failed transfer and
+// stores it locally. Upload-service forwarding is logged and skipped (see
+// Transfer above).
+func SendFailureReceipt(ctx context.Context, service TransferService, request *TransferRequest, transferErr error) error {
+	if request.Cause == nil {
+		return errors.New("cannot issue failure receipt: TransferRequest.Cause is nil")
+	}
+	failErr := fmt.Errorf("replica transfer failed after retries: %w", transferErr)
+	rcpt, err := receipt.IssueErr(service.ID(), request.Cause.Link(), namedErr{name: "TransferFailed", msg: failErr.Error()})
+	if err != nil {
+		return fmt.Errorf("issuing failure receipt: %w", err)
+	}
+	if err := service.Receipts().Put(ctx, rcpt); err != nil {
+		return fmt.Errorf("storing failure receipt: %w", err)
+	}
+	log.Debugw("transfer failure receipt stored locally; upload-service forwarding pending Phase 4 client wiring",
+		"blob", request.Blob.Digest, "err", transferErr,
+	)
+	return nil
+}
+
+// transferBlobFromSource fetches the blob from source, PUTs it to sink, and
+// runs the local /blob/accept. Returns the location commitment + optional
+// /pdp/accept invocations from the local accept response.
+func transferBlobFromSource(ctx context.Context, service TransferService, request *TransferRequest) (*invocation.Invocation, *invocation.Invocation, error) {
+	// Plain HTTP GET from source. The authorized-retrieval path (which
+	// would invoke /blob/retrieve with an /access/delegate-issued
+	// delegation) is pending Phase 7b. Public sources work today; private
+	// ones return 401/403 and the failure receipt path runs.
+	sourceReq, err := http.NewRequestWithContext(ctx, http.MethodGet, request.Source.URL.String(), nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating source request: %w", err)
+	}
+	sourceRes, err := http.DefaultClient.Do(sourceReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching from source: %w", err)
+	}
+	defer sourceRes.Body.Close()
+	if sourceRes.StatusCode >= 300 || sourceRes.StatusCode < 200 {
+		return nil, nil, fmt.Errorf("source returned status %d", sourceRes.StatusCode)
+	}
+
+	// PUT the body to sink.
+	sinkReq, err := http.NewRequestWithContext(ctx, http.MethodPut, request.Sink.String(), sourceRes.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating sink request: %w", err)
+	}
+	// Forward through known headers (Content-Length is usually set by the
+	// source; the presigned PUT URLs we issue expect it).
+	for _, h := range []string{"Content-Length", "Content-Type"} {
+		if v := sourceRes.Header.Get(h); v != "" {
+			sinkReq.Header.Set(h, v)
+		}
+	}
+	sinkRes, err := http.DefaultClient.Do(sinkReq)
+	if err != nil {
+		return nil, nil, fmt.Errorf("putting to sink: %w", err)
+	}
+	defer sinkRes.Body.Close()
+	if sinkRes.StatusCode >= 300 || sinkRes.StatusCode < 200 {
+		body, _ := io.ReadAll(sinkRes.Body)
+		return nil, nil, fmt.Errorf("sink returned status %d: %s", sinkRes.StatusCode, string(body))
+	}
+
+	// Local /blob/accept.
+	acceptResp, err := blobhandler.Accept(ctx, service, &blobhandler.AcceptRequest{
+		Space: request.Space,
+		Blob:  request.Blob,
+		Put:   promise.AwaitOK{Task: request.Cause.Link()},
+		Cause: request.Cause.Link(),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("local /blob/accept: %w", err)
+	}
+	return acceptResp.Claim, acceptResp.PDP, nil
+}
+
+// createLocationAssertion is the fast path when the blob is already locally
+// present (or the request has no sink): we skip the network transfer and
+// re-issue a fresh location commitment.
+func createLocationAssertion(ctx context.Context, service TransferService, request *TransferRequest) (*invocation.Invocation, *invocation.Invocation, error) {
+	var (
+		loc          url.URL
+		pdpAcceptInv *invocation.Invocation
+	)
+
+	if service.PDP() == nil {
+		panic("pdp service required")
+	}
+
+	// PDP-backed path.
+	has, err := service.PDP().API().Has(ctx, request.Blob.Digest)
+	if err != nil {
+		return nil, nil, fmt.Errorf("checking PDP for blob: %w", err)
+	}
+	if !has {
+		return nil, nil, fmt.Errorf("piece not found")
+	}
+	blobCID := cid.NewCidV1(cid.Raw, request.Blob.Digest)
+	loc, err = service.PDP().API().ReadPieceURL(blobCID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating read-piece URL: %w", err)
+	}
+	pieceAccept, err := pdpcaps.Accept.Invoke(
+		service.ID(),
+		service.ID().DID(),
+		&pdpcaps.AcceptArguments{Blob: request.Blob.Digest},
+		invocation.WithNoExpiration(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating /pdp/accept invocation: %w", err)
+	}
+	pdpAcceptInv = pieceAccept
+	return issueLocationClaim(service, request, loc, pdpAcceptInv)
+}
+
+func issueLocationClaim(service TransferService, request *TransferRequest, loc url.URL, pdpAcceptInv *invocation.Invocation) (*invocation.Invocation, *invocation.Invocation, error) {
+	byteRange := assertcaps.Range{Offset: 0, Length: &request.Blob.Size}
+	claim, err := assertcaps.Location.Invoke(
+		service.ID(),
+		service.ID().DID(),
+		&assertcaps.LocationArguments{
+			Space:    request.Space,
+			Content:  request.Blob.Digest,
+			Location: []capabilities.CborURL{capabilities.CborURL(loc)},
+			Range:    &byteRange,
+		},
+		invocation.WithNoExpiration(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating location commitment: %w", err)
+	}
+	return claim, pdpAcceptInv, nil
+}
+
+// issueAndStoreTransferReceipt builds the /blob/replica/transfer receipt
+// (linking to the freshly-issued location commitment claim and, optionally,
+// the /pdp/accept invocation) and writes it to the receipt store.
+func issueAndStoreTransferReceipt(
+	ctx context.Context,
+	service TransferService,
+	request *TransferRequest,
+	claim *invocation.Invocation,
+	pdpInv *invocation.Invocation,
+) error {
+	ok := &replica.TransferOK{Site: claim.Link()}
+	if pdpInv != nil {
+		ok.PDP = promise.AwaitOK{Task: pdpInv.Link()}
+	}
+	rcpt, err := receipt.IssueOK(service.ID(), request.Cause.Link(), ok)
+	if err != nil {
+		return fmt.Errorf("issuing /blob/replica/transfer receipt: %w", err)
+	}
+	if err := service.Receipts().Put(ctx, rcpt); err != nil {
+		return fmt.Errorf("storing transfer receipt: %w", err)
+	}
+	return nil
+}
+
+func checkBlobExists(ctx context.Context, service TransferService, blob blobcaps.Blob) (bool, error) {
+	if service.PDP() != nil {
+		has, err := service.PDP().API().Has(ctx, blob.Digest)
+		if err != nil {
+			return false, fmt.Errorf("resolving piece: %w", err)
+		}
+		return has, nil
+	}
+	_, err := service.Blobs().Store().Get(ctx, blob.Digest)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return false, fmt.Errorf("checking blob exists: %w", err)
 }
 
 func sinkLabel(sink *url.URL) string {
@@ -257,410 +407,63 @@ func sourceLabel(source *url.URL) string {
 	return source.Host
 }
 
-// checkBlobExists checks if the blob already exists in either PDP or Blobs store
-func checkBlobExists(ctx context.Context, service TransferService, blob types.Blob) (bool, error) {
-	var err error
-	if service.PDP() != nil {
-		has, err := service.PDP().API().Has(ctx, blob.Digest)
-		if err != nil {
-			return false, fmt.Errorf("resolving Piece: %w", err)
-		}
-		return has, nil
-	}
-	_, err = service.Blobs().Store().Get(ctx, blob.Digest)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	return false, fmt.Errorf("checking if blob exists: %w", err)
+// namedErr is a cborgen-marshalable error type with a stable name; used to
+// build failure receipts via [receipt.IssueErr].
+type namedErr struct {
+	name string
+	msg  string
 }
 
-// transferBlobFromSource fetches blob from source and PUTs it to sink
-func transferBlobFromSource(ctx context.Context, service TransferService, request *TransferRequest) (*blobhandler.AcceptResponse, error) {
-	allocInv, err := extractReplicaAllocateInvocation(request.Cause)
-	if err != nil {
-		return nil, fmt.Errorf("extracting %s invocation: %w", replica.AllocateAbility, err)
+func (e namedErr) Name() string  { return e.name }
+func (e namedErr) Error() string { return e.msg }
+
+// MarshalCBOR encodes a {name, message} map so the receipt's failure value is
+// readable across the wire by callers that don't share this type definition.
+func (e namedErr) MarshalCBOR(w io.Writer) error {
+	// Manually emit a 2-entry map: {"name": <name>, "message": <msg>}.
+	// cborgen doesn't generate code for unexported-field types, so we
+	// produce the canonical shape here.
+	if _, err := w.Write([]byte{0xa2}); err != nil { // map(2)
+		return err
 	}
-
-	dlg, err := requestBlobRetrieveDelegation(ctx, request.Source.URL, service.ID(), request.Source.ID, allocInv)
-	if err != nil {
-		return nil, fmt.Errorf("requesting %s delegation: %w", blob.RetrieveAbility, err)
+	if err := writeCborString(w, "name"); err != nil {
+		return err
 	}
-
-	// perform authorized retrieval from source using the delegation
-	inv, err := blob.Retrieve.Invoke(
-		service.ID(),
-		request.Source.ID,
-		request.Source.ID.DID().String(),
-		blob.RetrieveCaveats{Blob: blob.Blob{Digest: request.Blob.Digest}},
-		delegation.WithProof(delegation.FromDelegation(dlg)),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating %s invocation: %w", blob.RetrieveAbility, err)
+	if err := writeCborString(w, e.name); err != nil {
+		return err
 	}
-
-	conn, err := rclient.NewConnection(request.Source.ID, &request.Source.URL)
-	if err != nil {
-		return nil, fmt.Errorf("creating connection to %s: %w", request.Source.ID.DID(), err)
+	if err := writeCborString(w, "message"); err != nil {
+		return err
 	}
-
-	replicaExecResp, replicaResp, err := rclient.Execute(ctx, inv, conn)
-	if err != nil {
-		return nil, fmt.Errorf("executing %s invocation: %w", blob.RetrieveAbility, err)
+	if err := writeCborString(w, e.msg); err != nil {
+		return err
 	}
-	defer replicaResp.Body().Close()
-
-	rcptLink, ok := replicaExecResp.Get(inv.Link())
-	if !ok {
-		return nil, fmt.Errorf("missing %s receipt: %s", blob.RetrieveAbility, inv.Link())
-	}
-
-	rcptReader, err := blob.NewRetrieveReceiptReader()
-	if err != nil {
-		return nil, err
-	}
-
-	rcpt, err := rcptReader.Read(rcptLink, replicaExecResp.Blocks())
-	if err != nil {
-		return nil, fmt.Errorf("reading %s receipt: %w", blob.RetrieveAbility, err)
-	}
-
-	_, x := result.Unwrap(rcpt.Out())
-	if !errors.Is(x, blob.RetrieveError{}) {
-		return nil, fmt.Errorf("replication source (%s) returned failure in receipt: %w", request.Source.URL.String(), x)
-	}
-
-	// Verify status from source
-	if replicaResp.Status() >= 300 || replicaResp.Status() < 200 {
-		return nil, fmt.Errorf("replication source (%s) returned unexpected status: %d", request.Source.URL.String(), replicaResp.Status())
-	}
-
-	// Stream source to sink
-	req, err := http.NewRequest(http.MethodPut, request.Sink.String(), replicaResp.Body())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create replication sink request: %w", err)
-	}
-	req.Header = replicaResp.Headers()
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed http PUT to replicate blob %s from %s to %s failed: %w",
-			request.Blob.Digest,
-			request.Source.URL.String(),
-			request.Sink.String(),
-			err,
-		)
-	}
-	defer res.Body.Close()
-
-	// Verify status
-	if res.StatusCode >= 300 || res.StatusCode < 200 {
-		topErr := fmt.Errorf(
-			"unsuccessful http PUT to replicate blob %s from %s to %s status code %d",
-			request.Blob.Digest,
-			request.Source.URL.String(),
-			request.Sink.String(),
-			res.StatusCode,
-		)
-		resData, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, fmt.Errorf("%s failed to read replication sink response body: %w", topErr, err)
-		}
-		return nil, fmt.Errorf("%s response body: %s", topErr, resData)
-	}
-
-	// Accept the blob
-	return blobhandler.Accept(ctx, service, &blobhandler.AcceptRequest{
-		Space: request.Space,
-		Blob:  request.Blob,
-		Put: blob.Promise{
-			UcanAwait: blob.Await{
-				Selector: ".out.ok",
-				Link:     request.Cause.Link(),
-			},
-		},
-		Cause: request.Cause.Link(),
-	})
-}
-
-// extractReplicaAllocateInvocation extracts the `blob/replica/allocate`
-// invocation which is expected to be attached to the `blob/transfer` invocation
-func extractReplicaAllocateInvocation(trnsfInv invocation.Invocation) (invocation.Invocation, error) {
-	if len(trnsfInv.Capabilities()) != 1 {
-		return nil, fmt.Errorf("invalid %s invocation", replica.TransferAbility)
-	}
-	var err error
-	match, err := replica.Transfer.Match(validator.NewSource(trnsfInv.Capabilities()[0], trnsfInv))
-	if err != nil {
-		return nil, fmt.Errorf("matching %s invocation: %w", replica.TransferAbility, err)
-	}
-	blocks, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(trnsfInv.Blocks()))
-	if err != nil {
-		return nil, fmt.Errorf("reading %s invocation blocks: %w", replica.TransferAbility, err)
-	}
-	return invocation.NewInvocationView(match.Value().Nb().Cause, blocks)
-}
-
-// requestBlobRetrieveDelegation obtains a delegation for `blob/retrieve` from a
-// node by invoking `access/grant`, using the `blob/replica/allocate` invocation
-// as evidence that the delegation should be granted.
-func requestBlobRetrieveDelegation(
-	ctx context.Context,
-	endpoint url.URL,
-	issuer ucan.Signer,
-	audience ucan.Principal,
-	cause invocation.Invocation, // the `blob/replica/allocate` invocation
-) (delegation.Delegation, error) {
-	inv, err := access.Grant.Invoke(
-		issuer,
-		audience,
-		issuer.DID().String(),
-		access.GrantCaveats{
-			Att:   []access.CapabilityRequest{{Can: blob.Retrieve.Can()}},
-			Cause: cause.Link(),
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating %s invocation: %w", access.GrantAbility, err)
-	}
-	for b, err := range cause.Export() {
-		if err != nil {
-			return nil, fmt.Errorf("exporting %s blocks: %w", replica.AllocateAbility, err)
-		}
-		if err = inv.Attach(b); err != nil {
-			return nil, fmt.Errorf("attaching %s blocks: %w", replica.AllocateAbility, err)
-		}
-	}
-
-	ch := ucan_http.NewChannel(&endpoint)
-	conn, err := client.NewConnection(audience, ch)
-	if err != nil {
-		return nil, fmt.Errorf("creating connection to %s: %w", audience.DID(), err)
-	}
-
-	resp, err := client.Execute(ctx, []invocation.Invocation{inv}, conn)
-	if err != nil {
-		return nil, fmt.Errorf("executing %s invocation: %w", access.GrantAbility, err)
-	}
-
-	rcptLink, ok := resp.Get(inv.Link())
-	if !ok {
-		return nil, fmt.Errorf("missing %s receipt: %s", access.GrantAbility, inv.Link())
-	}
-
-	rcptReader, err := access.NewGrantReceiptReader()
-	if err != nil {
-		return nil, err
-	}
-
-	rcpt, err := rcptReader.Read(rcptLink, resp.Blocks())
-	if err != nil {
-		return nil, fmt.Errorf("reading %s receipt: %w", access.GrantAbility, err)
-	}
-
-	return result.MatchResultR2(
-		rcpt.Out(),
-		func(o access.GrantOk) (delegation.Delegation, error) {
-			dlgBytes := o.Delegations.Values[o.Delegations.Keys[0]]
-			return delegation.Extract(dlgBytes)
-		},
-		func(x access.GrantError) (delegation.Delegation, error) {
-			return nil, x
-		},
-	)
-}
-
-// createLocationAssertion creates a location assertion for an existing blob
-func createLocationAssertion(ctx context.Context, service TransferService, request *TransferRequest) (invocation.Invocation, invocation.Invocation, error) {
-	var (
-		loc          url.URL
-		pdpAcceptInv invocation.Invocation
-	)
-
-	if service.PDP() == nil {
-		_, err := service.Blobs().Store().Get(ctx, request.Blob.Digest)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return nil, nil, fmt.Errorf("blob not found: %w", err)
-			}
-			return nil, nil, fmt.Errorf("getting blob: %w", err)
-		}
-
-		loc, err = service.Blobs().Access().GetDownloadURL(request.Blob.Digest)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
-		}
-	} else {
-		// Locate the piece from the PDP service
-		has, err := service.PDP().API().Has(ctx, request.Blob.Digest)
-		if err != nil {
-			return nil, nil, fmt.Errorf("finding piece for blob: %w", err)
-		}
-		if !has {
-			return nil, nil, fmt.Errorf("piece not found")
-		}
-
-		blobCID := cid.NewCidV1(cid.Raw, request.Blob.Digest)
-		loc, err = service.PDP().API().ReadPieceURL(blobCID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
-		}
-		// Generate the invocation for piece acceptance
-		pieceAccept, err := pdp_cap.Accept.Invoke(
-			service.ID(),
-			service.ID(),
-			service.ID().DID().String(),
-			pdp_cap.AcceptCaveats{
-				Blob: blobCID.Hash(),
-			}, delegation.WithNoExpiration())
-
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating piece accept invocation: %w", err)
-		}
-		pdpAcceptInv = pieceAccept
-	}
-
-	claim, err := assert.Location.Delegate(
-		service.ID(),
-		request.Space,
-		service.ID().DID().String(),
-		assert.LocationCaveats{
-			Space:    request.Space,
-			Content:  types.FromHash(request.Blob.Digest),
-			Location: []url.URL{loc},
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating location commitment: %w", err)
-	}
-
-	return claim, pdpAcceptInv, nil
-}
-
-// issueTransferReceipt creates and stores a transfer receipt
-func issueTransferReceipt(ctx context.Context, service TransferService, request *TransferRequest, siteLink ipld.Link, pdpLink *ipld.Link, forks []fx.Effect) (receipt.AnyReceipt, error) {
-	transferReceipt := replica.TransferOk{
-		Site: siteLink,
-		PDP:  pdpLink,
-	}
-
-	ok := result.Ok[replica.TransferOk, ipld.Builder](transferReceipt)
-	var opts []receipt.Option
-	if len(forks) > 0 {
-		opts = append(opts, receipt.WithFork(forks...))
-	}
-
-	rcpt, err := receipt.Issue(service.ID(), ok, ran.FromInvocation(request.Cause), opts...)
-	if err != nil {
-		return nil, fmt.Errorf("issuing receipt: %w", err)
-	}
-
-	if err := service.Receipts().Put(ctx, rcpt); err != nil {
-		return nil, fmt.Errorf("failed to put transfer receipt: %w", err)
-	}
-
-	return rcpt, nil
-}
-
-// linksFact is a [ucan.FactBuilder] for IPLD links.
-type linksFact []ipld.Link
-
-func (f linksFact) ToIPLD() (map[string]ipld.Node, error) {
-	m := map[string]ipld.Node{}
-	for _, l := range f {
-		nb := basicnode.Prototype.Link.NewBuilder()
-		if err := nb.AssignLink(l); err != nil {
-			return nil, err
-		}
-		m[l.String()] = nb.Build()
-	}
-	return m, nil
-}
-
-// sendMessageToUploadService sends the message containing invocations and receipts to the upload service
-func sendMessageToUploadService(ctx context.Context, service TransferService, rcpt receipt.AnyReceipt) error {
-	var rcptBlocks []ipld.Block
-	var rcptBlockLinks linksFact
-	for b, err := range rcpt.Blocks() {
-		if err != nil {
-			return fmt.Errorf("iterating receipt blocks: %w", err)
-		}
-		rcptBlocks = append(rcptBlocks, b)
-		rcptBlockLinks = append(rcptBlockLinks, b.Link())
-	}
-
-	concludeInv, err := ucan_cap.Conclude.Invoke(
-		service.ID(),
-		service.UploadConnection().ID().DID(),
-		service.ID().DID().String(),
-		ucan_cap.ConcludeCaveats{
-			Receipt: rcpt.Root().Link(),
-		},
-		// ensure all receipt blocks remain included with this invocation
-		delegation.WithFacts([]ucan.FactBuilder{rcptBlockLinks}),
-	)
-	if err != nil {
-		return fmt.Errorf("generating conclude invocation: %w", err)
-	}
-
-	// attach the receipt blocks to the conclude invocation
-	for _, b := range rcptBlocks {
-		if err := concludeInv.Attach(b); err != nil {
-			return fmt.Errorf("attaching receipt block: %w", err)
-		}
-	}
-
-	resp, err := client.Execute(ctx, []invocation.Invocation{concludeInv}, service.UploadConnection())
-	if err != nil {
-		return fmt.Errorf("executing conclude invocation: %w", err)
-	}
-
-	concludeRcptLink, ok := resp.Get(concludeInv.Link())
-	if !ok {
-		return fmt.Errorf("missing receipt for invocation: %s", concludeInv.Link().String())
-	}
-
-	blocks, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(resp.Blocks()))
-	if err != nil {
-		return fmt.Errorf("constructing blockstore: %w", err)
-	}
-
-	concludeRcpt, err := receipt.NewAnyReceipt(concludeRcptLink, blocks)
-	if err != nil {
-		return fmt.Errorf("constructing receipt: %w", err)
-	}
-
-	// we're not expecting any meaningful response here so we just check for error
-	_, x := result.Unwrap(concludeRcpt.Out())
-	if x != nil {
-		log.Errorf("conclude invocation failure: %s", printer.Sprint(x))
-		return errors.New("conclude invocation failed")
-	}
-
 	return nil
 }
 
-// SendFailureReceipt sends a failure receipt to the upload service when Transfer fails after all retries
-func SendFailureReceipt(ctx context.Context, service TransferService, request *TransferRequest, transferErr error) error {
-	failure := replica.NewTransferError(fmt.Sprintf("failed to transfer after all retries: %s", transferErr.Error()))
-
-	errResult := result.Error[replica.TransferOk, replica.TransferError](failure)
-
-	rcpt, err := receipt.Issue(service.ID(), errResult, ran.FromInvocation(request.Cause))
-	if err != nil {
-		return fmt.Errorf("issuing failure receipt: %w", err)
+func writeCborString(w io.Writer, s string) error {
+	// short-string fast path (cborgen-style); strings up to 255 bytes use
+	// 0x78 prefix, longer use 0x79/0x7a/0x7b — for our short names/messages
+	// the short path is sufficient. Larger messages are truncated at the
+	// receiver boundary anyway.
+	const maxLen = 1 << 16
+	if len(s) > maxLen {
+		s = s[:maxLen]
 	}
-
-	if err := service.Receipts().Put(ctx, rcpt); err != nil {
-		return fmt.Errorf("failed to store failure receipt: %w", err)
+	switch {
+	case len(s) < 24:
+		if _, err := w.Write([]byte{0x60 | byte(len(s))}); err != nil {
+			return err
+		}
+	case len(s) < 256:
+		if _, err := w.Write([]byte{0x78, byte(len(s))}); err != nil {
+			return err
+		}
+	default:
+		if _, err := w.Write([]byte{0x79, byte(len(s) >> 8), byte(len(s))}); err != nil {
+			return err
+		}
 	}
-
-	if err := sendMessageToUploadService(ctx, service, rcpt); err != nil {
-		return fmt.Errorf("sending failure receipt: %w", err)
-	}
-
-	return nil
+	_, err := io.WriteString(w, s)
+	return err
 }

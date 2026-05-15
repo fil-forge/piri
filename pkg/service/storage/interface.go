@@ -1,14 +1,13 @@
 package storage
 
 import (
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/service/replicator"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -25,8 +24,11 @@ type Service interface {
 	Receipts() receiptstore.ReceiptStore
 	// Replicator provides access to the replication service
 	Replicator() replicator.Replicator
-	// UploadConnection provides the connection details to an upload service
-	UploadConnection() client.Connection
-	// ClaimValidationContext provides the context required for validating UCANs.
-	ClaimValidationContext() validator.ClaimContext
+	// Delegations provides access to the delegation store backing the
+	// /access/delegate + /access/claim flows.
+	Delegations() delegationstore.DelegationStore
+	// UploadConnection provides the connection details to an upload service.
+	// Returns `any` during the UCAN 1.0 migration: callers type-assert to
+	// `*app.ServiceConnection` to obtain {DID, *ucantone/client.HTTPClient}.
+	UploadConnection() any
 }

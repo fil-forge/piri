@@ -1,17 +1,12 @@
 package consolidationstore
 
 import (
-	"io"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/ipfs/go-cid"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ipld/datamodel"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-datastore/namespace"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store"
@@ -23,7 +18,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		ds := datastore.NewMapDatastore()
 		s := NewDatastoreStore(ds)
 
-		batchCID := randomCID(t)
+		batchCID := testutil.RandomCID(t)
 		c := createTestConsolidation(t)
 
 		err := s.Put(t.Context(), batchCID, c)
@@ -38,7 +33,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		ds := datastore.NewMapDatastore()
 		s := NewDatastoreStore(ds)
 
-		batchCID := randomCID(t)
+		batchCID := testutil.RandomCID(t)
 
 		_, err := s.Get(t.Context(), batchCID)
 		require.ErrorIs(t, err, store.ErrNotFound)
@@ -48,23 +43,19 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		ds := datastore.NewMapDatastore()
 		s := NewDatastoreStore(ds)
 
-		batchCID := randomCID(t)
+		batchCID := testutil.RandomCID(t)
 		c := createTestConsolidation(t)
 
-		// Put
 		err := s.Put(t.Context(), batchCID, c)
 		require.NoError(t, err)
 
-		// Verify exists
 		got, err := s.Get(t.Context(), batchCID)
 		require.NoError(t, err)
 		requireEqualConsolidation(t, c, got)
 
-		// Delete
 		err = s.Delete(t.Context(), batchCID)
 		require.NoError(t, err)
 
-		// Verify not found
 		_, err = s.Get(t.Context(), batchCID)
 		require.ErrorIs(t, err, store.ErrNotFound)
 	})
@@ -73,10 +64,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		ds := datastore.NewMapDatastore()
 		s := NewDatastoreStore(ds)
 
-		batchCID := randomCID(t)
-
-		// Delete should not error on non-existent key
-		err := s.Delete(t.Context(), batchCID)
+		err := s.Delete(t.Context(), testutil.RandomCID(t))
 		require.NoError(t, err)
 	})
 
@@ -84,65 +72,24 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		ds := datastore.NewMapDatastore()
 		s := NewDatastoreStore(ds)
 
-		batchCID := randomCID(t)
+		batchCID := testutil.RandomCID(t)
 		c1 := createTestConsolidation(t)
 		c2 := createTestConsolidation(t)
 
-		// Put first
 		err := s.Put(t.Context(), batchCID, c1)
 		require.NoError(t, err)
-
-		// Overwrite with second
 		err = s.Put(t.Context(), batchCID, c2)
 		require.NoError(t, err)
 
-		// Get should return second
 		got, err := s.Get(t.Context(), batchCID)
 		require.NoError(t, err)
 		requireEqualConsolidation(t, c2, got)
 	})
 
-	t.Run("legacy migration", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-
-		// Create test consolidation
-		c := createTestConsolidation(t)
-		batchCID := randomCID(t)
-
-		// Write to legacy format directly
-		trackDS := namespace.Wrap(ds, datastore.NewKey(legacyTrackPrefix))
-		consolidateDS := namespace.Wrap(ds, datastore.NewKey(legacyConsolidatePrefix))
-
-		key := datastore.NewKey(batchCID.String())
-
-		// Archive the track invocation to CAR bytes
-		trackBytes, err := io.ReadAll(c.TrackInvocation.Archive())
-		require.NoError(t, err)
-		err = trackDS.Put(t.Context(), key, trackBytes)
-		require.NoError(t, err)
-
-		// Write consolidate CID bytes
-		err = consolidateDS.Put(t.Context(), key, c.ConsolidateInvocationCID.Bytes())
-		require.NoError(t, err)
-
-		// Create store and get - should read from legacy and migrate
-		s := NewDatastoreStore(ds)
-		got, err := s.Get(t.Context(), batchCID)
-		require.NoError(t, err)
-		requireEqualConsolidation(t, c, got)
-
-		// Verify legacy data was cleaned up
-		_, err = trackDS.Get(t.Context(), key)
-		require.ErrorIs(t, err, datastore.ErrNotFound)
-
-		_, err = consolidateDS.Get(t.Context(), key)
-		require.ErrorIs(t, err, datastore.ErrNotFound)
-
-		// Verify data is now in new format (can be retrieved again)
-		got2, err := s.Get(t.Context(), batchCID)
-		require.NoError(t, err)
-		requireEqualConsolidation(t, c, got2)
-	})
+	// The UCAN 0.x → 1.0 migration removed DatastoreLegacyReader. The previous
+	// "legacy migration" subtest exercised CAR-archived UCAN 0.x track
+	// invocations being read and re-written; that path is dead. New
+	// deployments only see the cborgen format produced by Codec{}.
 }
 
 func createTestConsolidation(t *testing.T) consolidation.Consolidation {
@@ -151,32 +98,21 @@ func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 	signer := testutil.RandomSigner(t)
 	audience := testutil.RandomDID(t)
 
-	inv, err := delegation.Delegate(
+	track, err := invocation.Invoke(
 		signer,
-		audience,
-		[]ucan.Capability[ok.Unit]{
-			ucan.NewCapability("space/egress/track", audience.String(), ok.Unit{}),
-		},
+		signer.DID(),
+		"/space/egress/track",
+		datamodel.Map{},
+		invocation.WithAudience(audience),
 	)
 	require.NoError(t, err)
 
-	return consolidation.Consolidation{
-		TrackInvocation:          inv,
-		ConsolidateInvocationCID: randomCID(t),
-	}
-}
-
-func randomCID(t *testing.T) cid.Cid {
-	t.Helper()
-	link := testutil.RandomCID(t)
-	return link.(cidlink.Link).Cid
+	return consolidation.New(track, testutil.RandomCID(t))
 }
 
 func requireEqualConsolidation(t *testing.T, expected, actual consolidation.Consolidation) {
 	t.Helper()
 
-	// Compare invocation links (the canonical identifier)
-	require.Equal(t, expected.TrackInvocation.Link(), actual.TrackInvocation.Link())
-	// Compare consolidate CIDs
+	require.Equal(t, expected.TrackInvocationBytes, actual.TrackInvocationBytes)
 	require.Equal(t, expected.ConsolidateInvocationCID, actual.ConsolidateInvocationCID)
 }

@@ -11,9 +11,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/did"
-	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 )
@@ -140,23 +137,13 @@ func (c SigningServiceConfig) ToAppConfig() (app.SigningServiceConfig, error) {
 	}
 
 	if c.URL != "" && c.DID != "" {
-		ep, err := url.Parse(c.URL)
-		if err != nil {
-			return app.SigningServiceConfig{}, fmt.Errorf("invalid signing service URL: %s: %w", c.URL, err)
-		}
-		id, err := did.Parse(c.DID)
-		if err != nil {
-			return app.SigningServiceConfig{}, fmt.Errorf("parsing signing service DID: %s: %w", c.DID, err)
-		}
-
-		channel := ucan_http.NewChannel(ep)
-		conn, err := client.NewConnection(id, channel)
+		conn, err := buildServiceConnection(c.DID, c.URL)
 		if err != nil {
 			return app.SigningServiceConfig{}, fmt.Errorf("creating signing service connection: %w", err)
 		}
-
 		return app.SigningServiceConfig{
-			Connection: conn,
+			Connection: &conn,
+			PrivateKey: nil,
 		}, nil
 	} else {
 		// we should only use this for development and local testing.
@@ -172,6 +159,7 @@ func (c SigningServiceConfig) ToAppConfig() (app.SigningServiceConfig, error) {
 		}
 		log.Warn("signing service operating with local key")
 		return app.SigningServiceConfig{
+			Connection: nil,
 			PrivateKey: privateKey,
 		}, nil
 	}

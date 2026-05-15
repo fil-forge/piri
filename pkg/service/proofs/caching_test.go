@@ -1,104 +1,88 @@
 package proofs_test
 
 import (
-	"context"
-	"io"
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/service/proofs"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/command"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/service/proofs"
 )
 
 func TestCachingProofsService(t *testing.T) {
 	webService := testutil.WebService
-
-	server, err := server.NewServer(
-		webService,
-		server.WithServiceMethod(
-			access.GrantAbility,
-			server.Provide(
-				access.Grant,
-				func(
-					ctx context.Context,
-					capability ucan.Capability[access.GrantCaveats],
-					invocation invocation.Invocation,
-					context server.InvocationContext,
-				) (result.Result[access.GrantOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					nb := capability.Nb()
-					dlg, err := delegation.Delegate(
-						webService,
-						invocation.Issuer(),
-						[]ucan.Capability[ucan.NoCaveats]{
-							ucan.NewCapability(nb.Att[0].Can, webService.DID().String(), ucan.NoCaveats{}),
-						},
-						delegation.WithExpiration(ucan.Now()+30),
-						delegation.WithNonce(testutil.RandomCID(t).String()),
-					)
-					require.NoError(t, err)
-
-					dlgArchive := testutil.Must(io.ReadAll(dlg.Archive()))(t)
-
-					return result.Ok[access.GrantOk, failure.IPLDBuilderFailure](
-						access.GrantOk{
-							Delegations: access.DelegationsModel{
-								Keys:   []string{dlg.Link().String()},
-								Values: map[string][]byte{dlg.Link().String(): dlgArchive},
-							},
-						},
-					), nil, nil
-				},
-			),
-		),
-	)
+	cmd, err := command.Parse("/test/test")
 	require.NoError(t, err)
 
-	conn, err := client.NewConnection(webService, server)
-	require.NoError(t, err)
+	t.Run("cache hit returns stored delegation", func(t *testing.T) {
+		proofsService := proofs.NewCachingProofService()
 
-	proofsService := proofs.NewCachingProofService()
+		dlg, err := delegation.Delegate(
+			webService,
+			testutil.Alice.DID(),
+			webService.DID(),
+			cmd,
+			delegation.WithNoExpiration(),
+		)
+		require.NoError(t, err)
 
-	ability := "test/test"
-	dlg, err := proofsService.RequestAccess(t.Context(), testutil.Alice, webService, ability, nil, proofs.WithConnection(conn))
-	require.NoError(t, err)
+		proofsService.Put(testutil.Alice.DID(), webService.DID(), cmd, dlg)
 
-	require.Len(t, dlg.Capabilities(), 1)
-	require.Equal(t, ability, dlg.Capabilities()[0].Can())
-	require.Equal(t, webService.DID().String(), dlg.Capabilities()[0].With())
+		got, err := proofsService.RequestAccess(t.Context(), testutil.Alice, webService.DID(), cmd, nil)
+		require.NoError(t, err)
+		require.Equal(t, dlg.Link(), got.Link())
+	})
 
-	// delegation should be cached
-	cacheDlg, err := proofsService.RequestAccess(t.Context(), testutil.Alice, webService, ability, nil, proofs.WithConnection(conn))
-	require.NoError(t, err)
+	t.Run("different issuer misses cache and triggers fetch", func(t *testing.T) {
+		proofsService := proofs.NewCachingProofService()
 
-	// if nonce is different it went back to the server
-	require.Equal(t, dlg.Nonce(), cacheDlg.Nonce())
+		dlg, err := delegation.Delegate(
+			webService,
+			testutil.Alice.DID(),
+			webService.DID(),
+			cmd,
+			delegation.WithNoExpiration(),
+		)
+		require.NoError(t, err)
 
-	otherDlg, err := proofsService.RequestAccess(t.Context(), testutil.Bob, webService, ability, nil, proofs.WithConnection(conn))
-	require.NoError(t, err)
+		proofsService.Put(testutil.Alice.DID(), webService.DID(), cmd, dlg)
 
-	// same ability but different issuer should fetch new delegation
-	require.NotEqual(t, dlg.Link(), otherDlg.Link())
+		// Different issuer (Bob): no cache entry. Without a configured
+		// HTTP client RequestAccess can't run the /access/claim fetch and
+		// returns ErrNoConnection.
+		_, err = proofsService.RequestAccess(t.Context(), testutil.Bob, webService.DID(), cmd, nil)
+		require.ErrorIs(t, err, proofs.ErrNoConnection)
+	})
 
-	// should get a fresh one if existing TTL is less than passed minimum
-	freshDlg, err := proofsService.RequestAccess(
-		t.Context(),
-		testutil.Alice,
-		webService,
-		ability,
-		nil,
-		proofs.WithConnection(conn),
-		proofs.WithMinimumTTL(time.Hour),
-	)
-	require.NoError(t, err)
-	require.NotEqual(t, dlg.Nonce(), freshDlg.Nonce())
+	t.Run("expired cache entry triggers fetch", func(t *testing.T) {
+		proofsService := proofs.NewCachingProofService()
+
+		dlg, err := delegation.Delegate(
+			webService,
+			testutil.Alice.DID(),
+			webService.DID(),
+			cmd,
+			delegation.WithExpiration(ucan.Now()),
+		)
+		require.NoError(t, err)
+
+		proofsService.Put(testutil.Alice.DID(), webService.DID(), cmd, dlg)
+
+		// A long minimum TTL forces the cache entry to be treated as expired
+		// even though it has a 1-second future expiration. Without a configured
+		// HTTP client the fetch path returns ErrNoConnection.
+		_, err = proofsService.RequestAccess(
+			t.Context(),
+			testutil.Alice,
+			webService.DID(),
+			cmd,
+			nil,
+			proofs.WithMinimumTTL(time.Hour),
+		)
+		require.ErrorIs(t, err, proofs.ErrNoConnection)
+	})
 }

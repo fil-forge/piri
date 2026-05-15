@@ -46,6 +46,7 @@ type jobRegistration[T any] struct {
 
 type Worker[T any] struct {
 	queue         queue.Interface
+	codec         serializer.Codec[T]
 	jobs          map[string]*jobRegistration[T]
 	pollInterval  time.Duration
 	extend        time.Duration
@@ -54,7 +55,6 @@ type Worker[T any] struct {
 	jobCountLimit int
 	jobCountLock  sync.RWMutex
 	log           logger.StandardLogger
-	serializer    serializer.Serializer[T]
 	metrics       *metricsRecorder
 }
 
@@ -102,7 +102,11 @@ func WithQueueName(name string) Option {
 	}
 }
 
-func New[T any](q queue.Interface, ser serializer.Serializer[T], options ...Option) (*Worker[T], error) {
+func New[T any](q queue.Interface, codec serializer.Codec[T], options ...Option) (*Worker[T], error) {
+	if codec == nil {
+		return nil, errors.New("codec cannot be nil")
+	}
+
 	// Default config
 	cfg := &Config{
 		Log:           &logger.DiscardLogger{},
@@ -124,8 +128,8 @@ func New[T any](q queue.Interface, ser serializer.Serializer[T], options ...Opti
 	jq := &Worker[T]{
 		jobs: make(map[string]*jobRegistration[T]),
 
-		queue:      q,
-		serializer: ser,
+		queue: q,
+		codec: codec,
 
 		log:           cfg.Log,
 		queueName:     cfg.QueueName,
@@ -200,10 +204,12 @@ func (r *Worker[T]) Register(name string, fn JobFn[T], opts ...JobOption[T]) err
 
 func (r *Worker[T]) Enqueue(ctx context.Context, name string, msg T) error {
 	r.log.Debugf("Enqueue -> %s: %v", name, msg)
-	m, err := r.serializer.Serialize(msg)
-	if err != nil {
-		return fmt.Errorf("serializer error: %w", err)
+	// TODO(forrest)[ucan1]: likely want a buffer pool.
+	var msgbuf bytes.Buffer
+	if err := r.codec.Encode(&msgbuf, msg); err != nil {
+		return fmt.Errorf("encoding job payload: %w", err)
 	}
+	m := msgbuf.Bytes()
 
 	traceInfo := traceutil.PayloadFromContext(ctx)
 
@@ -227,10 +233,11 @@ func (r *Worker[T]) Enqueue(ctx context.Context, name string, msg T) error {
 }
 
 func (r *Worker[T]) EnqueueTx(ctx context.Context, tx *sql.Tx, name string, msg T) error {
-	m, err := r.serializer.Serialize(msg)
-	if err != nil {
-		return fmt.Errorf("serializer error: %w", err)
+	var msgbuf bytes.Buffer
+	if err := r.codec.Encode(&msgbuf, msg); err != nil {
+		return fmt.Errorf("encoding job payload: %w", err)
 	}
+	m := msgbuf.Bytes()
 
 	traceInfo := traceutil.PayloadFromContext(ctx)
 
@@ -295,7 +302,7 @@ func (r *Worker[T]) receiveAndRun(ctx context.Context, wg *sync.WaitGroup) {
 	go r.runJob(ctx, wg, m, jm, jobInput, jobReg)
 }
 
-// decodeMessage decodes and deserializes a message body
+// decodeMessage decodes the envelope and deserializes the job payload
 func (r *Worker[T]) decodeMessage(body []byte) (message, T, error) {
 	var jm message
 	var zero T
@@ -305,7 +312,7 @@ func (r *Worker[T]) decodeMessage(body []byte) (message, T, error) {
 		return jm, zero, err
 	}
 
-	jobInput, err := r.serializer.Deserialize(jm.Message)
+	jobInput, err := r.codec.Decode(bytes.NewReader(jm.Message))
 	if err != nil {
 		r.log.Errorw("Error deserializing job message", "error", err)
 		return jm, zero, err

@@ -14,12 +14,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config"
@@ -161,8 +162,9 @@ func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
 	// Create the token
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 
-	// Sign the token
-	tokenString, err := token.SignedString(ed25519.PrivateKey(id.Raw()))
+	// Sign the token. id.Raw() is the 32-byte ed25519 seed; expand it to a
+	// full 64-byte private key for crypto/ed25519.
+	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(id.Raw()))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}

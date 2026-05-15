@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/fil-forge/piri/cmd/cli/client"
-	"github.com/fil-forge/piri/cmd/cli/delegate"
 	"github.com/fil-forge/piri/cmd/cli/identity"
 	"github.com/fil-forge/piri/cmd/cli/serve"
 	"github.com/fil-forge/piri/cmd/cli/setup"
@@ -75,7 +74,6 @@ func init() {
 	rootCmd.AddCommand(serve.Cmd)
 	rootCmd.AddCommand(wallet.Cmd)
 	rootCmd.AddCommand(identity.Cmd)
-	rootCmd.AddCommand(delegate.Cmd)
 	rootCmd.AddCommand(client.Cmd)
 	rootCmd.AddCommand(status.Cmd)
 

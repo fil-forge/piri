@@ -5,7 +5,6 @@ import (
 
 	"github.com/fil-forge/piri/pkg/fx/blobs"
 	"github.com/fil-forge/piri/pkg/fx/claims"
-	"github.com/fil-forge/piri/pkg/fx/claimvalidation"
 	"github.com/fil-forge/piri/pkg/fx/presigner"
 	"github.com/fil-forge/piri/pkg/fx/principalresolver"
 	"github.com/fil-forge/piri/pkg/fx/publisher"
@@ -19,11 +18,14 @@ import (
 )
 
 var UCANModule = fx.Module("ucan",
-	presigner.Module,         // Provides presigner.RequestPresigner
+	// TODO(forrest): this module is providing an S3 based pre-signed which we don't need
+	// its currently required by a blob service, whos interface is too large, most of which we don't need.
+	// the todo here is the delete the "blob service" and this presigner as its code path is never used with PDP.
+	presigner.Module, // Provides presigner.RequestPresigner
+
 	root.Module,              // Provides root http handler
 	blobs.Module,             // Provides blob service and handler
 	claims.Module,            // Provides claims service and handler
-	claimvalidation.Module,   // Provides context for validating UCANs
 	publisher.Module,         // Provides publisher service and handler
 	egresstracker.Module,     // Provides egress tracker service
 	replicator.Module,        // Provides replicator service (works with or without PDP)

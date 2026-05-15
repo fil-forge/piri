@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/piri/pkg/pdp/types"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
@@ -18,9 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/fil-forge/libforge/testutil"
+
 	"github.com/fil-forge/piri/pkg/database/gormdb"
 	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 type resolverFixture struct {

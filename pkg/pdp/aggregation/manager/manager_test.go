@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/raulk/clock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
@@ -21,8 +21,15 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/worker"
 	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
 )
+
+// randomCID returns a random CID for building test inputs.
+func randomCID(t *testing.T) cid.Cid {
+	t.Helper()
+	return testutil.RandomCID(t)
+}
 
 // mockConfigProvider implements manager.ConfigProvider for testing.
 // Tests must set pollInterval and batchSize explicitly - there are no defaults.
@@ -88,7 +95,7 @@ func (m *mockConfigProvider) SetBatchSize(size uint) {
 
 // mockQueue is a simple implementation of jobqueue.Service for testing
 type mockQueue struct {
-	taskHandler   jobqueue.TaskHandler[[]datamodel.Link]
+	taskHandler   jobqueue.TaskHandler[*aatodo_types.Aggregation]
 	delay         time.Duration // Simulated processing delay
 	failRate      float32       // Failure rate (0-1) for error injection
 	enqueuedCount atomic.Int64
@@ -96,15 +103,15 @@ type mockQueue struct {
 
 func (mq *mockQueue) Start(ctx context.Context) error { return nil }
 func (mq *mockQueue) Stop(ctx context.Context) error  { return nil }
-func (mq *mockQueue) Register(name string, fn func(context.Context, []datamodel.Link) error, opts ...worker.JobOption[[]datamodel.Link]) error {
+func (mq *mockQueue) Register(name string, fn func(context.Context, *aatodo_types.Aggregation) error, opts ...worker.JobOption[*aatodo_types.Aggregation]) error {
 	// registration happens at constructions, kinda gross, ohh weell.
 	return nil
 }
-func (mq *mockQueue) RegisterHandler(h jobqueue.TaskHandler[[]datamodel.Link], opts ...worker.JobOption[[]datamodel.Link]) error {
+func (mq *mockQueue) RegisterHandler(h jobqueue.TaskHandler[*aatodo_types.Aggregation], opts ...worker.JobOption[*aatodo_types.Aggregation]) error {
 	// registration happens at constructions, kinda gross, ohh weell.
 	return nil
 }
-func (mq *mockQueue) Enqueue(ctx context.Context, name string, msg []datamodel.Link) error {
+func (mq *mockQueue) Enqueue(ctx context.Context, name string, msg *aatodo_types.Aggregation) error {
 	mq.enqueuedCount.Add(1)
 
 	// Simulate processing delay if configured
@@ -133,18 +140,18 @@ type fakeTaskHandler struct {
 	called         atomic.Int64
 	totalLinks     atomic.Int64
 	mu             sync.Mutex
-	processedLinks []datamodel.Link // Track all processed links
-	delay          time.Duration    // Simulated processing delay
+	processedLinks []cid.Cid     // Track all processed roots
+	delay          time.Duration // Simulated processing delay
 }
 
-func (f *fakeTaskHandler) Handle(ctx context.Context, links []datamodel.Link) error {
+func (f *fakeTaskHandler) Handle(ctx context.Context, batch *aatodo_types.Aggregation) error {
 	f.called.Add(1)
-	f.totalLinks.Add(int64(len(links)))
+	f.totalLinks.Add(int64(len(batch.Roots)))
 
-	// Track processed links if needed
+	// Track processed roots if needed
 	if f.processedLinks != nil {
 		f.mu.Lock()
-		f.processedLinks = append(f.processedLinks, links...)
+		f.processedLinks = append(f.processedLinks, batch.Roots...)
 		f.mu.Unlock()
 	}
 
@@ -193,10 +200,10 @@ func setupTestManager(t *testing.T, cfgProvider *mockConfigProvider, opts ...man
 		fx.Supply(
 			fx.Annotate(
 				queue,
-				fx.As(new(jobqueue.Service[[]datamodel.Link])),
+				fx.As(new(jobqueue.Service[*aatodo_types.Aggregation])),
 			),
 		),
-		fx.Provide(func() jobqueue.TaskHandler[[]datamodel.Link] {
+		fx.Provide(func() jobqueue.TaskHandler[*aatodo_types.Aggregation] {
 			return taskHandler
 		}),
 		fx.Provide(func() manager.BufferStore {
@@ -237,7 +244,7 @@ func TestManagerSubmit(t *testing.T) {
 			batchSize:    manager.DefaultMaxBatchSizeBytes,
 		})
 
-		link := testutil.RandomCID(t)
+		link := randomCID(t)
 		err := mgr.Submit(t.Context(), link)
 		require.NoError(t, err)
 
@@ -254,7 +261,7 @@ func TestManagerSubmit(t *testing.T) {
 			batchSize:    manager.DefaultMaxBatchSizeBytes,
 		}, manager.WithClock(tClock))
 
-		link := testutil.RandomCID(t)
+		link := randomCID(t)
 		err := m.Submit(t.Context(), link)
 		require.NoError(t, err)
 
@@ -287,7 +294,7 @@ func TestManagerSubmit(t *testing.T) {
 
 		// add a batch size
 		for i := 1; i < int(batchSize)+1; i++ {
-			link := testutil.RandomCID(t)
+			link := randomCID(t)
 			err := m.Submit(t.Context(), link)
 			require.NoError(t, err)
 
@@ -298,7 +305,7 @@ func TestManagerSubmit(t *testing.T) {
 		}
 
 		// add one more link, for submission
-		link := testutil.RandomCID(t)
+		link := randomCID(t)
 		err := m.Submit(t.Context(), link)
 		require.NoError(t, err)
 
@@ -331,7 +338,7 @@ func TestManagerSubmit(t *testing.T) {
 		// First, add some links to partially fill the buffer
 		initialLinks := 3
 		for i := 0; i < initialLinks; i++ {
-			link := testutil.RandomCID(t)
+			link := randomCID(t)
 			err := m.Submit(t.Context(), link)
 			require.NoError(t, err)
 		}
@@ -347,9 +354,9 @@ func TestManagerSubmit(t *testing.T) {
 		// 1. Fill current buffer (3 links) to max by adding 7 from new links, submit full batch (10 links)
 		// 2. Submit 1 more full batch (10 links) from remaining 18 links
 		// 3. Buffer the remaining 8 links
-		largeInput := make([]datamodel.Link, 25)
+		largeInput := make([]cid.Cid, 25)
 		for i := 0; i < 25; i++ {
-			largeInput[i] = testutil.RandomCID(t)
+			largeInput[i] = randomCID(t)
 		}
 
 		err = m.Submit(t.Context(), largeInput...)
@@ -391,7 +398,7 @@ func TestManagerParallelSubmit(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for j := 0; j < linksPerGoroutine; j++ {
-					link := testutil.RandomCID(t)
+					link := randomCID(t)
 					err := m.Submit(context.Background(), link)
 					if err != nil {
 						errorCount.Add(1)
@@ -434,7 +441,7 @@ func TestManagerParallelSubmit(t *testing.T) {
 
 		// Add initial links
 		for i := 0; i < 5; i++ {
-			err := m.Submit(context.Background(), testutil.RandomCID(t))
+			err := m.Submit(context.Background(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -454,7 +461,7 @@ func TestManagerParallelSubmit(t *testing.T) {
 			defer wg.Done()
 			time.Sleep(15 * time.Millisecond) // Submit during processLoop
 			for i := 0; i < 10; i++ {
-				err := m.Submit(context.Background(), testutil.RandomCID(t))
+				err := m.Submit(context.Background(), randomCID(t))
 				require.NoError(t, err)
 			}
 		}()
@@ -499,7 +506,7 @@ func TestManagerShutdownUnderLoad(t *testing.T) {
 					case <-stopSubmitting:
 						return
 					default:
-						link := testutil.RandomCID(t)
+						link := randomCID(t)
 						_ = m.Submit(context.Background(), link)
 						time.Sleep(time.Millisecond)
 					}
@@ -555,7 +562,7 @@ func TestManagerSustainedLoadPatterns(t *testing.T) {
 		// Burst phase: submit many links quickly
 		burstSize := 500
 		for i := 0; i < burstSize; i++ {
-			err := m.Submit(context.Background(), testutil.RandomCID(t))
+			err := m.Submit(context.Background(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -597,7 +604,7 @@ func TestManagerSustainedLoadPatterns(t *testing.T) {
 				case <-stop:
 					return
 				case <-ticker.C:
-					_ = m.Submit(context.Background(), testutil.RandomCID(t))
+					_ = m.Submit(context.Background(), randomCID(t))
 				}
 			}
 		}()
@@ -625,7 +632,7 @@ func TestManagerSustainedLoadPatterns(t *testing.T) {
 
 		// High load phase
 		for i := 0; i < 100; i++ {
-			err := m.Submit(context.Background(), testutil.RandomCID(t))
+			err := m.Submit(context.Background(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -637,7 +644,7 @@ func TestManagerSustainedLoadPatterns(t *testing.T) {
 
 		// Low load phase
 		for i := 0; i < 10; i++ {
-			err := m.Submit(context.Background(), testutil.RandomCID(t))
+			err := m.Submit(context.Background(), randomCID(t))
 			require.NoError(t, err)
 			time.Sleep(time.Millisecond)
 		}
@@ -648,7 +655,7 @@ func TestManagerSustainedLoadPatterns(t *testing.T) {
 
 		// Another high load phase
 		for i := 0; i < 100; i++ {
-			err := m.Submit(context.Background(), testutil.RandomCID(t))
+			err := m.Submit(context.Background(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -695,7 +702,7 @@ func TestManagerLongRunningStress(t *testing.T) {
 					case <-stop:
 						return
 					default:
-						link := testutil.RandomCID(t)
+						link := randomCID(t)
 						if err := m.Submit(context.Background(), link); err == nil {
 							submissionCount.Add(1)
 						}
@@ -785,7 +792,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 		m, buffer, handler := setupTestManager(t, cfgProvider, manager.WithClock(tClock))
 
 		// Submit a link to buffer
-		link := testutil.RandomCID(t)
+		link := randomCID(t)
 		err := m.Submit(t.Context(), link)
 		require.NoError(t, err)
 
@@ -825,7 +832,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 
 		// Submit 5 items (under threshold of 10)
 		for i := 0; i < 5; i++ {
-			err := m.Submit(t.Context(), testutil.RandomCID(t))
+			err := m.Submit(t.Context(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -842,7 +849,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 		// This triggers submission. The manager's behavior when buffer exceeds new limit:
 		// - Current buffer (5 items) exceeds new max (3), so submit current buffer
 		// - Then buffer the 1 new item
-		err = m.Submit(t.Context(), testutil.RandomCID(t))
+		err = m.Submit(t.Context(), randomCID(t))
 		require.NoError(t, err)
 
 		// Verify submission occurred: current buffer of 5 was submitted, 1 new item buffered
@@ -865,7 +872,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 
 		// Submit 2 items (under threshold of 3)
 		for i := 0; i < 2; i++ {
-			err := m.Submit(t.Context(), testutil.RandomCID(t))
+			err := m.Submit(t.Context(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -879,7 +886,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 		cfgProvider.SetBatchSize(10)
 
 		// Submit 1 more item - total is 3, but new threshold is 10
-		err = m.Submit(t.Context(), testutil.RandomCID(t))
+		err = m.Submit(t.Context(), randomCID(t))
 		require.NoError(t, err)
 
 		// Verify NO submission occurred - all 3 items still in buffer
@@ -890,7 +897,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 
 		// Submit more items to reach the new threshold
 		for i := 0; i < 7; i++ {
-			err = m.Submit(t.Context(), testutil.RandomCID(t))
+			err = m.Submit(t.Context(), randomCID(t))
 			require.NoError(t, err)
 		}
 
@@ -901,7 +908,7 @@ func TestManagerDynamicConfig(t *testing.T) {
 		require.Equal(t, int64(0), handler.called.Load(), "No submission at exactly threshold")
 
 		// Submit one more to exceed threshold
-		err = m.Submit(t.Context(), testutil.RandomCID(t))
+		err = m.Submit(t.Context(), randomCID(t))
 		require.NoError(t, err)
 
 		// Now should have submitted: 10 items submitted, 1 remaining in buffer

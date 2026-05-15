@@ -11,8 +11,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/golang-jwt/jwt/v4"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/admin/httpapi"

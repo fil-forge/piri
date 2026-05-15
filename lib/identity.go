@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/fil-forge/go-ucanto/principal"
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/principal/ed25519"
 )
 
 func SignerFromEd25519PEMFile(path string) (principal.Signer, error) {
@@ -26,23 +26,17 @@ func SignerFromEd25519PEMFile(path string) (principal.Signer, error) {
 	var privateKey *crypto_ed25519.PrivateKey
 	rest := pemData
 
-	// Loop until no more blocks
 	for {
 		block, remaining := pem.Decode(rest)
 		if block == nil {
-			// No more PEM blocks
 			break
 		}
 		rest = remaining
-
-		// Look for "PRIVATE KEY"
 		if block.Type == "PRIVATE KEY" {
 			parsedKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse PKCS#8 private key: %w", err)
 			}
-
-			// We expect a ed25519 private key, cast it
 			key, ok := parsedKey.(crypto_ed25519.PrivateKey)
 			if !ok {
 				return nil, fmt.Errorf("the parsed key is not an ED25519 private key")

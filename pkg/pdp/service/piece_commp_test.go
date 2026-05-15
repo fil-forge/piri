@@ -5,7 +5,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
@@ -13,6 +12,8 @@ import (
 	mh "github.com/multiformats/go-multihash"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/libforge/testutil"
 )
 
 func TestDoCommp(t *testing.T) {

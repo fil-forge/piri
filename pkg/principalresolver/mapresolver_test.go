@@ -3,7 +3,7 @@ package principalresolver_test
 import (
 	"testing"
 
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/principalresolver"
@@ -21,11 +21,11 @@ func TestPrincipalResolver(t *testing.T) {
 	ppr, err := principalresolver.NewMapResolver(pm)
 	require.NoError(t, err)
 
-	resolved, err := ppr.ResolveDIDKey(t.Context(), p0)
+	resolved, err := ppr.Resolve(t.Context(), p0)
 	require.NoError(t, err)
-	require.Equal(t, r, resolved)
+	require.Equal(t, []did.DID{r}, resolved)
 
 	// cannot resolve DID not in mapping
-	_, err = ppr.ResolveDIDKey(t.Context(), p1)
+	_, err = ppr.Resolve(t.Context(), p1)
 	require.NotNil(t, err)
 }

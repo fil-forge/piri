@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/piece/digest"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
+	"github.com/fil-forge/libforge/piece/digest"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/filecoin-project/go-data-segment/merkletree"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
@@ -31,16 +31,23 @@ func TestAggregate(t *testing.T) {
 	rootNode := (*merkletree.Node)(agg.Root.DataCommitment())
 	for _, aggPiece := range agg.Pieces {
 		subTree := (*merkletree.Node)(aggPiece.Link.DataCommitment())
-		require.NoError(t, aggPiece.InclusionProof.ValidateSubtree(subTree, rootNode))
+		proof := merkletree.ProofData{
+			Path:  make([]merkletree.Node, len(aggPiece.InclusionProof.Path)),
+			Index: aggPiece.InclusionProof.Index,
+		}
+		for i, p := range aggPiece.InclusionProof.Path {
+			copy(proof.Path[i][:], p)
+		}
+		require.NoError(t, proof.ValidateSubtree(subTree, rootNode))
 	}
 }
 
 // this generates a random series of pieces decaying in size that should add up to a size between 2^(height-1) and 2^(height)
-func generatePieceLinks(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]piece.PieceLink, error) {
+func generatePieceLinks(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]aatodo_types.PieceLink, error) {
 	size := 0
 	targetSize := 1 << (height - 1)
 	currentHeight := height
-	var pieceLinks []piece.PieceLink
+	var pieceLinks []aatodo_types.PieceLink
 	for size <= targetSize {
 		for {
 			if currentHeight <= smallestSize {
@@ -73,7 +80,7 @@ func generatePieceLinks(height uint8, oddsShrink float64, oddsReduction float64,
 		if err != nil {
 			return nil, err
 		}
-		pieceLinks = append(pieceLinks, piece.FromPieceDigest(digest))
+		pieceLinks = append(pieceLinks, *aatodo_types.FromPieceDigest(digest))
 		size += paddedSize
 	}
 	return pieceLinks, nil

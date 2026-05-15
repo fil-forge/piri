@@ -3,8 +3,7 @@ package replicator
 import (
 	"context"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/pkg/pdp"
@@ -30,7 +29,7 @@ type adapter struct {
 	blobs      blobs.Blobs
 	claims     claims.Claims
 	receipts   receiptstore.ReceiptStore
-	uploadConn client.Connection
+	uploadConn any
 }
 
 func (a adapter) ID() principal.Signer                { return a.id }
@@ -38,7 +37,7 @@ func (a adapter) PDP() pdp.PDP                        { return a.pdp }
 func (a adapter) Blobs() blobs.Blobs                  { return a.blobs }
 func (a adapter) Claims() claims.Claims               { return a.claims }
 func (a adapter) Receipts() receiptstore.ReceiptStore { return a.receipts }
-func (a adapter) UploadConnection() client.Connection { return a.uploadConn }
+func (a adapter) UploadConnection() any               { return a.uploadConn }
 
 func New(
 	id principal.Signer,
@@ -46,7 +45,7 @@ func New(
 	b blobs.Blobs,
 	c claims.Claims,
 	rstore receiptstore.ReceiptStore,
-	uploadConn client.Connection,
+	uploadConn any,
 	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
 ) (*Service, error) {
 	metrics, err := replicahandler.NewMetrics()

@@ -9,8 +9,6 @@ import (
 	"slices"
 	"time"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -23,6 +21,7 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aatodo_types"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
@@ -31,13 +30,13 @@ var log = logging.Logger("aggregation/aggregator")
 
 type AggregatorParams struct {
 	fx.In
-	Queue   jobqueue.Service[piece.PieceLink]
-	Handler jobqueue.TaskHandler[piece.PieceLink]
+	Queue   jobqueue.Service[*aatodo_types.PieceLink]
+	Handler jobqueue.TaskHandler[*aatodo_types.PieceLink]
 }
 
 type Aggregator struct {
-	queue   jobqueue.Service[piece.PieceLink]
-	handler jobqueue.TaskHandler[piece.PieceLink]
+	queue   jobqueue.Service[*aatodo_types.PieceLink]
+	handler jobqueue.TaskHandler[*aatodo_types.PieceLink]
 }
 
 func New(lc fx.Lifecycle, params AggregatorParams) (*Aggregator, error) {
@@ -64,9 +63,9 @@ func New(lc fx.Lifecycle, params AggregatorParams) (*Aggregator, error) {
 	return a, nil
 }
 
-func (a *Aggregator) EnqueueAggregation(ctx context.Context, piece piece.PieceLink) error {
-	log.Infow("enqueuing piece for aggregation", "piece", piece.Link())
-	return a.queue.Enqueue(ctx, a.handler.Name(), piece)
+func (a *Aggregator) EnqueueAggregation(ctx context.Context, p *aatodo_types.PieceLink) error {
+	log.Infow("enqueuing piece for aggregation", "piece", p.Link())
+	return a.queue.Enqueue(ctx, a.handler.Name(), p)
 }
 
 const (
@@ -80,7 +79,7 @@ type QueueParams struct {
 	StorageConfig app.StorageConfig
 }
 
-func NewQueue(params QueueParams) (jobqueue.Service[piece.PieceLink], error) {
+func NewQueue(params QueueParams) (jobqueue.Service[*aatodo_types.PieceLink], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
@@ -95,13 +94,10 @@ func NewQueue(params QueueParams) (jobqueue.Service[piece.PieceLink], error) {
 	dedupEnabled := true
 	// Allow jobs in dead letter queue (failed) to run again.
 	blockDLQRetries := false
-	linkQueue, err := jobqueue.New[piece.PieceLink](
+	linkQueue, err := jobqueue.New(
 		QueueName,
 		params.DB,
-		&serializer.IPLDCBOR[piece.PieceLink]{
-			Typ:  types.PieceLinkType(),
-			Opts: captypes.Converters,
-		},
+		serializer.CBOR[aatodo_types.PieceLink](),
 		jobqueue.WithLogger(log.With("queue", QueueName)),
 		jobqueue.WithMaxRetries(50),
 		// one worker to keep things serial
@@ -128,7 +124,7 @@ type HandlerParams struct {
 	Manager   *manager.Manager
 }
 
-func NewHandler(params HandlerParams) jobqueue.TaskHandler[piece.PieceLink] {
+func NewHandler(params HandlerParams) jobqueue.TaskHandler[*aatodo_types.PieceLink] {
 	return &Handler{
 		workspace: newInProgressWorkspace(params.Datastore),
 		store:     params.Store,
@@ -142,8 +138,8 @@ type Handler struct {
 	manager   *manager.Manager
 }
 
-func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr error) {
-	ctx, span := traceutil.StartSpan(ctx, tracer, "aggregator.Handle", trace.WithAttributes(attribute.String("piece", piece.Link().String())))
+func (p *Handler) Handle(ctx context.Context, payload *aatodo_types.PieceLink) (retErr error) {
+	ctx, span := traceutil.StartSpan(ctx, tracer, "aggregator.Handle", trace.WithAttributes(attribute.String("piece", payload.Cid.String())))
 	defer func() {
 		if retErr != nil {
 			span.RecordError(retErr)
@@ -152,12 +148,12 @@ func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr err
 		span.End()
 	}()
 
-	log.Infow("aggregating piece", "link", piece.Link())
+	log.Infow("aggregating piece", "link", payload.Link())
 	buffer, err := p.workspace.GetBuffer(ctx)
 	if err != nil {
 		return fmt.Errorf("reading in progress pieces from work space: %w", err)
 	}
-	buffer, a, err := AggregatePiece(buffer, piece)
+	buffer, a, err := AggregatePiece(buffer, *payload)
 	if err != nil {
 		return fmt.Errorf("calculating aggegates: %w", err)
 	}
@@ -165,11 +161,12 @@ func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr err
 		return fmt.Errorf("updating work space: %w", err)
 	}
 	if a != nil {
-		span.AddEvent("aggregate created", trace.WithAttributes(attribute.String("aggregate.root", a.Root.Link().String())))
-		if err := p.store.Put(ctx, a.Root.Link(), *a); err != nil {
+		rootCID := a.Root.Link()
+		span.AddEvent("aggregate created", trace.WithAttributes(attribute.String("aggregate.root", rootCID.String())))
+		if err := p.store.Put(ctx, rootCID, *a); err != nil {
 			return fmt.Errorf("storing aggregate: %w", err)
 		}
-		if err := p.manager.Submit(ctx, a.Root.Link()); err != nil {
+		if err := p.manager.Submit(ctx, rootCID); err != nil {
 			return fmt.Errorf("submitting aggregate to manager: %w", err)
 		}
 	}
@@ -187,7 +184,7 @@ func (p *Handler) Name() string {
 // If not, we can safely aggregate till >=128MB without going over 256MB
 const MinAggregateSize = 128 << 20
 
-func AggregatePiece(buffer types.Buffer, newPiece piece.PieceLink) (types.Buffer, *types.Aggregate, error) {
+func AggregatePiece(buffer aatodo_types.Buffer, newPiece aatodo_types.PieceLink) (aatodo_types.Buffer, *aatodo_types.Aggregate, error) {
 	log.Infow("aggregating piece",
 		"link", newPiece.Link().String(),
 		"padded size", newPiece.PaddedSize(),
@@ -195,7 +192,7 @@ func AggregatePiece(buffer types.Buffer, newPiece piece.PieceLink) (types.Buffer
 	)
 	// if the piece is aggregatable on its own it should submit immediately
 	if newPiece.PaddedSize() > MinAggregateSize {
-		aggregate, err := NewAggregate([]piece.PieceLink{newPiece})
+		aggregate, err := NewAggregate([]aatodo_types.PieceLink{newPiece})
 		if err == nil {
 			log.Infow("aggregate create", "root", aggregate.Root.Link())
 		}
@@ -212,22 +209,22 @@ func AggregatePiece(buffer types.Buffer, newPiece piece.PieceLink) (types.Buffer
 			return buffer, nil, err
 		}
 		log.Infow("aggregate create", "root", aggregate.Root.Link())
-		return types.Buffer{}, &aggregate, err
+		return aatodo_types.Buffer{}, &aggregate, err
 	}
 
 	// otherwise keep aggregating
-	return types.Buffer{
+	return aatodo_types.Buffer{
 		TotalSize:           newSize,
 		ReverseSortedPieces: newPieces,
 	}, nil, nil
 }
 
-func AggregatePieces(buffer types.Buffer, pieces []piece.PieceLink) (types.Buffer, []types.Aggregate, error) {
-	var aggregates []types.Aggregate
-	for _, piece := range pieces {
-		var aggregate *types.Aggregate
+func AggregatePieces(buffer aatodo_types.Buffer, pieces []aatodo_types.PieceLink) (aatodo_types.Buffer, []aatodo_types.Aggregate, error) {
+	var aggregates []aatodo_types.Aggregate
+	for _, p := range pieces {
+		var aggregate *aatodo_types.Aggregate
 		var err error
-		buffer, aggregate, err = AggregatePiece(buffer, piece)
+		buffer, aggregate, err = AggregatePiece(buffer, p)
 		if err != nil {
 			return buffer, aggregates, err
 		}
@@ -239,8 +236,8 @@ func AggregatePieces(buffer types.Buffer, pieces []piece.PieceLink) (types.Buffe
 }
 
 // InsertOrderedByDescendingSize adds a piece to a list of pieces sorted largest to smallest, maintaining sort order
-func InsertOrderedByDescendingSize(sortedPieces []piece.PieceLink, newPiece piece.PieceLink) []piece.PieceLink {
-	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target piece.PieceLink) int {
+func InsertOrderedByDescendingSize(sortedPieces []aatodo_types.PieceLink, newPiece aatodo_types.PieceLink) []aatodo_types.PieceLink {
+	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target aatodo_types.PieceLink) int {
 		// flip ordering comparing size cause we're going in reverse order
 		return cmp.Compare(target.PaddedSize(), test.PaddedSize())
 	})

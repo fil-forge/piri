@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	multihash "github.com/multiformats/go-multihash"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/multiformats/go-multihash"
 )
 
 const pattern = "{blob}"

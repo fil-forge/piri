@@ -1,24 +1,17 @@
 package ucan
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net/http"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/go-ucanto/ucan"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+
+	contentcaps "github.com/fil-forge/libforge/capabilities/content"
+	"github.com/fil-forge/libforge/digestutil"
+	ucantone_errors "github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/execution/bindexec"
 
 	"github.com/fil-forge/piri/pkg/service/retrieval/handlers/spacecontent"
 	"github.com/fil-forge/piri/pkg/store"
@@ -33,68 +26,74 @@ type SpaceContentRetrievalService interface {
 	Blobs() blobstore.BlobGetter
 }
 
-func WithSpaceContentRetrieveMethod(retrievalService SpaceContentRetrievalService) retrieval.Option {
-	return retrieval.WithServiceMethod(
-		content.RetrieveAbility,
-		retrieval.Provide(
-			content.Retrieve,
-			func(ctx context.Context, cap ucan.Capability[content.RetrieveCaveats], inv invocation.Invocation, iCtx server.InvocationContext, request retrieval.Request) (res result.Result[content.RetrieveOk, failure.IPLDBuilderFailure], effects fx.Effects, resp retrieval.Response, err error) {
-				ctx, span := tracer.Start(ctx, "space.content.retrieve")
-				defer func() {
-					if err != nil {
-						span.RecordError(err)
-						span.SetStatus(codes.Error, err.Error())
-					}
-					span.End()
-				}()
-
-				space, err := did.Parse(cap.With())
+// NewContentRetrieveHandler returns the /content/retrieve UCAN handler. The
+// space is the invocation's Subject. The handler verifies an allocation
+// exists for (space, blob digest), then streams the blob bytes back to the
+// caller via [retrieval.HTTPHeaderResponseContainer] in response metadata.
+func NewContentRetrieveHandler(service SpaceContentRetrievalService) Handler {
+	return Handler{
+		Capability: contentcaps.Retrieve,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*contentcaps.RetrieveArguments],
+			res *bindexec.Response[*contentcaps.RetrieveOK],
+		) (err error) {
+			ctx, span := tracer.Start(req.Context(), "content.retrieve")
+			defer func() {
 				if err != nil {
-					return nil, nil, retrieval.Response{}, fmt.Errorf("parsing space DID: %w", err)
+					span.RecordError(err)
+					span.SetStatus(codes.Error, err.Error())
 				}
+				span.End()
+			}()
 
-				nb := cap.Nb()
-				digest := nb.Blob.Digest
-				digestStr := digestutil.Format(digest)
-				start := nb.Range.Start
-				end := nb.Range.End
+			args := req.Task().Arguments()
+			space := req.Invocation().Subject()
+			digest := args.Blob.Digest
+			digestStr := digestutil.Format(digest)
+			start := args.Range.Start
+			end := args.Range.End
 
-				attr := []attribute.KeyValue{
-					attribute.String("space.did", space.String()),
-					attribute.String("digest", digestStr),
-					attribute.Int64("range.start", int64(start)),
-					attribute.Int64("range.end", int64(end)),
-					attribute.String("issuer", inv.Issuer().DID().String()),
+			span.SetAttributes(
+				attribute.Stringer("space.did", space),
+				attribute.String("digest", digestStr),
+				attribute.Int64("range.start", int64(start)),
+				attribute.Int64("range.end", int64(end)),
+				attribute.Stringer("issuer", req.Invocation().Issuer()),
+			)
+
+			log := log.With(
+				"iss", req.Invocation().Issuer(),
+				"with", space.String(),
+				"digest", digestStr,
+				"range", fmt.Sprintf("%d-%d", start, end),
+			)
+
+			// Check that we have an allocation for this (space, blob).
+			if _, err := service.Allocations().Get(ctx, digest, space); err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					log.Debug("allocation not found")
+					return res.SetFailure(ucantone_errors.New(
+						spacecontent.NotFoundErrorName,
+						"allocation not found: %s",
+						digestStr,
+					))
 				}
-				span.SetAttributes(attr...)
+				log.Errorw("getting allocation", "error", err)
+				return fmt.Errorf("getting allocation: %w", err)
+			}
 
-				log := log.With(
-					"iss", inv.Issuer().DID().String(),
-					"can", content.RetrieveAbility,
-					"with", space.String(),
-					"digest", digestStr,
-					"range", fmt.Sprintf("%d-%d", start, end),
-				)
-
-				_, err = retrievalService.Allocations().Get(ctx, digest, space)
-				if err != nil {
-					if errors.Is(err, store.ErrNotFound) {
-						log.Debugw("allocation not found", "status", http.StatusNotFound)
-						notFoundErr := content.NewNotFoundError(fmt.Sprintf("allocation not found: %s", digestStr))
-						res := result.Error[content.RetrieveOk, failure.IPLDBuilderFailure](notFoundErr)
-						resp := retrieval.NewResponse(http.StatusNotFound, nil, nil)
-						return res, nil, resp, nil
-					}
-					log.Errorw("getting allocation", "error", err)
-					return nil, nil, retrieval.Response{}, fmt.Errorf("getting allocation: %w", err)
+			byteRange := &blobstore.Range{Start: start, End: &end}
+			ctr, retErr := spacecontent.Retrieve(ctx, service.Blobs(), digest, byteRange)
+			if retErr != nil {
+				// Container carries the HTTP status that matches the failure.
+				if ctr != nil {
+					res.SetMetadata(ctr)
 				}
+				return res.SetFailure(retErr)
+			}
 
-				res, resp, err = spacecontent.Retrieve(ctx, retrievalService.Blobs(), inv, digest, &blobstore.Range{Start: start, End: &end})
-				if err != nil {
-					return nil, nil, retrieval.Response{}, err
-				}
-				return res, nil, resp, nil
-			},
-		),
-	)
+			res.SetMetadata(ctr)
+			return res.SetSuccess(&contentcaps.RetrieveOK{})
+		}),
+	}
 }

@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 )
 
 // IdentityConfig contains identity-related configuration

@@ -5,12 +5,11 @@ import (
 	"net/url"
 	"testing"
 
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
+	"github.com/fil-forge/libforge/testutil"
+	ed25519 "github.com/fil-forge/ucantone/principal/ed25519"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
-
-	"github.com/fil-forge/go-libstoracha/testutil"
 )
 
 func TestS3Signer(t *testing.T) {
@@ -20,7 +19,7 @@ func TestS3Signer(t *testing.T) {
 	signer := testutil.RandomSigner(t)
 
 	accessKeyID := signer.DID().String()
-	secretAccessKey := testutil.Must(ed25519.Format(signer))(t)
+	secretAccessKey := ed25519.Format(signer)
 
 	t.Run("sign and verify", func(t *testing.T) {
 		reqSigner, err := NewS3RequestPresigner(accessKeyID, secretAccessKey, *endpoint, "data")

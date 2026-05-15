@@ -1,9 +1,10 @@
 package root
 
 import (
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/server"

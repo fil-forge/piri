@@ -207,7 +207,11 @@ type JobQueue[T any] struct {
 	startWg     sync.WaitGroup
 }
 
-func New[T any](name string, db *sql.DB, ser serializer.Serializer[T], opts ...Option) (*JobQueue[T], error) {
+func New[T any](name string, db *sql.DB, codec serializer.Codec[T], opts ...Option) (*JobQueue[T], error) {
+	if codec == nil {
+		return nil, errors.New("job queue codec cannot be nil")
+	}
+
 	// set defaults
 	c := &Config{
 		Logger:      &logger.DiscardLogger{},
@@ -239,14 +243,6 @@ func New[T any](name string, db *sql.DB, ser serializer.Serializer[T], opts ...O
 	if c.ExtendDelay == 0 {
 		return nil, errors.New("extend delay cannot be 0")
 	}
-	// Check for both pointer and value types of JSON serializer
-	switch ser.(type) {
-	case serializer.JSON[T], *serializer.JSON[T]:
-		if c.isDedupQueue {
-			// TODO enforce this with an actual error
-			log.Error("JSON serializer cannot be used with dedupe queue due to non-deterministic serialization")
-		}
-	}
 
 	// instantiate queue schema in the database, this should be fairly quick
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
@@ -266,7 +262,7 @@ func New[T any](name string, db *sql.DB, ser serializer.Serializer[T], opts ...O
 	}
 
 	// instantiate worker which consumes from queue
-	w, err := worker.New[T](q, ser,
+	w, err := worker.New[T](q, codec,
 		worker.WithLog(c.Logger),
 		worker.WithLimit(int(c.MaxWorkers)),
 		worker.WithExtend(c.ExtendDelay),

@@ -11,9 +11,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
-	"github.com/fil-forge/piri/pkg/pdp/types"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
@@ -22,6 +19,11 @@ import (
 	"golang.org/x/sync/singleflight"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	"github.com/fil-forge/libforge/testutil"
+
+	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 // mockPieceReader is a mock implementation of types.PieceReaderAPI for testing

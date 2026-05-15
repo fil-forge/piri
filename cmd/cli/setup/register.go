@@ -14,12 +14,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -27,23 +21,22 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
-	"github.com/fil-forge/piri/pkg/pdp/tasks"
-	"github.com/fil-forge/piri/pkg/pdp/types"
-
-	"github.com/fil-forge/piri/pkg/store/local/keystore"
-	"github.com/fil-forge/piri/pkg/wallet"
-
 	delgclient "github.com/fil-forge/delegator/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
 
-	"github.com/fil-forge/piri/cmd/cli/delegate"
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	"github.com/fil-forge/piri/pkg/fx/root"
 	"github.com/fil-forge/piri/pkg/health"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/tasks"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
+	"github.com/fil-forge/piri/pkg/store/local/keystore"
+	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 var log = logging.Logger("cmd/init")
@@ -235,7 +228,7 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		return nil, fmt.Errorf("parsing base config file: %w", err)
 	}
 
-	uploadServiceDID := did.Undef
+	var uploadServiceDID did.DID
 	if cfg.UCAN.Services.Upload.DID != "" {
 		uploadServiceDID, err = did.Parse(cfg.UCAN.Services.Upload.DID)
 		if err != nil {
@@ -323,7 +316,7 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 	}
 
 	signingServiceDID := ""
-	if preset.Services.SigningServiceDID != did.Undef {
+	if preset.Services.SigningServiceDID != (did.DID{}) {
 		signingServiceDID = preset.Services.SigningServiceDID.String()
 	}
 	signingServiceURL := ""
@@ -335,7 +328,7 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 		uploadServiceURL = preset.Services.UploadServiceURL.String()
 	}
 	indexingServiceDID := ""
-	if preset.Services.IndexingServiceDID != did.Undef {
+	if preset.Services.IndexingServiceDID != (did.DID{}) {
 		indexingServiceDID = preset.Services.IndexingServiceDID.String()
 	}
 	indexingServiceURL := ""
@@ -343,7 +336,7 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 		indexingServiceURL = preset.Services.IndexingServiceURL.String()
 	}
 	egressTrackerDID := ""
-	if preset.Services.EgressTrackerServiceDID != did.Undef {
+	if preset.Services.EgressTrackerServiceDID != (did.DID{}) {
 		egressTrackerDID = preset.Services.EgressTrackerServiceDID.String()
 	}
 	egressTrackerURL := ""
@@ -775,77 +768,9 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 	}
 }
 
-// registerWithDelegator handles registration with the delegator service
-func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64) (string, string, error) {
-	c, err := delgclient.New(flags.delegatorURL)
-	if err != nil {
-		return "", "", fmt.Errorf("creating delegator client: %w", err)
-	}
-
-	// Generate delegation proof for upload service
-	d, err := delegate.MakeDelegation(
-		cfg.Identity.Signer,
-		flags.baseConfig.uploadServiceDID,
-		[]string{
-			blob.AllocateAbility,
-			blob.AcceptAbility,
-			pdp.InfoAbility,
-			replica.AllocateAbility,
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return "", "", fmt.Errorf("creating delegation: %w", err)
-	}
-
-	nodeProof, err := delegate.FormatDelegation(d.Archive())
-	if err != nil {
-		return "", "", fmt.Errorf("formatting delegation: %w", err)
-	}
-
-	req := &delgclient.RegisterRequest{
-		Operator:      cfg.Identity.Signer.DID().String(),
-		OwnerAddress:  ownerAddress.String(),
-		ProofSetID:    proofSetID,
-		OperatorEmail: flags.operatorEmail,
-		PublicURL:     flags.publicURL.String(),
-		Proof:         nodeProof,
-	}
-
-	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: cfg.Identity.Signer.DID().String()})
-	if err != nil {
-		return "", "", fmt.Errorf("checking registration status: %w", err)
-	}
-
-	if !registered {
-		err = c.Register(ctx, req)
-		if err != nil {
-			return "", "", fmt.Errorf("registering with delegator: %w", err)
-		}
-		cmd.PrintErrln("✅ Successfully registered with delegator service")
-	} else {
-		cmd.PrintErrln("✅ Node already registered with delegator service")
-	}
-
-	// Request proofs from delegator
-	cmd.PrintErrln("📥 Requesting proofs from delegator service...")
-	res, err := c.RequestProofs(ctx, cfg.Identity.Signer.DID().String())
-	if err != nil {
-		return "", "", fmt.Errorf("requesting delegator proof: %w", err)
-	}
-
-	if res == nil || res.Proofs.Indexer == "" || res.Proofs.EgressTracker == "" {
-		return "", "", fmt.Errorf("missing proofs from delegator")
-	}
-
-	cmd.PrintErrln("✅ Received proofs from delegator")
-
-	return res.Proofs.Indexer, res.Proofs.EgressTracker, nil
-}
-
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {
 	// create a signature by signing our own did with the private key of our did
-	signature := id.Sign(id.DID().Bytes()).Raw()
+	signature := id.Sign([]byte(id.DID().String()))
 
 	c, err := delgclient.New(flags.delegatorURL)
 	if err != nil {
@@ -870,7 +795,7 @@ func requestContractApproval(ctx context.Context, id principal.Signer, flags *in
 }
 
 // generateConfig generates the final configuration for the user
-func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64, indexerProof string, egressTrackerProof string) (config.FullServerConfig, error) {
+func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64) (config.FullServerConfig, error) {
 	// Derive egress tracker receipts endpoint from URL if available
 	egressTrackerReceiptsEndpoint := ""
 	if flags.baseConfig.egressTrackerServiceURL != "" {
@@ -929,15 +854,13 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 			Services: config.ServicesConfig{
 				ServicePrincipalMapping: flags.baseConfig.principalMapping,
 				Indexer: config.IndexingServiceConfig{
-					DID:   flags.baseConfig.indexingServiceDID,
-					URL:   flags.baseConfig.indexingServiceURL,
-					Proof: indexerProof,
+					DID: flags.baseConfig.indexingServiceDID,
+					URL: flags.baseConfig.indexingServiceURL,
 				},
 				EgressTracker: config.EgressTrackerServiceConfig{
 					DID:               flags.baseConfig.egressTrackerServiceDID,
 					URL:               flags.baseConfig.egressTrackerServiceURL,
 					ReceiptsEndpoint:  egressTrackerReceiptsEndpoint,
-					Proof:             egressTrackerProof,
 					MaxBatchSizeBytes: config.DefaultMinimumEgressBatchSize,
 				},
 				Upload: config.UploadServiceConfig{
@@ -961,7 +884,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 1: Parse and validate flags
-	cmd.PrintErrln("[1/7] Validating configuration...")
+	cmd.PrintErrln("[1/6] Validating configuration...")
 	flags, err := parseAndValidateFlags(cmd)
 	if err != nil {
 		return err
@@ -973,7 +896,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	//failures after here are unrelated to arguments and flags supplied.
 	cmd.SilenceUsage = true
 	// Step 2: Create and start node
-	cmd.PrintErrln("[2/7] Creating Piri node...")
+	cmd.PrintErrln("[2/6] Creating Piri node...")
 	fxApp, pdpSvc, cfg, ownerAddress, err := createNode(ctx, flags)
 	if err != nil {
 		return err
@@ -983,7 +906,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 3: Register with the smart contract
-	cmd.PrintErrln("[3/7] Registering provider with contract...")
+	cmd.PrintErrln("[3/6] Registering provider with contract...")
 	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Signer, pdpSvc)
 	if err != nil {
 		return err
@@ -992,7 +915,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 4: Request approval to join contract from storacha
-	cmd.PrintErrln("[4/7] Requesting approval to join contract from Storacha...")
+	cmd.PrintErrln("[4/6] Requesting approval to join contract from Storacha...")
 	if err := requestContractApproval(ctx, cfg.Identity.Signer, flags, ownerAddress); err != nil {
 		return err
 	}
@@ -1000,24 +923,16 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 5: Create or find proof set (must be approved in step 4 to succeed here)
-	cmd.PrintErrln("[5/7] Setting up proof set...")
+	cmd.PrintErrln("[5/6] Setting up proof set...")
 	proofSetID, err := setupProofSet(ctx, cmd, pdpSvc)
 	if err != nil {
 		return err
 	}
 	cmd.PrintErrln()
 
-	// Step 6: Register with delegator service
-	cmd.PrintErrln("[6/7] Registering with delegator service...")
-	indexerProof, egressTrackerProof, err := registerWithDelegator(ctx, cmd, cfg, flags, ownerAddress, proofSetID)
-	if err != nil {
-		return err
-	}
-	cmd.PrintErrln()
-
-	// Step 7: Generate configuration
-	cmd.PrintErrln("[7/7] Generating configuration file...")
-	userConfig, err := generateConfig(cfg, flags, ownerAddress, proofSetID, indexerProof, egressTrackerProof)
+	// Step 6: Generate configuration
+	cmd.PrintErrln("[6/6] Generating configuration file...")
+	userConfig, err := generateConfig(cfg, flags, ownerAddress, proofSetID)
 	if err != nil {
 		return err
 	}

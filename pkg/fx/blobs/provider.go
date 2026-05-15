@@ -3,8 +3,9 @@ package blobs
 import (
 	"fmt"
 
-	"github.com/fil-forge/go-ucanto/principal"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/ucantone/principal"
 
 	"github.com/fil-forge/piri/pkg/access"
 	"github.com/fil-forge/piri/pkg/config/app"

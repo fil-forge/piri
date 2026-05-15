@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/did"
-	ucanserver "github.com/fil-forge/go-ucanto/server"
-	ucanretrievalserver "github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/go-ucanto/validator"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/ucantone/did"
+	ucanserver "github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/validator"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/principalresolver"
@@ -18,31 +18,48 @@ import (
 var Module = fx.Module("principalresolver",
 	fx.Provide(
 		NewPrincipalResolver,
+		// The same option feeds both the storage- and retrieval-side UCAN
+		// server groups. fx.Annotate allows only one ResultTags, so provide
+		// it once per group (ProvideAsUCANOption is pure, so this is cheap).
 		fx.Annotate(
 			ProvideAsUCANOption,
 			fx.ResultTags(`group:"ucan_options"`),
 		),
 		fx.Annotate(
-			ProvideAsUCANRetrievalOption,
-			fx.ResultTags(`group:"ucan_retrieval_options"`),
+			ProvideAsUCANOption,
+			fx.ResultTags(`group:"retrieval_ucan_options"`),
 		),
 	),
 )
 
-// NewPrincipalResolver creates a principal resolver from configuration
-func NewPrincipalResolver(cfg app.AppConfig) (validator.PrincipalResolver, error) {
+// didFromConn extracts the configured service DID from a ServiceConnection
+// when the DID method is `did:web`. Returns ok=false for nil connections,
+// non-`did:web` services, or unknown connection shapes.
+func didFromConn(conn any) (did.DID, bool) {
+	c, ok := conn.(*app.ServiceConnection)
+	if !ok || c == nil {
+		return did.DID{}, false
+	}
+	if !strings.HasPrefix(c.DID.String(), "did:web:") {
+		return did.DID{}, false
+	}
+	return c.DID, true
+}
+
+// NewPrincipalResolver creates a principal resolver from configuration.
+//
+// Only `did:web` upstream services are registered for HTTP-based DID
+// resolution; `did:key` services authenticate via their key material
+// without needing a resolver entry.
+func NewPrincipalResolver(cfg app.AppConfig) (*principalresolver.CachedResolver, error) {
 	services := make([]did.DID, 0, 2)
-	if idxSvc := cfg.UCANService.Services.Indexer.Connection; idxSvc != nil {
-		if strings.HasPrefix(idxSvc.ID().DID().String(), "did:web:") {
-			services = append(services, idxSvc.ID().DID())
-		}
+	if d, ok := didFromConn(cfg.UCANService.Services.Indexer.Connection); ok {
+		services = append(services, d)
 	}
-	if uplSvc := cfg.UCANService.Services.Upload.Connection; uplSvc != nil {
-		if strings.HasPrefix(uplSvc.ID().DID().String(), "did:web:") {
-			services = append(services, uplSvc.ID().DID())
-		}
+	if d, ok := didFromConn(cfg.UCANService.Services.Upload.Connection); ok {
+		services = append(services, d)
 	}
-	// Build resolver options
+
 	var opts []principalresolver.Option
 	if cfg.UCANService.InsecureDIDResolution {
 		opts = append(opts, principalresolver.InsecureResolution())
@@ -59,13 +76,8 @@ func NewPrincipalResolver(cfg app.AppConfig) (validator.PrincipalResolver, error
 	return cr, nil
 }
 
-// ProvideAsUCANOption provides the principal resolver as a UCAN server option
-func ProvideAsUCANOption(resolver validator.PrincipalResolver) ucanserver.Option {
-	return ucanserver.WithPrincipalResolver(resolver.ResolveDIDKey)
-}
-
-// ProvideAsUCANRetrievalOption provides the principal resolver as a UCAN
-// retrieval server option/
-func ProvideAsUCANRetrievalOption(resolver validator.PrincipalResolver) ucanretrievalserver.Option {
-	return ucanretrievalserver.WithPrincipalResolver(resolver.ResolveDIDKey)
+// ProvideAsUCANOption provides the principal resolver as a storage-side
+// UCAN HTTP server option (via the validator's DIDResolver hook).
+func ProvideAsUCANOption(resolver *principalresolver.CachedResolver) ucanserver.HTTPOption {
+	return ucanserver.WithValidationOptions(validator.WithDIDResolver(resolver.Resolve))
 }

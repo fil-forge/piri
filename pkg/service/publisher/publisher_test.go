@@ -1,35 +1,25 @@
 package publisher
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"testing"
 
+	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-libstoracha/metadata"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/claim"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-libstoracha/metadata"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/service/publisher/advertisement"
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/service/publisher/advertisement"
 )
 
 func TestPublisherService(t *testing.T) {
@@ -42,23 +32,23 @@ func TestPublisherService(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 
-		svc, err := New(testutil.Alice, publisherStore, addr, WithLogLevel("info"))
+		svc, err := New(testutil.Alice, publisherStore, addr)
 		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 
-		claim, err := assert.Location.Delegate(
+		claim, err := assert.Location.Invoke(
 			testutil.Alice,
 			space,
-			testutil.Alice.DID().String(),
-			assert.LocationCaveats{
+			&assert.LocationArguments{
 				Space:    space,
-				Content:  types.FromHash(shard),
-				Location: []url.URL{*location},
+				Content:  shard,
+				Location: []capabilities.CborURL{capabilities.CborURL(*location)},
 			},
-			delegation.WithNoExpiration(),
+			invocation.WithAudience(testutil.Alice.DID()),
+			invocation.WithNoExpiration(),
 		)
 		require.NoError(t, err)
 
@@ -102,23 +92,23 @@ func TestPublisherService(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 
-		svc, err := New(testutil.Alice, publisherStore, addr, WithLogLevel("info"))
+		svc, err := New(testutil.Alice, publisherStore, addr)
 		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 
-		claim, err := assert.Location.Delegate(
+		claim, err := assert.Location.Invoke(
 			testutil.Alice,
 			space,
-			testutil.Alice.DID().String(),
-			assert.LocationCaveats{
+			&assert.LocationArguments{
 				Space:    space,
-				Content:  types.FromHash(shard),
-				Location: []url.URL{*location},
+				Content:  shard,
+				Location: []capabilities.CborURL{capabilities.CborURL(*location)},
 			},
-			delegation.WithNoExpiration(),
+			invocation.WithAudience(testutil.Alice.DID()),
+			invocation.WithNoExpiration(),
 		)
 		require.NoError(t, err)
 
@@ -128,89 +118,4 @@ func TestPublisherService(t *testing.T) {
 		err = svc.Publish(ctx, claim)
 		require.NoError(t, err)
 	})
-
-	t.Run("caches claims", func(t *testing.T) {
-		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-
-		handlerCalled := false
-		handler := func(ctx context.Context, cap ucan.Capability[claim.CacheCaveats], inv invocation.Invocation, context server.InvocationContext) (result.Result[ok.Unit, failure.IPLDBuilderFailure], fx.Effects, error) {
-			handlerCalled = true
-			claim := cap.Nb().Claim
-			for b, err := range inv.Blocks() {
-				if err != nil {
-					return nil, nil, err
-				}
-				if b.Link() == claim {
-					return result.Ok[ok.Unit, failure.IPLDBuilderFailure](ok.Unit{}), nil, nil
-				}
-			}
-			return nil, nil, fmt.Errorf("claim not found in invocation blocks: %s", claim.String())
-		}
-
-		idxSvc := mockIndexingService(t, testutil.Bob, handler)
-		idxConn, err := client.NewConnection(testutil.Bob, idxSvc)
-		require.NoError(t, err)
-
-		// authorize alice to cache claim on bob
-		prf, err := delegation.Delegate(
-			testutil.Bob,
-			testutil.Alice,
-			[]ucan.Capability[ucan.NoCaveats]{
-				ucan.NewCapability(
-					claim.CacheAbility,
-					testutil.Bob.DID().String(),
-					ucan.NoCaveats{},
-				),
-			},
-		)
-		require.NoError(t, err)
-
-		svc, err := New(
-			testutil.Alice,
-			publisherStore,
-			addr,
-			WithIndexingService(idxConn),
-			WithIndexingServiceProof(delegation.FromDelegation(prf)),
-			WithLogLevel("info"),
-		)
-		require.NoError(t, err)
-
-		space := testutil.RandomDID(t)
-		shard := testutil.RandomMultihash(t)
-		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
-
-		claim, err := assert.Location.Delegate(
-			testutil.Alice,
-			space,
-			testutil.Alice.DID().String(),
-			assert.LocationCaveats{
-				Space:    space,
-				Content:  types.FromHash(shard),
-				Location: []url.URL{*location},
-			},
-			delegation.WithNoExpiration(),
-		)
-		require.NoError(t, err)
-
-		err = svc.Publish(ctx, claim)
-		require.NoError(t, err)
-		require.True(t, handlerCalled)
-	})
-}
-
-func mockIndexingService(t *testing.T, id principal.Signer, handler server.HandlerFunc[claim.CacheCaveats, ok.Unit, failure.IPLDBuilderFailure]) server.ServerView[server.Service] {
-	t.Helper()
-	return testutil.Must(
-		server.NewServer(
-			id,
-			server.WithServiceMethod(
-				claim.CacheAbility,
-				server.Provide(
-					claim.Cache,
-					handler,
-				),
-			),
-		),
-	)(t)
 }

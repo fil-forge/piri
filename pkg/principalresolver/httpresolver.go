@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/did"
+	verrs "github.com/fil-forge/ucantone/validator/errors"
 	logging "github.com/ipfs/go-log/v2"
 )
 
@@ -61,7 +61,7 @@ type VerificationMethod struct {
 	PublicKeyMultibase string `json:"publicKeyMultibase,omitempty"`
 }
 
-var _ validator.PrincipalResolver = (*HTTPResolver)(nil)
+var _ Resolver = (*HTTPResolver)(nil)
 
 type HTTPResolver struct {
 	// mapping of did:web to url of service, where we fetch .well-known/did.json to obtain their did:key key
@@ -176,39 +176,40 @@ func NewHTTPResolver(webKeys []did.DID, opts ...Option) (*HTTPResolver, error) {
 	return resolver, nil
 }
 
-// TODO(forrest): the interface this implements in go-ucanto should probably accept a context
-// since means of resolution here are open ended, and may go to network or disk.
-func (r *HTTPResolver) ResolveDIDKey(ctx context.Context, input did.DID) (did.DID, validator.UnresolvedDID) {
+// Resolve fetches the did:web's did.json over HTTP and returns the single
+// did:key derived from its verificationMethod. Returns a one-element slice
+// on success.
+func (r *HTTPResolver) Resolve(ctx context.Context, input did.DID) ([]did.DID, error) {
 	endpoint, ok := r.webKeys[input]
 	if !ok {
 		log.Error("failed to find did in set for resolution")
-		return did.Undef, validator.NewDIDKeyResolutionError(input, fmt.Errorf("not found in mapping"))
+		return nil, verrs.NewDIDKeyResolutionError(input, fmt.Errorf("not found in mapping"))
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.cfg.timeout)
 	defer cancel()
 	didDoc, err := fetchDIDDocument(ctx, endpoint)
 	if err != nil {
 		log.Errorf("failed to resolve DID document from endpoint %s: %s", endpoint.String(), err)
-		return did.Undef, validator.NewDIDKeyResolutionError(input, fmt.Errorf("failed to resolve DID document: %w", err))
+		return nil, verrs.NewDIDKeyResolutionError(input, fmt.Errorf("failed to resolve DID document: %w", err))
 	}
 	if len(didDoc.VerificationMethod) == 0 {
 		log.Errorf("failed to resolve DID document from endpoint %s: no verification methods", endpoint.String())
-		return did.Undef, validator.NewDIDKeyResolutionError(input, fmt.Errorf("no verificationMethod found in DID document"))
+		return nil, verrs.NewDIDKeyResolutionError(input, fmt.Errorf("no verificationMethod found in DID document"))
 	}
 
 	pubKeyStr := didDoc.VerificationMethod[0].PublicKeyMultibase
 	if pubKeyStr == "" {
 		log.Errorf("failed to resolve DID document from endpoint %s: no public key", endpoint.String())
-		return did.Undef, validator.NewDIDKeyResolutionError(input, fmt.Errorf("no public key found in DID document"))
+		return nil, verrs.NewDIDKeyResolutionError(input, fmt.Errorf("no public key found in DID document"))
 	}
 
 	didKey, err := did.Parse(fmt.Sprintf("did:key:%s", pubKeyStr))
 	if err != nil {
 		log.Errorf("failed to parse DID document from endpoint %s: %s", endpoint.String(), err)
-		return did.Undef, validator.NewDIDKeyResolutionError(input, fmt.Errorf("failed to parse public multibase key: %w", err))
+		return nil, verrs.NewDIDKeyResolutionError(input, fmt.Errorf("failed to parse public multibase key: %w", err))
 	}
 
-	return didKey, nil
+	return []did.DID{didKey}, nil
 }
 
 func fetchDIDDocument(ctx context.Context, endpoint url.URL) (*Document, error) {

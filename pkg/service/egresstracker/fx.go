@@ -8,8 +8,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/ipfs/go-cid"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	leveldb "github.com/ipfs/go-ds-leveldb"
@@ -64,7 +63,7 @@ func ProvideEgressTrackerQueue(lc fx.Lifecycle, params QueueParams) (EgressTrack
 	queue, err := jobqueue.New(
 		"egress-tracker",
 		params.DB,
-		&serializer.JSON[cid.Cid]{},
+		serializer.CID(),
 		jobqueue.WithLogger(log.With("queue", "egress-tracker")),
 		jobqueue.WithMaxRetries(maxRetries),
 		jobqueue.WithMaxWorkers(maxWorkers),
@@ -140,11 +139,10 @@ func NewEgressTrackerService(
 ) (*Service, error) {
 	batchEndpoint := cfg.Server.PublicURL.JoinPath(ReceiptsPath + "/{cid}")
 	egressTrackerConn := cfg.UCANService.Services.EgressTracker.Connection
-	egressTrackerProofs := cfg.UCANService.Services.EgressTracker.Proofs
 	receiptsEndpoint := cfg.UCANService.Services.EgressTracker.ReceiptsEndpoint
 	cleanupCheckInterval := cfg.UCANService.Services.EgressTracker.CleanupCheckInterval
 
-	if egressTrackerConn == nil {
+	if egressTrackerConn.Client == nil {
 		log.Warn("no egress tracker service connection provided, egress tracking is disabled")
 		return nil, nil
 	}
@@ -157,8 +155,9 @@ func NewEgressTrackerService(
 
 	svc, err := New(
 		id,
-		egressTrackerConn,
-		egressTrackerProofs,
+		egressTrackerConn.DID,
+		egressTrackerConn.Client,
+		nil, // proofs: not yet wired through config — see EgressTrackerServiceConfig
 		batchEndpoint,
 		journal,
 		consolidationStore,

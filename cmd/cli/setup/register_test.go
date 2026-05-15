@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/did"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/ucantone/did"
 
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
@@ -100,7 +101,7 @@ func TestGenerateConfig(t *testing.T) {
 		flags := baseFlags()
 		flags.storage = nil
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		// Database should have empty type (defaults to sqlite)
@@ -118,7 +119,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		require.Equal(t, "sqlite", result.Repo.Database.Type)
@@ -140,7 +141,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		require.Equal(t, "postgres", result.Repo.Database.Type)
@@ -166,7 +167,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		require.NotNil(t, result.Repo.S3)
@@ -201,7 +202,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		// Verify postgres config
@@ -223,7 +224,7 @@ func TestGenerateConfig(t *testing.T) {
 		flags := baseFlags()
 		flags.storage = nil
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 42, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 42)
 		require.NoError(t, err)
 
 		// Verify key file is set
@@ -240,10 +241,6 @@ func TestGenerateConfig(t *testing.T) {
 
 		// Verify proof set ID
 		require.Equal(t, uint64(42), result.UCANService.ProofSetID)
-
-		// Verify proofs
-		require.Equal(t, "indexer-proof", result.UCANService.Services.Indexer.Proof)
-		require.Equal(t, "egress-proof", result.UCANService.Services.EgressTracker.Proof)
 
 		// Verify network is read from viper
 		require.Equal(t, "testnet", result.Network)
@@ -281,7 +278,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		// Both postgres and S3 should be present in the output
@@ -321,7 +318,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		// Both S3 and postgres should be present in the output
@@ -355,7 +352,7 @@ func TestGenerateConfig(t *testing.T) {
 			},
 		}
 
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1)
 		require.NoError(t, err)
 
 		// Flag values should be used (they had higher priority during viper merge)

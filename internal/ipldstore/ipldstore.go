@@ -4,56 +4,55 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-ucanto/core/ipld/codec/cbor"
-	"github.com/ipld/go-ipld-prime/node/bindnode"
-	"github.com/ipld/go-ipld-prime/schema"
+	cbg "github.com/whyrusleeping/cbor-gen"
 )
 
+// KVStore is a key/value store over a SimpleStore, keyed by any fmt.Stringer
+// and holding values that (de)serialize via cbor-gen.
 type KVStore[K, V any] interface {
 	Get(ctx context.Context, key K) (V, error)
 	Put(ctx context.Context, key K, value V) error
 }
 
-type ipldStore[K fmt.Stringer, V any] struct {
-	ds   store.SimpleStore
-	typ  schema.Type
-	opts []bindnode.Option
+// cborValue constrains V so that *V can cbor-marshal itself. cbor-gen emits
+// pointer-receiver MarshalCBOR/UnmarshalCBOR, so the store works with value V
+// externally while marshalling through *V internally.
+type cborValue[V any] interface {
+	*V
+	cbg.CBORMarshaler
+	cbg.CBORUnmarshaler
 }
 
-func (i *ipldStore[K, V]) Get(ctx context.Context, key K) (V, error) {
-	var zeroV V
-	r, err := i.ds.Get(ctx, key.String())
+type cborStore[K fmt.Stringer, V any, PV cborValue[V]] struct {
+	ds store.SimpleStore
+}
+
+func (s *cborStore[K, V, PV]) Get(ctx context.Context, key K) (V, error) {
+	var zero V
+	r, err := s.ds.Get(ctx, key.String())
 	if err != nil {
-		return zeroV, err
+		return zero, err
 	}
 	defer r.Close()
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return zeroV, err
+	v := PV(new(V))
+	if err := v.UnmarshalCBOR(r); err != nil {
+		return zero, fmt.Errorf("decoding %T: %w", zero, err)
 	}
-	var v V
-	err = cbor.Decode(data, &v, i.typ, i.opts...)
-	if err != nil {
-		return zeroV, err
-	}
-	return v, nil
+	return *v, nil
 }
 
-func (i *ipldStore[K, V]) Put(ctx context.Context, key K, value V) error {
-	data, err := cbor.Encode(&value, i.typ, i.opts...)
-	if err != nil {
-		return err
+func (s *cborStore[K, V, PV]) Put(ctx context.Context, key K, value V) error {
+	var buf bytes.Buffer
+	if err := PV(&value).MarshalCBOR(&buf); err != nil {
+		return fmt.Errorf("encoding %T: %w", value, err)
 	}
-	return i.ds.Put(ctx, key.String(), uint64(len(data)), bytes.NewReader(data))
+	return s.ds.Put(ctx, key.String(), uint64(buf.Len()), &buf)
 }
 
-func IPLDStore[K fmt.Stringer, V any](ds store.SimpleStore, typ schema.Type, opts ...bindnode.Option) KVStore[K, V] {
-	return &ipldStore[K, V]{
-		ds:   ds,
-		typ:  typ,
-		opts: opts,
-	}
+// CBORStore returns a KVStore that serializes values with cbor-gen. Provide K
+// and V explicitly; the pointer type PV is inferred from V.
+func CBORStore[K fmt.Stringer, V any, PV cborValue[V]](ds store.SimpleStore) KVStore[K, V] {
+	return &cborStore[K, V, PV]{ds: ds}
 }

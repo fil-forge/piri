@@ -1,28 +1,23 @@
 package ucan
 
 import (
-	"fmt"
-
-	ucancap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucanserver "github.com/fil-forge/go-ucanto/server"
-	ucanretrieval "github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/ucan/retrieval"
+	"github.com/fil-forge/ucantone/principal"
+	ucanserver "github.com/fil-forge/ucantone/server"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/fx"
 
-	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/fx/retrieval/ucan/handlers"
-	"github.com/fil-forge/piri/pkg/service/retrieval"
-	"go.uber.org/fx"
+	retrievalsvc "github.com/fil-forge/piri/pkg/service/retrieval"
+	ucanhandlers "github.com/fil-forge/piri/pkg/service/retrieval/ucan"
 )
 
 var log = logging.Logger("fx/retrieval/ucan")
 
 type Handler struct {
-	ucanServer ucanserver.ServerView[ucanretrieval.Service]
+	ucanServer *ucanserver.HTTPServer
 }
 
 var Module = fx.Module("retrieval/ucan/server",
@@ -32,7 +27,10 @@ var Module = fx.Module("retrieval/ucan/server",
 			AsRouteRegistrar,
 			fx.ResultTags(`group:"route_registrar"`),
 		),
-		ProvideServerView,
+		fx.Annotate(
+			ProvideServer,
+			fx.ResultTags(`name:"retrieval_ucan_server"`),
+		),
 	),
 	handlers.Module,
 )
@@ -40,61 +38,33 @@ var Module = fx.Module("retrieval/ucan/server",
 type Params struct {
 	fx.In
 
-	ID      principal.Signer
-	Config  app.AppConfig
-	Options []ucanretrieval.Option `group:"ucan_retrieval_options"`
+	ID       principal.Signer
+	Handlers []ucanhandlers.Handler  `group:"retrieval_ucan_handlers"`
+	Options  []ucanserver.HTTPOption `group:"retrieval_ucan_options"`
 }
 
-func NewHandler(p Params) (*Handler, error) {
-	// Create a local delegation to the upload service that allows it to issue
-	// attestations. When the validator sees this delegation, it will accept
-	// attestations issued by the upload service.
-	attestDlg, err := delegation.Delegate(
-		p.ID,
-		p.Config.UCANService.Services.Upload.Connection.ID(),
-		[]ucan.Capability[ucan.NoCaveats]{
-			ucan.NewCapability(
-				ucancap.AttestAbility,
-				p.ID.DID().String(),
-				ucan.NoCaveats{},
-			),
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return nil, err
+// NewHandler builds the retrieval HTTP UCAN server (HTTPHeader codec) and
+// registers each fx-collected handler on it.
+func NewHandler(p Params) *Handler {
+	srv := retrieval.NewServer(p.ID, p.Options...)
+	for _, h := range p.Handlers {
+		srv.Handle(h.Capability, h.Handler)
+		log.Infow("registered retrieval UCAN handler", "command", h.Capability.Command())
 	}
-
-	options := []ucanretrieval.Option{
-		ucanretrieval.WithAuthorityProofs(attestDlg),
-		ucanretrieval.WithErrorHandler(func(err ucanserver.HandlerExecutionError[any]) {
-			l := log.With("error", err.Error())
-			if s := err.Stack(); s != "" {
-				l = l.With("stack", s)
-			}
-			l.Error("ucan retrieval handler execution error")
-		}),
-	}
-	options = append(options, p.Options...)
-	ucanSvr, err := ucanretrieval.NewServer(p.ID, options...)
-	if err != nil {
-		return nil, fmt.Errorf("creating ucan retrieval server: %w", err)
-	}
-
-	return &Handler{ucanSvr}, nil
+	return &Handler{ucanServer: srv}
 }
 
-// RegisterRoutes registers the UCAN routes with Echo
+// RegisterRoutes registers the UCAN routes with Echo.
 func (h *Handler) RegisterRoutes(e *echo.Echo) {
-	e.GET("/piece/:cid", retrieval.NewHandler(h.ucanServer))
+	e.GET("/piece/:cid", retrievalsvc.NewHandler(h.ucanServer))
 }
 
-// AsRouteRegistrar provides the Handler as a RouteRegistrar
+// AsRouteRegistrar provides the Handler as a RouteRegistrar.
 func AsRouteRegistrar(h *Handler) echofx.RouteRegistrar {
 	return h
 }
 
-// ProvideServerView provides the UCAN ServerView for testing
-func ProvideServerView(h *Handler) ucanserver.ServerView[ucanretrieval.Service] {
+// ProvideServer provides the UCAN retrieval server for tests / integration.
+func ProvideServer(h *Handler) *ucanserver.HTTPServer {
 	return h.ucanServer
 }

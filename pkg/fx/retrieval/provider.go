@@ -1,7 +1,7 @@
 package retrieval
 
 import (
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"go.uber.org/fx"
 
@@ -16,8 +16,8 @@ var Module = fx.Module("retrieval",
 	fx.Provide(
 		fx.Annotate(
 			NewRetrievalService,
-			fx.As(new(ucan.BlobRetrievalService)),
 			fx.As(new(ucan.SpaceContentRetrievalService)),
+			fx.As(new(ucan.BlobRetrievalService)),
 		),
 	),
 )

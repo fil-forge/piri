@@ -1,16 +1,10 @@
 package ucan
 
 import (
-	"context"
-
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
+	blobcaps "github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/container"
 
 	"github.com/fil-forge/piri/pkg/pdp"
 	"github.com/fil-forge/piri/pkg/service/blobs"
@@ -25,46 +19,41 @@ type BlobAcceptService interface {
 	Claims() claims.Claims
 }
 
-func WithBlobAcceptMethod(storageService BlobAcceptService) server.Option {
-	return server.WithServiceMethod(
-		blob.AcceptAbility,
-		server.Provide(
-			blob.Accept,
-			func(ctx context.Context, cap ucan.Capability[blob.AcceptCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[blob.AcceptOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				//
-				// UCAN Validation
-				//
+// NewBlobAcceptHandler returns the /blob/accept UCAN handler. The space is
+// the invocation's Subject. Output invocations (the location commitment claim,
+// and optionally a /pdp/accept) are returned to the caller via the response
+// container metadata; the typed AcceptOK record only carries `Site` (the CID
+// of the claim invocation).
+func NewBlobAcceptHandler(storageService BlobAcceptService) Handler {
+	return Handler{
+		Capability: blobcaps.Accept,
+		Handler: bindexec.NewHandler(func(
+			req *bindexec.Request[*blobcaps.AcceptArguments],
+			res *bindexec.Response[*blobcaps.AcceptOK],
+		) error {
+			args := req.Task().Arguments()
 
-				// only service principal can perform an allocation
-				if cap.With() != iCtx.ID().DID().String() {
-					return result.Error[blob.AcceptOk, failure.IPLDBuilderFailure](NewUnsupportedCapabilityError(cap)), nil, nil
-				}
+			resp, err := blobhandler.Accept(req.Context(), storageService, &blobhandler.AcceptRequest{
+				Space: req.Invocation().Subject(),
+				Blob:  args.Blob,
+				Put:   args.Put,
+				Cause: req.Invocation().Task().Link(),
+			})
+			if err != nil {
+				return res.SetFailure(err)
+			}
 
-				//
-				// end UCAN Validation
-				//
+			metaOpts := []container.Option{container.WithInvocations(resp.Claim)}
+			if resp.PDP != nil {
+				metaOpts = append(metaOpts, container.WithInvocations(resp.PDP))
+			}
+			if err := res.SetMetadata(container.New(metaOpts...)); err != nil {
+				return res.SetFailure(err)
+			}
 
-				resp, err := blobhandler.Accept(ctx, storageService, &blobhandler.AcceptRequest{
-					Space: cap.Nb().Space,
-					Blob:  cap.Nb().Blob,
-					Put:   cap.Nb().Put,
-					Cause: inv.Link(),
-				})
-				if err != nil {
-					return nil, nil, err
-				}
-				forks := []fx.Effect{fx.FromInvocation(resp.Claim)}
-				res := blob.AcceptOk{
-					Site: resp.Claim.Link(),
-				}
-				if resp.PDP != nil {
-					forks = append(forks, fx.FromInvocation(resp.PDP))
-					tmp := resp.PDP.Link()
-					res.PDP = &tmp
-				}
-
-				return result.Ok[blob.AcceptOk, failure.IPLDBuilderFailure](res), fx.NewEffects(fx.WithFork(forks...)), nil
-			},
-		),
-	)
+			return res.SetSuccess(&blobcaps.AcceptOK{
+				Site: resp.Claim.Link(),
+			})
+		}),
+	}
 }

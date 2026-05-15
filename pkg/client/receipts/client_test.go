@@ -1,52 +1,44 @@
 package receipts_test
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/ran"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/transport/car/response"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/client/receipts"
+	cdm "github.com/fil-forge/libforge/capabilities/datamodel"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ipld/datamodel"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/client/receipts"
 )
 
 func TestFetch(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
+		alice := testutil.Alice
+		service := testutil.RandomSigner(t)
+
 		inv, err := invocation.Invoke(
-			testutil.Alice,
-			testutil.Service,
-			ucan.NewCapability(
-				"test/receipt",
-				testutil.Alice.DID().String(),
-				ucan.NoCaveats{},
-			),
+			alice,
+			alice.DID(),
+			"/test/receipt",
+			datamodel.Map{},
+			invocation.WithAudience(service.DID()),
 		)
 		require.NoError(t, err)
 
-		rcpt, err := receipt.Issue(
-			testutil.Alice,
-			result.Ok[ok.Unit, failure.IPLDBuilderFailure](ok.Unit{}),
-			ran.FromInvocation(inv),
-		)
+		rcpt, err := receipt.IssueOK(service, inv.Link(), &cdm.UnitModel{})
 		require.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			msg, err := message.Build(nil, []receipt.AnyReceipt{rcpt})
+			ct := container.New(container.WithReceipts(rcpt))
+			b, err := container.Encode(container.Raw, ct)
 			require.NoError(t, err)
-			res, err := response.Encode(msg)
-			require.NoError(t, err)
-			_, err = io.Copy(w, res.Body())
+			_, err = w.Write(b)
 			require.NoError(t, err)
 		}))
 		defer server.Close()
@@ -55,9 +47,10 @@ func TestFetch(t *testing.T) {
 		require.NoError(t, err)
 
 		client := receipts.NewClient(endpoint)
-		result, err := client.Fetch(t.Context(), inv.Link())
+		got, err := client.Fetch(t.Context(), rcpt.Link())
 		require.NoError(t, err)
-		require.Equal(t, inv.Link(), result.Ran().Link())
+		require.Equal(t, rcpt.Link(), got.Link())
+		require.Equal(t, inv.Link(), got.Ran())
 	})
 
 	t.Run("not found", func(t *testing.T) {
