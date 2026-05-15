@@ -65,6 +65,9 @@ type DatabaseConfig struct {
 }
 
 // ToAppConfig converts DatabaseConfig to app.DatabaseConfig.
+// ToAppConfig converts DatabaseConfig to app.DatabaseConfig. SQLite paths are
+// populated by the caller (RepoConfig.ToAppConfig) since they depend on the
+// repo's data directory.
 func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 	if c.Type == "postgres" {
 		pgCfg, err := c.Postgres.ToAppConfig()
@@ -160,7 +163,16 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		return app.StorageConfig{}, err
 	}
 
-	// Build storage config - database paths are derived by providers, not set here
+	// SQLite databases each live in their own file under the data dir. Paths
+	// are computed here rather than derived inside fx providers so that the
+	// config fully describes the on-disk layout.
+	dbCfg.SQLite = app.SQLiteConfig{
+		ReplicatorPath:    filepath.Join(r.DataDir, "replicator", "replicator.db"),
+		AggregatorPath:    filepath.Join(r.DataDir, "aggregator", "jobqueue", "jobqueue.db"),
+		EgressTrackerPath: filepath.Join(r.DataDir, "egress_tracker", "jobqueue", "jobqueue.db"),
+		TaskEnginePath:    filepath.Join(r.DataDir, "pdp", "state", "state.db"),
+	}
+
 	out := app.StorageConfig{
 		DataDir:  r.DataDir,
 		TempDir:  r.TempDir,
@@ -190,14 +202,12 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		Acceptance: app.AcceptanceStorageConfig{
 			Dir: filepath.Join(r.DataDir, "acceptance"),
 		},
-		Replicator: app.ReplicatorStorageConfig{},
 		KeyStore: app.KeyStoreConfig{
 			Dir: filepath.Join(r.DataDir, "wallet"),
 		},
 		StashStore: app.StashStoreConfig{
 			Dir: filepath.Join(r.DataDir, "pdp"),
 		},
-		SchedulerStorage: app.SchedulerConfig{},
 		PDPStore: app.PDPStoreConfig{
 			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
 		},

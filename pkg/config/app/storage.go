@@ -16,13 +16,28 @@ const (
 )
 
 // DatabaseConfig contains database connection configuration.
+//
+// Each backend has its own nested config (SQLite, Postgres, ...). Adding a
+// future backend (e.g. Yugabyte) means adding another sibling sub-struct, a
+// new DatabaseType constant, and one branch in the providers that consume
+// this config.
 type DatabaseConfig struct {
 	// Type is the database backend type: "sqlite" (default) or "postgres".
 	Type DatabaseType
 
-	// NB: sqlite doesn't have a config.
-
+	SQLite   SQLiteConfig
 	Postgres PostgresConfig
+}
+
+// SQLiteConfig contains SQLite-specific configuration. SQLite uses a separate
+// database file per logical namespace (one job queue per file, one task
+// engine state file). Paths are populated by the config loader from the
+// configured data directory; an empty path means use in-memory storage.
+type SQLiteConfig struct {
+	ReplicatorPath    string
+	AggregatorPath    string
+	EgressTrackerPath string
+	TaskEnginePath    string
 }
 
 // IsSQLite returns true if using SQLite backend (or if type is empty/default).
@@ -64,20 +79,18 @@ type StorageConfig struct {
 	S3 *S3Config
 
 	// Service-specific storage subdirectories
-	Aggregator       AggregatorStorageConfig
-	Blobs            BlobStorageConfig
-	Claims           ClaimStorageConfig
-	Publisher        PublisherStorageConfig
-	Receipts         ReceiptStorageConfig
-	EgressTracker    EgressTrackerStorageConfig
-	Allocations      AllocationStorageConfig
-	Acceptance       AcceptanceStorageConfig
-	Replicator       ReplicatorStorageConfig
-	KeyStore         KeyStoreConfig
-	StashStore       StashStoreConfig
-	SchedulerStorage SchedulerConfig
-	PDPStore         PDPStoreConfig
-	Consolidation    ConsolidationStorageConfig
+	Aggregator    AggregatorStorageConfig
+	Blobs         BlobStorageConfig
+	Claims        ClaimStorageConfig
+	Publisher     PublisherStorageConfig
+	Receipts      ReceiptStorageConfig
+	EgressTracker EgressTrackerStorageConfig
+	Allocations   AllocationStorageConfig
+	Acceptance    AcceptanceStorageConfig
+	KeyStore      KeyStoreConfig
+	StashStore    StashStoreConfig
+	PDPStore      PDPStoreConfig
+	Consolidation ConsolidationStorageConfig
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
@@ -130,10 +143,6 @@ type AcceptanceStorageConfig struct {
 	Dir string
 }
 
-// ReplicatorStorageConfig contains replicator-specific storage paths.
-// Currently empty - SQLite paths are derived by providers.
-type ReplicatorStorageConfig struct{}
-
 type KeyStoreConfig struct {
 	Dir string
 }
@@ -156,7 +165,3 @@ type Credentials struct {
 	AccessKeyID     string
 	SecretAccessKey string
 }
-
-// SchedulerConfig contains scheduler-specific storage paths.
-// Currently empty - SQLite paths are derived by providers.
-type SchedulerConfig struct{}

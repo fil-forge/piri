@@ -18,7 +18,7 @@ import (
 	"github.com/fil-forge/piri/pkg/database/sqlitedb"
 )
 
-// PostgreSQL schema names for each logical database
+// PostgreSQL schema names for each logical database.
 const (
 	SchemaReplicator    = "replicator"
 	SchemaAggregator    = "aggregator"
@@ -28,143 +28,84 @@ const (
 
 var Module = fx.Module("database",
 	fx.Provide(
-		fx.Annotate(
-			ProvideReplicatorDB,
-			fx.ResultTags(`name:"replicator_db"`),
-		),
-		fx.Annotate(
-			ProvideTaskEngineDB,
-			fx.ResultTags(`name:"engine_db"`),
-		),
-		fx.Annotate(
-			ProvideAggregatorDB,
-			fx.ResultTags(`name:"aggregator_db"`),
-		),
-		fx.Annotate(
-			ProvideEgressTrackerDB,
-			fx.ResultTags(`name:"egress_tracker_db"`),
-		),
+		fx.Annotate(ProvideReplicatorDB, fx.ResultTags(`name:"replicator_db"`)),
+		fx.Annotate(ProvideTaskEngineDB, fx.ResultTags(`name:"engine_db"`)),
+		fx.Annotate(ProvideAggregatorDB, fx.ResultTags(`name:"aggregator_db"`)),
+		fx.Annotate(ProvideEgressTrackerDB, fx.ResultTags(`name:"egress_tracker_db"`)),
 	),
 )
 
 // ProvideReplicatorDB provides the database for the replicator job queue.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideReplicatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
-
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := postgresdb.OptionsFromConfig(cfg.Database.Postgres)
-		db, err = postgresdb.New(cfg.Database.Postgres.URL.String(), SchemaReplicator, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating postgres replicator database: %w", err)
-		}
-	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "replicator", "replicator.db")
-		if dbPath == "" {
-			db, err = sqlitedb.NewMemory()
-			if err != nil {
-				return nil, fmt.Errorf("creating in-memory replicator database: %w", err)
-			}
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating replicator database directory: %w", err)
-			}
-
-			db, err = sqlitedb.New(dbPath,
-				database.WithJournalMode(database.JournalModeWAL),
-				database.WithTimeout(5*time.Second),
-				database.WithSyncMode(database.SyncModeNORMAL),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("creating replicator database: %w", err)
-			}
-			configureSQLiteConnection(db)
-		}
-	}
-
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return db.PingContext(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			return db.Close()
-		},
-	})
-
-	return db, nil
+func ProvideReplicatorDB(lc fx.Lifecycle, cfg app.DatabaseConfig) (*sql.DB, error) {
+	return newJobQueueDB(lc, cfg, SchemaReplicator, cfg.SQLite.ReplicatorPath)
 }
 
 // ProvideAggregatorDB provides the database for the aggregator job queue.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideAggregatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error) {
+func ProvideAggregatorDB(lc fx.Lifecycle, cfg app.DatabaseConfig) (*sql.DB, error) {
+	return newJobQueueDB(lc, cfg, SchemaAggregator, cfg.SQLite.AggregatorPath)
+}
+
+// ProvideEgressTrackerDB provides the database for the egress tracker job queue.
+func ProvideEgressTrackerDB(lc fx.Lifecycle, cfg app.DatabaseConfig) (*sql.DB, error) {
+	return newJobQueueDB(lc, cfg, SchemaEgressTracker, cfg.SQLite.EgressTrackerPath)
+}
+
+// newJobQueueDB opens a *sql.DB for one of the job-queue databases. schema
+// is the Postgres schema name; sqlitePath is the SQLite file path (empty
+// path means in-memory).
+func newJobQueueDB(lc fx.Lifecycle, cfg app.DatabaseConfig, schema, sqlitePath string) (*sql.DB, error) {
 	var db *sql.DB
 	var err error
 
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := postgresdb.OptionsFromConfig(cfg.Database.Postgres)
-		db, err = postgresdb.New(cfg.Database.Postgres.URL.String(), SchemaAggregator, opts...)
+	if cfg.IsPostgres() {
+		opts := postgresdb.OptionsFromConfig(cfg.Postgres)
+		db, err = postgresdb.New(cfg.Postgres.URL.String(), schema, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("creating postgres aggregator database: %w", err)
+			return nil, fmt.Errorf("creating postgres %s database: %w", schema, err)
+		}
+	} else if sqlitePath == "" {
+		db, err = sqlitedb.NewMemory()
+		if err != nil {
+			return nil, fmt.Errorf("creating in-memory %s database: %w", schema, err)
 		}
 	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "aggregator", "jobqueue", "jobqueue.db")
-		if dbPath == "" {
-			db, err = sqlitedb.NewMemory()
-			if err != nil {
-				return nil, fmt.Errorf("creating in-memory aggregator database: %w", err)
-			}
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating aggregator database directory: %w", err)
-			}
-
-			db, err = sqlitedb.New(dbPath,
-				database.WithJournalMode(database.JournalModeWAL),
-				database.WithTimeout(5*time.Second),
-				database.WithSyncMode(database.SyncModeNORMAL),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("creating aggregator database: %w", err)
-			}
-			configureSQLiteConnection(db)
+		if err := ensureSQLiteDir(sqlitePath); err != nil {
+			return nil, fmt.Errorf("creating %s database directory: %w", schema, err)
 		}
+		db, err = sqlitedb.New(sqlitePath,
+			database.WithJournalMode(database.JournalModeWAL),
+			database.WithTimeout(5*time.Second),
+			database.WithSyncMode(database.SyncModeNORMAL),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("creating %s database: %w", schema, err)
+		}
+		configureSQLiteConnection(db)
 	}
 
 	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return db.PingContext(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			return db.Close()
-		},
+		OnStart: func(ctx context.Context) error { return db.PingContext(ctx) },
+		OnStop:  func(ctx context.Context) error { return db.Close() },
 	})
-
 	return db, nil
 }
 
 // ProvideTaskEngineDB provides the GORM database for the task engine scheduler.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideTaskEngineDB(lc fx.Lifecycle, cfg app.StorageConfig) (*gorm.DB, error) {
+// It uses a different SQLite option profile than the job-queue databases (foreign
+// keys enabled, journal mode depends on file vs in-memory) and returns *gorm.DB
+// rather than *sql.DB, so it stays separate from newJobQueueDB.
+func ProvideTaskEngineDB(lc fx.Lifecycle, cfg app.DatabaseConfig) (*gorm.DB, error) {
 	var db *gorm.DB
 	var err error
 
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := gormdb.PostgresOptionsFromConfig(cfg.Database.Postgres)
-		db, err = gormdb.NewPostgres(cfg.Database.Postgres.URL.String(), SchemaScheduler, opts)
+	if cfg.IsPostgres() {
+		opts := gormdb.PostgresOptionsFromConfig(cfg.Postgres)
+		db, err = gormdb.NewPostgres(cfg.Postgres.URL.String(), SchemaScheduler, opts)
 		if err != nil {
 			return nil, fmt.Errorf("creating postgres task engine db: %w", err)
 		}
 	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "pdp", "state", "state.db")
+		dbPath := cfg.SQLite.TaskEnginePath
 		dbOpts := []database.Option{
 			// ensure foreign key constraints are respected.
 			database.WithForeignKeyConstraintsEnable(true),
@@ -176,7 +117,6 @@ func ProvideTaskEngineDB(lc fx.Lifecycle, cfg app.StorageConfig) (*gorm.DB, erro
 			// use an in-memory cache for in-memory database
 			dbOpts = append(dbOpts, database.WithJournalMode(database.JournalModeMEMORY))
 		} else {
-			// Ensure directory exists for file-based database
 			if err := ensureSQLiteDir(dbPath); err != nil {
 				return nil, fmt.Errorf("creating task engine database directory: %w", err)
 			}
@@ -213,57 +153,6 @@ func ProvideTaskEngineDB(lc fx.Lifecycle, cfg app.StorageConfig) (*gorm.DB, erro
 	return db, nil
 }
 
-// ProvideEgressTrackerDB provides the database for the egress tracker job queue.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideEgressTrackerDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
-
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := postgresdb.OptionsFromConfig(cfg.Database.Postgres)
-		db, err = postgresdb.New(cfg.Database.Postgres.URL.String(), SchemaEgressTracker, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating postgres egress tracker database: %w", err)
-		}
-	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "egress_tracker", "jobqueue", "jobqueue.db")
-		if dbPath == "" {
-			db, err = sqlitedb.NewMemory()
-			if err != nil {
-				return nil, fmt.Errorf("creating in-memory egress tracker database: %w", err)
-			}
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating egress tracker database directory: %w", err)
-			}
-
-			db, err = sqlitedb.New(dbPath,
-				database.WithJournalMode(database.JournalModeWAL),
-				database.WithTimeout(5*time.Second),
-				database.WithSyncMode(database.SyncModeNORMAL),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("creating egress tracker database: %w", err)
-			}
-			configureSQLiteConnection(db)
-		}
-	}
-
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return db.PingContext(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			return db.Close()
-		},
-	})
-
-	return db, nil
-}
-
 // configureSQLiteConnection configures a SQLite database connection with appropriate limits.
 // SQLite only supports a single writer, so we limit connections to prevent locking issues.
 func configureSQLiteConnection(db *sql.DB) {
@@ -274,21 +163,7 @@ func configureSQLiteConnection(db *sql.DB) {
 	db.SetConnMaxLifetime(0) // Don't expire the connection
 }
 
-// sqliteDBPath returns the SQLite database path for the given service.
-// Returns empty string for in-memory mode (when dataDir is empty).
-func sqliteDBPath(dataDir string, pathElements ...string) string {
-	if dataDir == "" {
-		return ""
-	}
-	elements := append([]string{dataDir}, pathElements...)
-	return filepath.Join(elements...)
-}
-
 // ensureSQLiteDir creates the parent directory for a SQLite database path.
-// Returns nil if dbPath is empty (in-memory mode).
 func ensureSQLiteDir(dbPath string) error {
-	if dbPath == "" {
-		return nil
-	}
 	return os.MkdirAll(filepath.Dir(dbPath), 0755)
 }

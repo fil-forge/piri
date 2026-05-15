@@ -23,6 +23,7 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		fx.Supply(cfg.Identity),
 		fx.Supply(cfg.Server),
 		fx.Supply(cfg.Storage),
+		fx.Supply(cfg.Storage.Database),
 		fx.Supply(cfg.UCANService),
 		fx.Supply(cfg.UCANService.Services),
 		fx.Supply(cfg.UCANService.Services.Upload),
