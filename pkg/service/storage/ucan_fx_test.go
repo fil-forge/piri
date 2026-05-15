@@ -1,7 +1,6 @@
 package storage_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -51,6 +50,7 @@ import (
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/presigner"
 	"github.com/fil-forge/piri/pkg/principalresolver"
 	"github.com/fil-forge/piri/pkg/service/storage"
@@ -61,8 +61,9 @@ func TestFXServer(t *testing.T) {
 	// Create test app configuration directly (no CLI config needed!)
 	var (
 		// things we are testing
-		svc storage.Service
-		srv ucanserver.ServerView[ucanserver.Service]
+		svc        storage.Service
+		srv        ucanserver.ServerView[ucanserver.Service]
+		fakePieces *pdpfake.Pieces
 	)
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
@@ -70,7 +71,8 @@ func TestFXServer(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		fx.Populate(&svc, &srv),
+		pdpfake.Module,
+		fx.Populate(&svc, &srv, &fakePieces),
 	)
 
 	testApp.RequireStart()
@@ -199,8 +201,7 @@ func TestFXServer(t *testing.T) {
 		})
 
 		// simulate a blob upload
-		err := svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
+		fakePieces.Put(digest, data)
 
 		// now again after upload
 		result.MatchResultR0(invokeBlobAllocate(), func(ok blob.AllocateOk) {
@@ -258,8 +259,7 @@ func TestFXServer(t *testing.T) {
 		})
 
 		// simulate a blob upload
-		err := svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
+		fakePieces.Put(digest, data)
 
 		// now again after upload, but in different space
 		result.MatchResultR0(invokeBlobAllocate(space1), func(ok blob.AllocateOk) {
@@ -296,10 +296,9 @@ func TestFXServer(t *testing.T) {
 		require.NoError(t, err)
 
 		// simulate a blob upload
-		err = svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
-		// get the expected download URL
-		loc, err := svc.Blobs().Access().GetDownloadURL(digest)
+		fakePieces.Put(digest, data)
+		// get the expected download URL (matches what the handler returns)
+		loc, err := fakePieces.ReadPieceURL(cid.NewCidV1(cid.Raw, digest))
 		require.NoError(t, err)
 
 		// eventually service will invoke blob/accept
@@ -340,7 +339,8 @@ func TestFXServer(t *testing.T) {
 			require.Equal(t, digest, acc.Blob.Digest)
 			require.Equal(t, space, acc.Space)
 			require.Equal(t, acceptInv.Link(), acc.Cause)
-			require.Nil(t, acc.PDPAccept)
+			// With PDP enabled, acceptance records the pdp/accept promise.
+			require.NotNil(t, acc.PDPAccept)
 
 			claim, err := svc.Claims().Store().Get(context.Background(), ok.Site)
 			require.NoError(t, err)
@@ -446,8 +446,9 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 
 			// Create test app configuration with custom presigner and upload service
 			var (
-				svc storage.Service
-				srv ucanserver.ServerView[ucanserver.Service]
+				svc        storage.Service
+				srv        ucanserver.ServerView[ucanserver.Service]
+				fakePieces *pdpfake.Pieces
 			)
 
 			appConfig := piritestutil.NewTestConfig(t,
@@ -459,7 +460,10 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 				fx.NopLogger,
 				app.CommonModules(appConfig),
 				app.UCANModule,
-				// replace the RequestPresigner with our fake one.
+				pdpfake.Module,
+				// replace the RequestPresigner with our fake one. Unused on the PDP
+				// path (the handler asks WritePieceURL instead) but the fx graph
+				// still requires a presigner provider in commit 1.
 				fx.Decorate(func() presigner.RequestPresigner {
 					return fakeBlobPresigner
 				}),
@@ -469,23 +473,23 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 						testutil.WebService.DID().String(): testutil.WebService.Unwrap().DID().String(),
 					}))(t)
 				}),
-				// // use the mocked proof service
-				// fx.Decorate(func() proofs.ProofService {
-				// 	return
-				// }),
 				// replace the default replicator config with one that causes failures to happen faster
 				fx.Replace(appconfig.ReplicatorConfig{
 					MaxRetries: 2,
 					MaxWorkers: 1,
 					MaxTimeout: time.Second,
 				}),
-				fx.Populate(&svc, &srv),
+				fx.Populate(&svc, &srv, &fakePieces),
 			)
+
+			// Route the handler's WritePieceURL to the same sink endpoint the
+			// FakePresigner used to point at.
+			fakePieces.SetWriteURL(fakeBlobPresigner.uploadURL)
 
 			testApp.RequireStart()
 
 			fakeServer, transferOkChan, sourceGetCount, sinkPutCount := startTestHTTPServer(
-				ctx, t, expectedDigest, expectedData, svc,
+				ctx, t, expectedDigest, expectedData, svc, fakePieces,
 				serverAddr, sourcePath, sinkPath, uploadServicePath,
 				tc.simulateRetry, tc.simulateFailure,
 			)
@@ -528,9 +532,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			// covers when an allocation and replica already exist, meaning no transfer required.
 			// though we still expect a transfer receipt.
 			if tc.hasExistingData {
-				require.NoError(t, svc.Blobs().Store().Put(
-					ctx, expectedDigest, expectedSize, bytes.NewReader(expectedData),
-				))
+				fakePieces.Put(expectedDigest, expectedData)
 			}
 
 			// Build + execute the actual replica.Allocate invocation.
@@ -594,6 +596,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 					expectedAllocateCaveats,
 					expectedReplicaCaveats,
 					tc.simulateFailure,
+					fakePieces,
 				)
 
 				// Verify blob was only transferred once
@@ -627,6 +630,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 					expectedAllocateCaveats,
 					expectedReplicaCaveats,
 					tc.simulateFailure,
+					fakePieces,
 				)
 			}
 		})
@@ -653,8 +657,9 @@ func TestNewAllocationExistingData(t *testing.T) {
 
 	// Create test app configuration with custom presigner and upload service
 	var (
-		svc storage.Service
-		srv ucanserver.ServerView[ucanserver.Service]
+		svc        storage.Service
+		srv        ucanserver.ServerView[ucanserver.Service]
+		fakePieces *pdpfake.Pieces
 	)
 
 	appConfig := piritestutil.NewTestConfig(t,
@@ -666,7 +671,9 @@ func TestNewAllocationExistingData(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		// replace the RequestPresigner with our fake one.
+		pdpfake.Module,
+		// replace the RequestPresigner with our fake one. Unused on the PDP
+		// path but still required in the fx graph for commit 1.
 		fx.Decorate(func() presigner.RequestPresigner {
 			return fakeBlobPresigner
 		}),
@@ -676,23 +683,21 @@ func TestNewAllocationExistingData(t *testing.T) {
 				testutil.WebService.DID().String(): testutil.WebService.Unwrap().DID().String(),
 			}))(t)
 		}),
-		// // use the mocked proof service
-		// fx.Decorate(func() proofs.ProofService {
-		// 	return
-		// }),
 		// replace the default replicator config with one that causes failures to happen faster
 		fx.Replace(appconfig.ReplicatorConfig{
 			MaxRetries: 2,
 			MaxWorkers: 1,
 			MaxTimeout: time.Second,
 		}),
-		fx.Populate(&svc, &srv),
+		fx.Populate(&svc, &srv, &fakePieces),
 	)
+
+	fakePieces.SetWriteURL(fakeBlobPresigner.uploadURL)
 
 	testApp.RequireStart()
 
 	fakeServer, transferOkChan, _, _ := startTestHTTPServer(
-		ctx, t, expectedDigest, expectedData, svc,
+		ctx, t, expectedDigest, expectedData, svc, fakePieces,
 		serverAddr, sourcePath, sinkPath, uploadServicePath,
 		false, false,
 	)
@@ -729,9 +734,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	}))
 
 	// "upload"/store the blob
-	require.NoError(t, svc.Blobs().Store().Put(
-		ctx, expectedDigest, expectedSize, bytes.NewReader(expectedData),
-	))
+	fakePieces.Put(expectedDigest, expectedData)
 
 	// create a new allocation for a blob that already exists in a different space
 	// NB(forrest): this is the key difference from other test cases:
@@ -775,6 +778,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 		expectedAllocateCaveats,
 		expectedReplicaCaveats,
 		false,
+		fakePieces,
 	)
 
 	// assert there are now two allocations for this blob (one per space)
@@ -955,6 +959,7 @@ func mustAssertTransferInvocation(
 	expectedAllocateCav replica.AllocateCaveats,
 	expectedReplicaCav blob2.ReplicateCaveats,
 	simulateFailure bool,
+	fakePieces *pdpfake.Pieces,
 ) {
 	// sanity check
 	require.NotNil(t, ucanConcludeMsg)
@@ -1020,15 +1025,18 @@ func mustAssertTransferInvocation(
 			result.Unwrap(result.MapError(transferReceipt.Out(), failure.FromFailureModel)),
 		)(t)
 
-		// PDP isn't enabled in this test setup, so no PDP proof expected.
-		require.Nil(t, transferOk.PDP)
+		// With PDP enabled, the transfer receipt carries a pdp/accept fx link.
+		require.NotNil(t, transferOk.PDP)
 
 		// read the receipt of the transfer invocation asserting the location caveats of Site contain expected values.
 		locationCavRct := mustGetInvocationCaveats[assert.LocationCaveats](t, reader, transferOk.Site, assert.LocationCaveatsReader.Read)
 		require.Equal(t, expectedSpace, locationCavRct.Space)
 		require.Equal(t, expectedDigest, locationCavRct.Content.Hash())
 		require.Len(t, locationCavRct.Location, 1)
-		require.Equal(t, fmt.Sprintf("/blob/z%s", expectedDigest.B58String()), locationCavRct.Location[0].Path)
+		// The handler returns whatever URL the fake's ReadPieceURL produces.
+		expectedReadURL, err := fakePieces.ReadPieceURL(cid.NewCidV1(cid.Raw, expectedDigest))
+		require.NoError(t, err)
+		require.Equal(t, expectedReadURL.String(), locationCavRct.Location[0].String())
 	} else {
 		transferErrorReceiptReader := testutil.Must(
 			receipt.NewReceiptReaderFromTypes[replica.TransferError, failure.FailureModel](
@@ -1060,6 +1068,7 @@ func startTestHTTPServer(
 	digest multihash.Multihash,
 	serveData []byte,
 	svc storage.Service,
+	fakePieces *pdpfake.Pieces,
 	addr, sourcePath, sinkPath, uploadServicePath string,
 	simulateRetry bool,
 	simulateFailure bool,
@@ -1145,7 +1154,7 @@ func startTestHTTPServer(
 	// Endpoint to store data on the replica.
 	mux.HandleFunc(fmt.Sprintf("/%s", sinkPath), func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&sinkPutCount, 1)
-		require.NoError(t, svc.Blobs().Store().Put(ctx, digest, uint64(len(serveData)), bytes.NewReader(serveData)))
+		fakePieces.Put(digest, serveData)
 		_, _ = w.Write(serveData)
 	})
 	// Endpoint to simulate the upload service.

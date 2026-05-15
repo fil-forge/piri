@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/go-ucanto/validator"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
 	"github.com/fil-forge/piri/pkg/service/storage"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -44,6 +45,7 @@ func TestFXAccessGrant(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
+		pdpfake.Module,
 		// use the map resolver so no network calls are made that would fail anyway
 		fx.Decorate(func() validator.PrincipalResolver {
 			return testutil.Must(principalresolver.NewMapResolver(map[string]string{
