@@ -30,11 +30,7 @@ var Module = fx.Module("s3-store",
 		NewAcceptanceStore,
 		NewClaimStore,
 		NewReceiptStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 		NewConsolidationStore,
 	),
 )
@@ -143,7 +139,7 @@ func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {
 	return receiptstore.NewS3Store(stores.Receipts)
 }
 
-// NewPDPStore provides the blob store. It also satisfies blobstore.BlobGetter.
+// NewPDPStore provides the blob store backing PDP piece storage.
 func NewPDPStore(stores *Stores) blobstore.Blobstore {
 	return blobstore.NewS3Store(stores.PDP)
 }

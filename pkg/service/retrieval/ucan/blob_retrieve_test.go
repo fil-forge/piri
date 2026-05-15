@@ -17,7 +17,6 @@ import (
 	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/result"
 	fdm "github.com/fil-forge/go-ucanto/core/result/failure/datamodel"
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/fil-forge/go-ucanto/server/retrieval"
 	"github.com/fil-forge/go-ucanto/transport/headercar"
 	"github.com/fil-forge/go-ucanto/ucan"
@@ -27,21 +26,9 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
-
-type blobRetrievalService struct {
-	id    principal.Signer
-	blobs blobstore.BlobGetter
-}
-
-func (brs *blobRetrievalService) ID() principal.Signer {
-	return brs.id
-}
-
-func (brs *blobRetrievalService) Blobs() blobstore.BlobGetter {
-	return brs.blobs
-}
 
 func TestBlobRetrieve(t *testing.T) {
 	logging.SetLogLevel("retrieval/ucan", "DEBUG")
@@ -164,8 +151,13 @@ func TestBlobRetrieve(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			service := blobRetrievalService{testutil.Service, blobs}
-			server, err := retrieval.NewServer(testutil.Service, WithBlobRetrieveMethod(&service))
+			pieces, err := piece.NewStoreReader(blobs)
+			require.NoError(t, err)
+
+			server, err := retrieval.NewServer(testutil.Service, WithBlobRetrieveMethod(BlobRetrieveDeps{
+				ID:     testutil.Service,
+				Pieces: pieces,
+			}))
 			require.NoError(t, err)
 
 			inv, err := invocation.Invoke(

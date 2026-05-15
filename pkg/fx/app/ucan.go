@@ -8,7 +8,6 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/principalresolver"
 	"github.com/fil-forge/piri/pkg/fx/publisher"
 	"github.com/fil-forge/piri/pkg/fx/replicator"
-	"github.com/fil-forge/piri/pkg/fx/retrieval"
 	retrievalucan "github.com/fil-forge/piri/pkg/fx/retrieval/ucan"
 	"github.com/fil-forge/piri/pkg/fx/root"
 	"github.com/fil-forge/piri/pkg/fx/storage"
@@ -24,7 +23,6 @@ var UCANModule = fx.Module("ucan",
 	egresstracker.Module,     // Provides egress tracker service
 	replicator.Module,        // Provides replicator service
 	storage.Module,           // Wires upload connection + consumer-side interface bindings
-	retrieval.Module,         // Provides retrieval service wrapper
 	principalresolver.Module, // Provides principal resolver for UCAN
 	storageucan.Module,       // Provides storage UCAN handler
 	retrievalucan.Module,     // Provides retrieval UCAN handler

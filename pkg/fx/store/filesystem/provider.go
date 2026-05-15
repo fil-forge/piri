@@ -50,11 +50,7 @@ var Module = fx.Module("filesystem-store",
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 	),
 )
 

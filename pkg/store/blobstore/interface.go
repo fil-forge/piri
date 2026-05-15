@@ -77,16 +77,12 @@ type Object interface {
 	Body() io.ReadCloser
 }
 
-type BlobGetter interface {
+type Blobstore interface {
 	// Get retrieves the object identified by the passed digest. Returns nil and
 	// [ErrNotFound] if the object does not exist.
 	//
 	// Note: data is not hashed on read.
 	Get(ctx context.Context, digest multihash.Multihash, opts ...GetOption) (Object, error)
-}
-
-type Blobstore interface {
-	BlobGetter
 	// Put stores the bytes to the store and ensures it hashes to the passed
 	// digest.
 	Put(ctx context.Context, digest multihash.Multihash, size uint64, body io.Reader) error
