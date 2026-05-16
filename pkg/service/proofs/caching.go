@@ -1,6 +1,7 @@
 package proofs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,114 +10,103 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
-	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ucan"
 )
 
 // defaultMinTTL is the minimum time a cached delegation should still be valid
 // for before it expires. If the TTL is less than this then consider it expired.
 var defaultMinTTL = time.Second * 5
 
+// cacheKey is (issuer DID, audience DID, command string).
+type cacheKey struct {
+	issuer   did.DID
+	audience did.DID
+	command  ucan.Command
+}
+
 type CachingProofService struct {
-	cache      map[did.DID]map[did.DID]map[ucan.Ability]delegation.Delegation
+	cache      map[cacheKey]ucan.Delegation
 	cacheMutex sync.RWMutex
 }
 
 func NewCachingProofService() *CachingProofService {
-	service := CachingProofService{
-		cache: map[did.DID]map[did.DID]map[ucan.Ability]delegation.Delegation{},
+	return &CachingProofService{
+		cache: map[cacheKey]ucan.Delegation{},
 	}
-	return &service
 }
 
-// Request access to be granted from the service for the passed ability.
-// A cached delegation may be returned if not expired.
+// RequestAccess requests a delegation from the named service for the given
+// command. A cached delegation may be returned if it's still valid.
 func (ps *CachingProofService) RequestAccess(
 	ctx context.Context,
 	issuer ucan.Signer,
-	audience ucan.Principal,
-	ability ucan.Ability,
-	cause invocation.Invocation,
+	audience did.DID,
+	command ucan.Command,
+	cause ucan.Invocation,
 	options ...Option,
-) (delegation.Delegation, error) {
+) (ucan.Delegation, error) {
 	cfg := requestConfig{}
 	for _, opt := range options {
 		opt(&cfg)
 	}
 
-	conn := cfg.conn
-	if conn == nil {
+	httpClient := cfg.client
+	if httpClient == nil {
 		serviceURL := cfg.url
 		if serviceURL == nil {
-			if strings.HasPrefix(audience.DID().String(), "did:web:") {
-				u, err := url.Parse("https://" + strings.TrimPrefix(audience.DID().String(), "did:web:"))
-				if err != nil {
-					return nil, err
-				}
-				serviceURL = u
-			} else {
-				return nil, errors.New("non-did web audience and no service URL provided")
+			s := audience.String()
+			if !strings.HasPrefix(s, "did:web:") {
+				return nil, errors.New("non-did:web audience and no service URL provided")
 			}
+			u, err := url.Parse("https://" + strings.TrimPrefix(s, "did:web:"))
+			if err != nil {
+				return nil, err
+			}
+			serviceURL = u
 		}
-		ch := ucan_http.NewChannel(serviceURL, ucan_http.WithClient(cfg.httpClient))
-		c, err := client.NewConnection(audience, ch)
+		var opts []client.HTTPOption
+		if cfg.httpClient != nil {
+			opts = append(opts, client.WithHTTPClient(cfg.httpClient))
+		}
+		c, err := client.NewHTTP(serviceURL, opts...)
 		if err != nil {
-			return nil, fmt.Errorf("creating connection to %s: %w", audience.DID(), err)
+			return nil, fmt.Errorf("creating ucantone HTTP client for %s: %w", audience, err)
 		}
-		conn = c
+		httpClient = c
 	}
 
+	key := cacheKey{issuer: issuer.DID(), audience: audience, command: command}
+
 	ps.cacheMutex.RLock()
-	issuerProofs, ok := ps.cache[issuer.DID()]
-	if ok {
-		serviceProofs, ok := issuerProofs[audience.DID()]
-		if ok {
-			d, ok := serviceProofs[ability]
-			if ok {
-				exp := d.Expiration()
-				// if no expiration we can reuse
-				if exp == nil {
-					ps.cacheMutex.RUnlock()
-					return d, nil
-				}
-				minTTL := defaultMinTTL
-				if cfg.minTTL != nil {
-					minTTL = *cfg.minTTL
-				}
-				// if not expired, we can reuse
-				if ucan.Now()+ucan.UTCUnixTimestamp(minTTL.Seconds()) < *exp {
-					ps.cacheMutex.RUnlock()
-					return d, nil
-				}
-			}
+	if d, ok := ps.cache[key]; ok {
+		exp := d.Expiration()
+		if exp == nil {
+			ps.cacheMutex.RUnlock()
+			return d, nil
+		}
+		minTTL := defaultMinTTL
+		if cfg.minTTL != nil {
+			minTTL = *cfg.minTTL
+		}
+		if ucan.Now()+ucan.UnixTimestamp(int64(minTTL.Seconds())) < *exp {
+			ps.cacheMutex.RUnlock()
+			return d, nil
 		}
 	}
 	ps.cacheMutex.RUnlock()
 
-	// if not in cache we need to fetch
-	d, err := requestDelegation(ctx, conn, issuer, audience, ability, cause)
+	// Cache miss or stale — fetch a fresh delegation.
+	d, err := requestDelegation(ctx, httpClient, issuer, audience, command, cause)
 	if err != nil {
-		return nil, fmt.Errorf("requesting %s access from %s", ability, audience)
+		return nil, fmt.Errorf("requesting %s access from %s: %w", command, audience, err)
 	}
 
 	ps.cacheMutex.Lock()
-	issuerProofs, ok = ps.cache[issuer.DID()]
-	if !ok {
-		issuerProofs = map[did.DID]map[ucan.Ability]delegation.Delegation{}
-		ps.cache[issuer.DID()] = issuerProofs
-	}
-	serviceProofs, ok := issuerProofs[audience.DID()]
-	if !ok {
-		serviceProofs = map[ucan.Ability]delegation.Delegation{}
-		issuerProofs[audience.DID()] = serviceProofs
-	}
-	serviceProofs[ability] = d
+	ps.cache[key] = d
 	ps.cacheMutex.Unlock()
 
 	return d, nil
@@ -124,59 +114,54 @@ func (ps *CachingProofService) RequestAccess(
 
 func requestDelegation(
 	ctx context.Context,
-	conn client.Connection,
+	httpClient *client.HTTPClient,
 	issuer ucan.Signer,
-	audience ucan.Principal,
-	ability ucan.Ability,
-	cause invocation.Invocation,
-) (delegation.Delegation, error) {
-	nb := access.GrantCaveats{Att: []access.CapabilityRequest{{Can: ability}}}
-	if cause != nil {
-		nb.Cause = cause.Link()
+	audience did.DID,
+	command ucan.Command,
+	cause ucan.Invocation,
+) (ucan.Delegation, error) {
+	args := &access.GrantArguments{
+		Attenuations: []access.CapabilityRequest{{Command: command}},
 	}
-	inv, err := access.Grant.Invoke(issuer, audience, issuer.DID().String(), nb)
+	if cause != nil {
+		c := cause.Link()
+		args.Cause = &c
+	}
+	inv, err := access.Grant.Invoke(issuer, audience, args)
 	if err != nil {
-		return nil, fmt.Errorf("creating %s (%s) invocation: %w", access.GrantAbility, ability, err)
+		return nil, fmt.Errorf("building %s invocation: %w", access.GrantCommand, err)
 	}
+
+	var reqOpts []execution.RequestOption
 	if cause != nil {
-		for b, err := range cause.Export() {
-			if err != nil {
-				return nil, fmt.Errorf("exporting cause blocks for %s (%s) invocation: %w", access.GrantAbility, ability, err)
-			}
-			if err = inv.Attach(b); err != nil {
-				return nil, fmt.Errorf("attaching cause blocks for %s (%s): %w", access.GrantAbility, ability, err)
-			}
+		reqOpts = append(reqOpts, execution.WithInvocations(cause))
+	}
+	resp, err := httpClient.Execute(execution.NewRequest(ctx, inv, reqOpts...))
+	if err != nil {
+		return nil, fmt.Errorf("executing %s: %w", access.GrantCommand, err)
+	}
+
+	out := resp.Receipt().Out()
+	okBytes, _ := out.Unpack()
+	if !out.IsOK() {
+		return nil, fmt.Errorf("%s receipt is a failure", access.GrantCommand)
+	}
+
+	var ok access.GrantOK
+	if err := ok.UnmarshalCBOR(bytes.NewReader(okBytes)); err != nil {
+		return nil, fmt.Errorf("decoding %s receipt: %w", access.GrantCommand, err)
+	}
+	if len(ok.Delegations) == 0 {
+		return nil, fmt.Errorf("%s receipt contains no delegations", access.GrantCommand)
+	}
+
+	// The signed delegation envelopes ride in the response container metadata
+	// (set by the server via res.SetMetadata(container.New(WithDelegations...))).
+	meta := resp.Metadata()
+	for _, d := range meta.Delegations() {
+		if d.Link() == ok.Delegations[0] {
+			return d, nil
 		}
 	}
-
-	resp, err := client.Execute(ctx, []invocation.Invocation{inv}, conn)
-	if err != nil {
-		return nil, fmt.Errorf("executing %s (%s) invocation: %w", access.GrantAbility, ability, err)
-	}
-
-	rcptLink, ok := resp.Get(inv.Link())
-	if !ok {
-		return nil, fmt.Errorf("missing %s receipt: %s", access.GrantAbility, inv.Link())
-	}
-
-	rcptReader, err := access.NewGrantReceiptReader()
-	if err != nil {
-		return nil, err
-	}
-
-	rcpt, err := rcptReader.Read(rcptLink, resp.Blocks())
-	if err != nil {
-		return nil, fmt.Errorf("reading %s receipt: %w", access.GrantAbility, err)
-	}
-
-	return result.MatchResultR2(
-		rcpt.Out(),
-		func(o access.GrantOk) (delegation.Delegation, error) {
-			dlgBytes := o.Delegations.Values[o.Delegations.Keys[0]]
-			return delegation.Extract(dlgBytes)
-		},
-		func(x access.GrantError) (delegation.Delegation, error) {
-			return nil, x
-		},
-	)
+	return nil, fmt.Errorf("%s response container did not include delegation %s", access.GrantCommand, ok.Delegations[0])
 }

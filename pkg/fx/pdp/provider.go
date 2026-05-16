@@ -101,8 +101,9 @@ func ProvideProofSetIDProvider(cfg app.UCANServiceConfig) (types.ProofSetIDProvi
 }
 
 func ProvideSigningService(cfg app.PDPServiceConfig, proofService proofs.ProofService) (signertypes.SigningService, error) {
-	if cfg.SigningService.Connection != nil {
-		return signer.NewProofServiceSigner(cfg.SigningService.Connection, proofService), nil
+	if cfg.SigningService.Client != nil {
+		sc := cfg.SigningService.Client
+		return signer.NewProofServiceSigner(sc, sc.ServiceDID, sc.HTTP, proofService), nil
 	} else if cfg.SigningService.PrivateKey != nil {
 		s := signingservice.NewSigner(
 			cfg.SigningService.PrivateKey,

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/client"
+	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
 )
 
 type ContractAddresses struct {
@@ -64,10 +64,11 @@ func DefaultGasConfig() GasConfig {
 
 // SigningServiceConfig configures the signing service for PDP operations
 type SigningServiceConfig struct {
-	// Connection to the signing service backend.
-	Connection client.Connection
-	// Private key for in-process signing (if using local signer)
-	// NB: this should only be used for development purposes
+	// Client is the ucantone-backed signing-service client. Exactly one of
+	// Client and PrivateKey must be set.
+	Client *signerclient.Client
+	// PrivateKey for in-process signing (if using local signer).
+	// NB: this should only be used for development purposes.
 	PrivateKey *ecdsa.PrivateKey
 }
 
