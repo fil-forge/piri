@@ -31,11 +31,11 @@ import (
 // fetched by test HTTP servers, so they need to be real HTTP URLs when the
 // test does live transfers (e.g. the replicator).
 type Pieces struct {
-	mu        sync.Mutex
-	data      map[string][]byte
-	uploads   map[uuid.UUID]multihash.Multihash
-	writeURL  url.URL
-	readURL   url.URL
+	mu       sync.Mutex
+	data     map[string][]byte
+	uploads  map[uuid.UUID]multihash.Multihash
+	writeURL url.URL
+	readURL  url.URL
 }
 
 // NewPieces returns an empty in-memory Pieces fake. Default URLs use the

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	ucancap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
 	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
+	ucancap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
 	"github.com/fil-forge/go-libstoracha/failure"
 	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/fil-forge/go-ucanto/core/invocation"
