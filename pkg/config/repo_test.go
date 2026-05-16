@@ -121,7 +121,7 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 func TestObjectStoreConfig_ToAppConfig(t *testing.T) {
 	t.Run("memory type with empty data_dir", func(t *testing.T) {
 		r := RepoConfig{
-			DataDir: "",
+			DataDir:     "",
 			ObjectStore: ObjectStoreConfig{Type: "memory"},
 		}
 		result, err := r.ToAppConfig()
