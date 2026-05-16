@@ -323,3 +323,12 @@ require (
 )
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240617180043-68d350f18fd4
+
+// Local replace directives for the UCAN 1.0 migration. Develop libforge,
+// ucantone, and piri-signing-service in-tree; pin to released versions before
+// the migration PR lands.
+replace (
+	github.com/fil-forge/libforge => ../libforge
+	github.com/fil-forge/piri-signing-service => ../piri-signing-service
+	github.com/fil-forge/ucantone => ../ucantone
+)

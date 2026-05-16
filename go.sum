@@ -547,8 +547,6 @@ github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773 h1:MUBpVn
 github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773/go.mod h1:zE7vPrAYZpoamvIFOtcZvfrWXRi6jyvS5O4o04+X1HE=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab h1:2J2cDThqTKP6/0k3SfdlSxfyPa3aLqjTYnmvbEcryfg=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab/go.mod h1:lZF3UXZ2hGLKYmXdquG50JqI9pRlUrV6lubGtgOYfwc=
-github.com/fil-forge/piri-signing-service v0.0.0-20260507185716-28d8ef3808fc h1:51uG2XbHOkT50rDg4dO3IUsJOMZRHerEP31SAidZLcE=
-github.com/fil-forge/piri-signing-service v0.0.0-20260507185716-28d8ef3808fc/go.mod h1:MAZ7trW9ChDGjYUEPo/uHdQj8rEs/Ft3GhGp04moCMA=
 github.com/filecoin-project/filecoin-ffi v1.34.0 h1:OvcsvsFUCwzLOGT949dsJEqSLyGx4d8TPPRrmrzlQbk=
 github.com/filecoin-project/filecoin-ffi v1.34.0/go.mod h1:AXLJk1PscWAwEa9CdqdiFwj1ttVJ+UIm8YQDPpTqBjg=
 github.com/filecoin-project/go-address v0.0.3/go.mod h1:jr8JxKsYx+lQlQZmF5i2U0Z+cGQ59wMIps/8YW/lDj8=
