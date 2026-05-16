@@ -7,10 +7,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/fil-forge/go-ucanto/core/ipld/hash/sha256"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/ipfs/go-cid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/multiformats/go-multihash"
 	"github.com/spf13/cobra"
 
 	"github.com/fil-forge/piri/cmd/client"
@@ -90,11 +89,11 @@ func doUpload(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("reading blob file: %w", err)
 	}
-	digest, err := sha256.Hasher.Sum(blobData)
+	digest, err := multihash.Sum(blobData, multihash.SHA2_256, -1)
 	if err != nil {
 		return fmt.Errorf("calculating blob digest: %w", err)
 	}
-	address, err := c.BlobAllocate(cmd.Context(), spaceDID, digest.Bytes(), uint64(len(blobData)), cidlink.Link{Cid: cid.NewCidV1(cid.Raw, digest.Bytes())})
+	address, err := c.BlobAllocate(cmd.Context(), spaceDID, digest, uint64(len(blobData)), cid.NewCidV1(cid.Raw, digest))
 	if err != nil {
 		return fmt.Errorf("invocing blob allocation: %w", err)
 	}
@@ -105,7 +104,7 @@ func doUpload(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("uploading blob: %w", err)
 		}
-		req.Header = address.Headers
+		req.Header = http.Header(address.Headers)
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return fmt.Errorf("sending blob: %w", err)
@@ -118,7 +117,7 @@ func doUpload(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("unsuccessful put, status: %s, message: %s", res.Status, string(resData))
 		}
 	}
-	blobResult, err := c.BlobAccept(cmd.Context(), spaceDID, digest.Bytes(), uint64(len(blobData)), cidlink.Link{Cid: cid.NewCidV1(cid.Raw, digest.Bytes())})
+	blobResult, err := c.BlobAccept(cmd.Context(), spaceDID, digest, uint64(len(blobData)), cid.NewCidV1(cid.Raw, digest))
 	if err != nil {
 		return fmt.Errorf("accepting blob: %w", err)
 	}

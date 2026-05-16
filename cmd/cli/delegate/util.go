@@ -4,64 +4,61 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multibase"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 )
 
-// these methods were ported from https://github.com/storacha/go-mkdelegation/blob/main/pkg/delegation/delegation.go
-
-func MakeDelegation(issuer ucan.Signer, audience ucan.Principal, capabilities []string, opts ...delegation.Option) (delegation.Delegation, error) {
-	uc := make([]ucan.Capability[ucan.NoCaveats], len(capabilities))
-	for i, capability := range capabilities {
-		uc[i] = ucan.NewCapability(
-			capability,
-			issuer.DID().String(),
-			ucan.NoCaveats{},
-		)
+// MakeDelegations issues one UCAN 1.0 delegation per command (UCAN 1.0
+// delegations are single-command) and returns them as a slice. Callers
+// typically bundle the result into a [container.Container].
+func MakeDelegations(issuer ucan.Signer, audience did.DID, commands []ucan.Command, opts ...delegation.Option) ([]ucan.Delegation, error) {
+	out := make([]ucan.Delegation, 0, len(commands))
+	for _, cmd := range commands {
+		dlg, err := delegation.Delegate(issuer, audience, issuer.DID(), cmd, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("delegating %s: %w", cmd, err)
+		}
+		out = append(out, dlg)
 	}
-
-	return delegation.Delegate(
-		issuer,
-		audience,
-		uc,
-		opts...,
-	)
+	return out, nil
 }
 
-// FormatDelegation takes a delegation archive from a read and returns a multibase-base64-encoded CIDv1 with
-// embedded CAR data.
+// EncodeDelegationsContainer encodes a set of delegations as a single
+// container envelope using the Raw (uncompressed CBOR) codec.
+func EncodeDelegationsContainer(dlgs []ucan.Delegation) ([]byte, error) {
+	ctr := container.New(container.WithDelegations(dlgs...))
+	return container.Encode(container.Raw, ctr)
+}
+
+// FormatDelegationBytes takes a delegation container envelope and returns a
+// multibase-base64-encoded CIDv1 carrying the envelope as identity-hashed
+// content (the same shape consumed by piri's existing delegation readers,
+// just with a DagCBOR codec instead of CAR).
+func FormatDelegationBytes(envelope []byte) (string, error) {
+	mh, err := multihash.Sum(envelope, multihash.IDENTITY, -1)
+	if err != nil {
+		return "", fmt.Errorf("failed to create identity hash: %w", err)
+	}
+	link := cid.NewCidV1(uint64(multicodec.DagCbor), mh)
+	str, err := link.StringOfBase(multibase.Base64)
+	if err != nil {
+		return "", fmt.Errorf("failed to encode CID to base64: %w", err)
+	}
+	return str, nil
+}
+
+// FormatDelegation reads a delegation container envelope from r and returns
+// the multibase-base64 CIDv1 form produced by FormatDelegationBytes.
 func FormatDelegation(d io.Reader) (string, error) {
 	db, err := io.ReadAll(d)
 	if err != nil {
 		return "", fmt.Errorf("failed to read delegation: %w", err)
 	}
-
 	return FormatDelegationBytes(db)
-}
-
-// FormatDelegationBytes takes a delegation archive in byte form and returns a multibase-base64-encoded CIDv1 with
-// embedded CAR data.
-func FormatDelegationBytes(archive []byte) (string, error) {
-	// Create identity digest of the archive
-	// The identity hash function (0x00) simply returns the input data as the hash
-	mh, err := multihash.Sum(archive, multihash.IDENTITY, -1)
-	if err != nil {
-		return "", fmt.Errorf("failed to create identity hash: %w", err)
-	}
-
-	// Create a CID (Content IDentifier) with codec 0x0202 (CAR format)
-	// The 0x0202 codec is defined in the multicodec table for Content Addressable aRchives (CAR)
-	link := cid.NewCidV1(uint64(multicodec.Car), mh)
-
-	// Convert the CID to base64 encoding
-	str, err := link.StringOfBase(multibase.Base64)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode CID to base64: %w", err)
-	}
-
-	return str, nil
 }

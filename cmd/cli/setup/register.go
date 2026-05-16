@@ -14,12 +14,13 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob/replica"
+	"github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -782,23 +783,28 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		return "", "", fmt.Errorf("creating delegator client: %w", err)
 	}
 
-	// Generate delegation proof for upload service
-	d, err := delegate.MakeDelegation(
+	// Generate delegation proof for upload service. UCAN 1.0 delegations
+	// are single-command, so we issue one per ability and bundle them in
+	// a container.
+	dlgs, err := delegate.MakeDelegations(
 		cfg.Identity.Signer,
 		flags.baseConfig.uploadServiceDID,
-		[]string{
-			blob.AllocateAbility,
-			blob.AcceptAbility,
-			pdp.InfoAbility,
-			replica.AllocateAbility,
+		[]ucan.Command{
+			blob.AllocateCommand,
+			blob.AcceptCommand,
+			pdp.InfoCommand,
+			replica.AllocateCommand,
 		},
 		delegation.WithNoExpiration(),
 	)
 	if err != nil {
 		return "", "", fmt.Errorf("creating delegation: %w", err)
 	}
-
-	nodeProof, err := delegate.FormatDelegation(d.Archive())
+	envelope, err := delegate.EncodeDelegationsContainer(dlgs)
+	if err != nil {
+		return "", "", fmt.Errorf("encoding delegation container: %w", err)
+	}
+	nodeProof, err := delegate.FormatDelegationBytes(envelope)
 	if err != nil {
 		return "", "", fmt.Errorf("formatting delegation: %w", err)
 	}
@@ -845,7 +851,7 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {
 	// create a signature by signing our own did with the private key of our did
-	signature := id.Sign(id.DID().Bytes()).Raw()
+	signature := id.Sign([]byte(id.DID().String()))
 
 	c, err := delgclient.New(flags.delegatorURL)
 	if err != nil {

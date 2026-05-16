@@ -8,8 +8,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/fil-forge/go-ucanto/principal"
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/principal/ed25519"
 )
 
 func SignerFromEd25519PEMFile(path string) (principal.Signer, error) {
@@ -55,5 +55,7 @@ func SignerFromEd25519PEMFile(path string) (principal.Signer, error) {
 	if privateKey == nil {
 		return nil, fmt.Errorf("could not find a PRIVATE KEY block in the PEM file")
 	}
-	return ed25519.FromRaw(*privateKey)
+	// ucantone's ed25519.FromRaw takes a 32-byte seed; a Go ed25519
+	// PrivateKey is 64 bytes (seed + derived public key).
+	return ed25519.FromRaw(privateKey.Seed())
 }

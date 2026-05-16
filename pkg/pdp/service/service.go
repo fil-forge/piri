@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan"
 	signer "github.com/fil-forge/piri-signing-service/pkg/types"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"

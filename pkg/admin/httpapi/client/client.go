@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/golang-jwt/jwt/v4"
 
 	"github.com/fil-forge/piri/lib"
@@ -328,7 +328,9 @@ func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 
-	tokenString, err := token.SignedString(ed25519.PrivateKey(id.Raw()))
+	// ucantone signers expose Raw() as the 32-byte ed25519 seed; JWT
+	// EdDSA needs the full 64-byte key derived from the seed.
+	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(id.Raw()))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}

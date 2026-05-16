@@ -6,8 +6,7 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/client"
@@ -27,15 +26,11 @@ func New(cfg Config) (*client.Client, error) {
 	}
 	proofFile, err := os.Open(cfg.Proof)
 	if err != nil {
-		return nil, fmt.Errorf("opening delegation car file: %w", err)
+		return nil, fmt.Errorf("opening delegation file: %w", err)
 	}
 	proofData, err := io.ReadAll(proofFile)
 	if err != nil {
-		return nil, fmt.Errorf("reading delegation car file: %w", err)
-	}
-	proof, err := delegation.Extract(proofData)
-	if err != nil {
-		return nil, fmt.Errorf("extracting storage proof: %w", err)
+		return nil, fmt.Errorf("reading delegation file: %w", err)
 	}
 	nodeDID, err := did.Parse(cfg.NodeDID)
 	if err != nil {
@@ -49,7 +44,7 @@ func New(cfg Config) (*client.Client, error) {
 		ID:             id,
 		StorageNodeID:  nodeDID,
 		StorageNodeURL: *nodeURL,
-		StorageProof:   delegation.FromDelegation(proof),
+		StorageProof:   proofData,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("setting up client: %w", err)
