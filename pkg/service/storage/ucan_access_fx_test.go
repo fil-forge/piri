@@ -1,3 +1,5 @@
+//go:build legacy_ucan
+
 package storage_test
 
 import (

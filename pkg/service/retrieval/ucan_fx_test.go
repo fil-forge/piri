@@ -1,3 +1,5 @@
+//go:build legacy_ucan
+
 package retrieval_test
 
 import (
