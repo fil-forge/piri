@@ -40,14 +40,13 @@ var Module = fx.Module("egresstracker",
 type QueueParams struct {
 	fx.In
 
-	DB            *sql.DB `name:"egress_tracker_db"`
-	StorageConfig app.StorageConfig
+	DB       *sql.DB `name:"egress_tracker_db"`
+	Database app.DatabaseConfig
 }
 
 func ProvideEgressTrackerQueue(lc fx.Lifecycle, params QueueParams) (EgressTrackerQueue, error) {
-	// Determine dialect from storage config
 	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
+	if params.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 	// non-configurable defaults

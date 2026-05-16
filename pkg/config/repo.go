@@ -157,20 +157,20 @@ func (r RepoConfig) Validate() error {
 	return validateConfig(r)
 }
 
-func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
+func (r RepoConfig) ToAppConfig() (app.PersistenceConfig, error) {
 	dbCfg, err := r.Database.ToAppConfig()
 	if err != nil {
-		return app.StorageConfig{}, fmt.Errorf("database config: %w", err)
+		return app.PersistenceConfig{}, fmt.Errorf("database config: %w", err)
 	}
 
 	objCfg, err := r.toObjectStoreAppConfig()
 	if err != nil {
-		return app.StorageConfig{}, fmt.Errorf("object_store config: %w", err)
+		return app.PersistenceConfig{}, fmt.Errorf("object_store config: %w", err)
 	}
 
 	if r.DataDir == "" {
 		// Return empty config for memory stores
-		return app.StorageConfig{
+		return app.PersistenceConfig{
 			Database:    dbCfg,
 			ObjectStore: objCfg,
 		}, nil
@@ -178,10 +178,10 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 
 	// Ensure directories exist
 	if err := os.MkdirAll(r.DataDir, 0755); err != nil {
-		return app.StorageConfig{}, err
+		return app.PersistenceConfig{}, err
 	}
 	if err := os.MkdirAll(r.TempDir, 0755); err != nil {
-		return app.StorageConfig{}, err
+		return app.PersistenceConfig{}, err
 	}
 
 	// SQLite databases each live in their own file under the data dir. Paths
@@ -222,7 +222,7 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		}
 	}
 
-	return app.StorageConfig{
+	return app.PersistenceConfig{
 		DataDir:     r.DataDir,
 		TempDir:     r.TempDir,
 		Database:    dbCfg,

@@ -8,8 +8,19 @@ type AppConfig struct {
 	// Server configuration
 	Server ServerConfig
 
-	// Storage paths and directories
-	Storage StorageConfig
+	// DataDir is the root data directory for on-disk state.
+	DataDir string
+
+	// TempDir is the root temporary directory for ephemeral state.
+	TempDir string
+
+	// Database configures the database backend (sqlite or postgres) used by
+	// every logical database in the deployment.
+	Database DatabaseConfig
+
+	// ObjectStore configures the object-store backend (memory, filesystem, or s3)
+	// used by the bulk stores.
+	ObjectStore ObjectStoreConfig
 
 	// Configuration specific for UCAN operations
 	UCANService UCANServiceConfig

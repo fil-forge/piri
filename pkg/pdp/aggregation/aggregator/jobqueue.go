@@ -76,14 +76,13 @@ const (
 
 type QueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"aggregator_db"`
-	StorageConfig app.StorageConfig
+	DB       *sql.DB `name:"aggregator_db"`
+	Database app.DatabaseConfig
 }
 
 func NewQueue(params QueueParams) (jobqueue.Service[piece.PieceLink], error) {
-	// Determine dialect from storage config
 	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
+	if params.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 

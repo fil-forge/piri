@@ -39,12 +39,10 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 			Port:      uint(port),
 			PublicURL: *publicURL,
 		},
-		Storage: app.StorageConfig{
-			DataDir: "", // Empty = memory stores
-			TempDir: "",
-			ObjectStore: app.ObjectStoreConfig{
-				Type: app.ObjectStoreTypeMemory,
-			},
+		DataDir: "", // Empty = memory stores
+		TempDir: "",
+		ObjectStore: app.ObjectStoreConfig{
+			Type: app.ObjectStoreTypeMemory,
 		},
 		UCANService: app.UCANServiceConfig{
 			Services: app.ExternalServicesConfig{

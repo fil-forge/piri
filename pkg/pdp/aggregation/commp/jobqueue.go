@@ -27,8 +27,8 @@ import (
 
 type CommpQueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"aggregator_db"`
-	StorageConfig app.StorageConfig
+	DB       *sql.DB `name:"aggregator_db"`
+	Database app.DatabaseConfig
 }
 
 const (
@@ -37,9 +37,8 @@ const (
 )
 
 func NewQueue(params CommpQueueParams) (jobqueue.Service[multihash.Multihash], error) {
-	// Determine dialect from storage config
 	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
+	if params.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 

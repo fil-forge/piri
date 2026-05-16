@@ -335,7 +335,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 		cmd.Context(),
 		appCfg.Identity.Signer.DID().String(),
 		userCfg.Network,
-		appCfg.Storage.DataDir,
+		appCfg.DataDir,
 		appCfg.Telemetry,
 	); err != nil {
 		return fmt.Errorf("initializing telemetry: %w", err)

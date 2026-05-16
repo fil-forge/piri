@@ -603,6 +603,7 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 		repoConfig.ObjectStore = flags.storage.objectStore
 	}
 
+	persist := lo.Must(repoConfig.ToAppConfig())
 	cfg := appcfg.AppConfig{
 		Identity: lo.Must(config.IdentityConfig{KeyFile: flags.keyFile}.ToAppConfig()),
 		Server: appcfg.ServerConfig{
@@ -610,7 +611,10 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 			Port:      flags.port,
 			PublicURL: *flags.publicURL,
 		},
-		Storage: lo.Must(repoConfig.ToAppConfig()),
+		DataDir:     persist.DataDir,
+		TempDir:     persist.TempDir,
+		Database:    persist.Database,
+		ObjectStore: persist.ObjectStore,
 		PDPService: lo.Must(config.PDPServiceConfig{
 			OwnerAddress:  walletKey.Address.String(),
 			LotusEndpoint: flags.lotusEndpoint,
@@ -892,8 +896,8 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 
 	// Build repo config with storage backend settings
 	repoConfig := config.RepoConfig{
-		DataDir: cfg.Storage.DataDir,
-		TempDir: cfg.Storage.TempDir,
+		DataDir: cfg.DataDir,
+		TempDir: cfg.TempDir,
 	}
 	if flags.storage != nil {
 		repoConfig.Database = flags.storage.database

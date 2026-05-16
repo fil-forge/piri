@@ -44,10 +44,14 @@ func (f FullServerConfig) ToAppConfig() (app.AppConfig, error) {
 		return app.AppConfig{}, fmt.Errorf("converting server config to app config: %s", err)
 	}
 
-	out.Storage, err = f.Repo.ToAppConfig()
+	persist, err := f.Repo.ToAppConfig()
 	if err != nil {
 		return app.AppConfig{}, fmt.Errorf("converting repo to app config: %s", err)
 	}
+	out.DataDir = persist.DataDir
+	out.TempDir = persist.TempDir
+	out.Database = persist.Database
+	out.ObjectStore = persist.ObjectStore
 
 	out.UCANService, err = f.UCANService.ToAppConfig(out.Server.PublicURL)
 	if err != nil {

@@ -38,14 +38,14 @@ var Module = fx.Module("replicator",
 
 type QueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"replicator_db"`
-	Config        app.ReplicatorConfig
-	StorageConfig app.StorageConfig
+	DB       *sql.DB `name:"replicator_db"`
+	Config   app.ReplicatorConfig
+	Database app.DatabaseConfig
 }
 
 func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.JobQueue[*replicahandler.TransferRequest], error) {
 	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
+	if params.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 

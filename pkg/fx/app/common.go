@@ -17,14 +17,13 @@ import (
 func CommonModules(cfg app.AppConfig) fx.Option {
 	var modules = []fx.Option{
 		// Supply top level config, and it's sub-configs
-		// this allows dependencies to be taken on, for example, app.ServerConfig or app.StorageConfig
+		// this allows dependencies to be taken on, for example, app.ServerConfig or app.DatabaseConfig
 		// instead of needing to depend on the top level app.AppConfig
 		fx.Supply(cfg),
 		fx.Supply(cfg.Identity),
 		fx.Supply(cfg.Server),
-		fx.Supply(cfg.Storage),
-		fx.Supply(cfg.Storage.Database),
-		fx.Supply(cfg.Storage.ObjectStore),
+		fx.Supply(cfg.Database),
+		fx.Supply(cfg.ObjectStore),
 		fx.Supply(cfg.UCANService),
 		fx.Supply(cfg.UCANService.Services),
 		fx.Supply(cfg.UCANService.Services.Upload),
@@ -47,8 +46,8 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		health.Module, // Provides health check endpoints.
 
 		// StorageModule selects the object-store backend based on
-		// cfg.Storage.ObjectStore.Type (memory | filesystem | s3).
-		store.StorageModule(cfg.Storage.ObjectStore),
+		// cfg.ObjectStore.Type (memory | filesystem | s3).
+		store.StorageModule(cfg.ObjectStore),
 	}
 
 	return fx.Module("common", modules...)

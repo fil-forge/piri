@@ -154,8 +154,11 @@ type FilesystemBulkPaths struct {
 	Consolidation ConsolidationStorageConfig
 }
 
-// StorageConfig contains all storage paths and directories
-type StorageConfig struct {
+// PersistenceConfig is the loader-output bundle holding the persistence-related
+// fields populated from a RepoConfig. It exists only as the typed result of
+// RepoConfig.ToAppConfig — callers copy its fields onto AppConfig, which holds
+// these as top-level peers. It is not itself a section of AppConfig.
+type PersistenceConfig struct {
 	// Root directories
 	DataDir string
 	TempDir string

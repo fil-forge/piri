@@ -82,10 +82,8 @@ func TestGenerateConfig(t *testing.T) {
 
 	baseCfg := func() *appcfg.AppConfig {
 		return &appcfg.AppConfig{
-			Storage: appcfg.StorageConfig{
-				DataDir: "/data",
-				TempDir: "/tmp",
-			},
+			DataDir: "/data",
+			TempDir: "/tmp",
 			Server: appcfg.ServerConfig{
 				Host: "localhost",
 				Port: 3000,
@@ -238,7 +236,7 @@ func TestGenerateConfig(t *testing.T) {
 		// Verify key file is set
 		require.Equal(t, "/path/to/key.pem", result.Identity.KeyFile)
 
-		// Verify data directories from AppConfig.Storage
+		// Verify data directories from AppConfig
 		require.Equal(t, "/data", result.Repo.DataDir)
 		require.Equal(t, "/tmp", result.Repo.TempDir)
 
