@@ -6,27 +6,26 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
+	"github.com/fil-forge/go-libstoracha/capabilities/types"
+	"github.com/fil-forge/go-ucanto/core/result/failure"
+	"github.com/fil-forge/go-ucanto/core/result/ok"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/claim"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/ucan"
+
+	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/libforge/testutil"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/claim"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-libstoracha/metadata"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/service/publisher/advertisement"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -42,7 +41,7 @@ func TestPublisherService(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 
-		svc, err := New(testutil.Alice, publisherStore, addr, WithLogLevel("info"))
+		svc, err := New(testutil.Alice, publisherStore, addr)
 		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
@@ -52,8 +51,8 @@ func TestPublisherService(t *testing.T) {
 		claim, err := assert.Location.Delegate(
 			testutil.Alice,
 			space,
-			testutil.Alice.DID().String(),
-			assert.LocationCaveats{
+			testutil.Alice.DID(),
+			&assert.LocationArguments{
 				Space:    space,
 				Content:  types.FromHash(shard),
 				Location: []url.URL{*location},
@@ -102,7 +101,7 @@ func TestPublisherService(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 
-		svc, err := New(testutil.Alice, publisherStore, addr, WithLogLevel("info"))
+		svc, err := New(testutil.Alice, publisherStore, addr)
 		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
@@ -112,8 +111,8 @@ func TestPublisherService(t *testing.T) {
 		claim, err := assert.Location.Delegate(
 			testutil.Alice,
 			space,
-			testutil.Alice.DID().String(),
-			assert.LocationCaveats{
+			testutil.Alice.DID(),
+			&assert.LocationArguments{
 				Space:    space,
 				Content:  types.FromHash(shard),
 				Location: []url.URL{*location},

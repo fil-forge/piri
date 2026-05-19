@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/raulk/clock"
 	"go.uber.org/fx"
 
@@ -30,8 +30,8 @@ const (
 type Manager struct {
 	// input parameters
 	buffer      BufferStore
-	taskHandler jobqueue.TaskHandler[[]datamodel.Link]
-	queue       jobqueue.Service[[]datamodel.Link]
+	taskHandler jobqueue.TaskHandler[[]cid.Cid]
+	queue       jobqueue.Service[[]cid.Cid]
 
 	// configuration provider (abstracts static vs dynamic config)
 	configProvider ConfigProvider
@@ -56,8 +56,8 @@ type Manager struct {
 type ManagerParams struct {
 	fx.In
 
-	Queue          jobqueue.Service[[]datamodel.Link]
-	TaskHandler    jobqueue.TaskHandler[[]datamodel.Link]
+	Queue          jobqueue.Service[[]cid.Cid]
+	TaskHandler    jobqueue.TaskHandler[[]cid.Cid]
 	Buffer         BufferStore
 	ConfigProvider ConfigProvider
 	Options        []ManagerOption `group:"manager_options"`
@@ -136,7 +136,7 @@ func (m *Manager) getMaxBatchSize() int {
 }
 
 // Submit adds aggregates to the buffer for submission
-func (m *Manager) Submit(ctx context.Context, aggregateLinks ...datamodel.Link) error {
+func (m *Manager) Submit(ctx context.Context, aggregateLinks ...cid.Cid) error {
 	if !m.running.Load() {
 		return fmt.Errorf("manager is stopped")
 	}

@@ -10,9 +10,10 @@ import (
 	"github.com/fil-forge/go-libstoracha/piece/digest"
 	"github.com/fil-forge/go-libstoracha/piece/piece"
 	"github.com/fil-forge/go-libstoracha/piece/size"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
+	"github.com/fil-forge/libforge/merkletree"
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
-	"github.com/filecoin-project/go-data-segment/merkletree"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
 
 // This code is adapted from

@@ -1,5 +1,8 @@
 package egresstracker
 
+// TODO(forrest)[ucan1]: do this later
+/*
+
 import (
 	"context"
 	"database/sql"
@@ -7,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
@@ -138,3 +141,5 @@ func NewEgressTrackerService(
 
 	return svc, nil
 }
+
+*/

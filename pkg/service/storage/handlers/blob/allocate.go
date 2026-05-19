@@ -5,21 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/fx"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/ucantone/did"
 
+	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
@@ -49,6 +50,7 @@ type PieceAllocator interface {
 // handler.
 type AllocateDeps struct {
 	fx.In
+	ID          app.IdentityConfig
 	Allocations AllocationStore
 	Pieces      PieceAllocator
 }
@@ -62,13 +64,13 @@ var (
 
 type AllocateRequest struct {
 	Space did.DID
-	Blob  captypes.Blob
-	Cause ucan.Link
+	Blob  blob.Blob
+	Cause cid.Cid
 }
 
 type AllocateResponse struct {
 	Size    uint64
-	Address *blob.Address
+	Address *blob.BlobAddress
 }
 
 func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (resp *AllocateResponse, err error) {
@@ -82,7 +84,7 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	}()
 
 	log := log.With("blob", digestutil.Format(req.Blob.Digest))
-	log.Infof("%s space: %s", blob.AllocateAbility, req.Space)
+	log.Infof("%s space: %s", blob.AllocateCommand, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
 		attribute.Stringer("blob.digest", req.Blob.Digest),
@@ -136,10 +138,10 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 		}, nil
 	}
 
-	expiresIn := uint64(60 * 60 * 24) // 1 day
-	expiresAt := uint64(time.Now().Unix()) + expiresIn
+	expiresIn := ucan.UnixTimestamp(60 * 60 * 24) // 1 day
+	expiresAt := ucan.Now() + expiresIn
 
-	var address *blob.Address
+	var address *blob.BlobAddress
 	// if not received yet, we need to generate an upload URL via PDP and
 	// include it in the receipt.
 	if !received {
@@ -172,9 +174,9 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 				return nil, fmt.Errorf("getting piece write URL: %w", err)
 			}
 		}
-		address = &blob.Address{
-			URL:     uploadURL,
-			Expires: expiresAt,
+		address = &blob.BlobAddress{
+			URL:     capabilities.CborURL(uploadURL),
+			Expires: int64(expiresAt),
 		}
 	}
 
@@ -182,7 +184,7 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	// another for the new invocation.
 	err = deps.Allocations.Put(ctx, allocation.Allocation{
 		Space:   req.Space,
-		Blob:    allocation.Blob(req.Blob),
+		Blob:    req.Blob,
 		Expires: expiresAt,
 		Cause:   req.Cause,
 	})

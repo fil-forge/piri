@@ -12,21 +12,22 @@ import (
 	"github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
 	"github.com/fil-forge/go-ucanto/core/result"
 	"github.com/fil-forge/go-ucanto/transport/http"
 	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/fil-forge/go-ucanto/validator"
-	"github.com/fil-forge/piri/pkg/fx/app"
-	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
-	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
-	"github.com/fil-forge/piri/pkg/principalresolver"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
+
+	"github.com/fil-forge/piri/pkg/fx/app"
+	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
+	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
 func TestFXAccessGrant(t *testing.T) {

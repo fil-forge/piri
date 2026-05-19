@@ -1,31 +1,13 @@
 package ucan
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"net/http"
-
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities/content"
+	"github.com/fil-forge/ucantone/execution/bindexec"
 	logging "github.com/ipfs/go-log/v2"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/retrieval/handlers/spacecontent"
-	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
-	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var log = logging.Logger("retrieval/ucan")
@@ -38,6 +20,17 @@ type SpaceContentRetrieveDeps struct {
 	Pieces      types.PieceReaderAPI
 }
 
+func NewSpaceContentRetrieveHandler(deps SpaceContentRetrieveDeps) Handler {
+	return TypedHandler(
+		content.Retrieve,
+		func(req *bindexec.Request[*content.RetrieveArguments], rsp *bindexec.Response[*content.RetrieveOK]) error {
+			return nil
+		},
+	)
+
+}
+
+/*
 func WithSpaceContentRetrieveMethod(deps SpaceContentRetrieveDeps) retrieval.Option {
 	return retrieval.WithServiceMethod(
 		content.RetrieveAbility,
@@ -103,3 +96,5 @@ func WithSpaceContentRetrieveMethod(deps SpaceContentRetrieveDeps) retrieval.Opt
 		),
 	)
 }
+
+*/

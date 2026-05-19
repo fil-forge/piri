@@ -43,7 +43,6 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 		},
 		UCANService: app.UCANServiceConfig{
 			Services: app.ExternalServicesConfig{
-				PrincipalMapping: map[string]string{},
 				// Upload.Connection is intentionally left zero until Phase 5
 				// migrates the service config types to ucantone.
 				Publisher: app.PublisherServiceConfig{

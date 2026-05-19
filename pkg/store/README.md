@@ -66,7 +66,7 @@ These stores use `genericstore.Store[T]` which provides typed access with automa
 | `allocationstore` | `Allocation` | Pending blob allocations |
 | `acceptancestore` | `Acceptance` | Accepted/stored blob records |
 | `delegationstore` | `delegation.Delegation` | UCAN delegations |
-| `receiptstore` | `receipt.AnyReceipt` | UCAN invocation receipts |
+| `receiptstore` | `*receipt.Receipt` | UCAN invocation receipts |
 | `consolidationstore` | `Consolidation` | Consolidation tracking |
 
 Each store follows a consistent pattern with backend-specific constructors:

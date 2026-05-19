@@ -75,7 +75,6 @@ func TestGenerateConfig(t *testing.T) {
 				egressTrackerServiceDID: "did:key:etracker",
 				egressTrackerServiceURL: "https://etracker.example.com",
 				ipniAnnounceURLs:        []string{"https://ipni.example.com"},
-				principalMapping:        map[string]string{"key": "value"},
 			},
 		}
 	}

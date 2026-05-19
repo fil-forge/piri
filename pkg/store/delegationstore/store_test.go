@@ -4,9 +4,9 @@ import (
 	"testing"
 
 	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/fil-forge/go-ucanto/core/result/ok"
 	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 )

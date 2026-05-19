@@ -7,7 +7,7 @@ import (
 
 	"github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/piece/piece"
-	"github.com/filecoin-project/go-data-segment/merkletree"
+	"github.com/fil-forge/libforge/merkletree"
 	"github.com/ipld/go-ipld-prime/schema"
 	"go.uber.org/zap/zapcore"
 )

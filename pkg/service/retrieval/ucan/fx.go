@@ -1,26 +1,19 @@
 package ucan
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	ucancap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucanserver "github.com/fil-forge/go-ucanto/server"
-	ucanretrieval "github.com/fil-forge/go-ucanto/server/retrieval"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 
+	"github.com/fil-forge/libforge/ucan/retrieval"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/validator"
+	"github.com/fil-forge/ucantone/validator/bindcap"
+
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
-	"github.com/fil-forge/piri/pkg/service/egresstracker"
 )
 
 // Module wires the retrieval UCAN handler.
@@ -31,18 +24,16 @@ var Module = fx.Module("retrieval/ucan",
 			AsRouteRegistrar,
 			fx.ResultTags(`group:"route_registrar"`),
 		),
-		ProvideServerView,
-		fx.Annotate(WithBlobRetrieveMethod, fx.ResultTags(`group:"ucan_retrieval_options"`)),
-		fx.Annotate(WithSpaceContentRetrieveMethod, fx.ResultTags(`group:"ucan_retrieval_options"`)),
-		fx.Annotate(withErrorHandler, fx.ResultTags(`group:"ucan_retrieval_options"`)),
-		fx.Annotate(withReceiptLogger, fx.ResultTags(`group:"ucan_retrieval_options"`)),
+		fx.Annotate(NewBlobRetrieveHandler, fx.ResultTags(`group:"ucan_retrieval_server_handlers"`)),
+		fx.Annotate(NewSpaceContentRetrieveHandler, fx.ResultTags(`group:"ucan_retrieval_server_handlers"`)),
+		//fx.Annotate(withReceiptLogger, fx.ResultTags(`group:"ucan_retrieval_options"`)),
 	),
 )
 
 // ServerHandler holds the assembled UCAN retrieval server and exposes it as
 // an echo route registrar.
 type ServerHandler struct {
-	ucanServer ucanserver.ServerView[ucanretrieval.Service]
+	ucanServer *retrieval.Server
 }
 
 type Params struct {
@@ -50,44 +41,47 @@ type Params struct {
 
 	ID      principal.Signer
 	Upload  app.UploadServiceConfig
-	Options []ucanretrieval.Option `group:"ucan_retrieval_options"`
+	Options []server.HTTPOption `group:"ucan_retrieval_options"`
+}
+
+// Handler pairs a UCAN capability with its execution handler. Per-capability
+// providers return one; NewServerHandler registers them all.
+type Handler struct {
+	Capability validator.Capability
+	Handler    execution.HandlerFunc
+}
+
+// TypedHandler ties the capability's bound argument type to the handler's
+// argument type at compile time. Per-capability factories use this rather
+// than constructing a raw Handler{} literal so that
+//
+//	TypedHandler(access.Grant, func(
+//		req *bindexec.Request[*blob.AllocateArguments],   // wrong type
+//		res *bindexec.Response[*access.GrantOK],
+//	) error { ... })
+//
+// fails to compile rather than failing at runtime with a
+// MalformedArgumentsError. Equivalent to [server.HandleTyped] but
+// produces a Handler value for the fx group instead of registering
+// directly on a server.
+func TypedHandler[A bindcap.Arguments, O bindexec.Success](
+	capability *bindcap.Capability[A],
+	fn bindexec.HandlerFunc[A, O],
+) Handler {
+	return Handler{
+		Capability: capability,
+		Handler:    bindexec.NewHandler(fn),
+	}
 }
 
 func NewServerHandler(p Params) (*ServerHandler, error) {
-	// Create a local delegation to the upload service that allows it to issue
-	// attestations. When the validator sees this delegation, it will accept
-	// attestations issued by the upload service.
-	attestDlg, err := delegation.Delegate(
-		p.ID,
-		p.Upload.Connection.ID(),
-		[]ucan.Capability[ucan.NoCaveats]{
-			ucan.NewCapability(
-				ucancap.AttestAbility,
-				p.ID.DID().String(),
-				ucan.NoCaveats{},
-			),
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	options := []ucanretrieval.Option{
-		ucanretrieval.WithAuthorityProofs(attestDlg),
-	}
-	options = append(options, p.Options...)
-	ucanSvr, err := ucanretrieval.NewServer(p.ID, options...)
-	if err != nil {
-		return nil, fmt.Errorf("creating ucan retrieval server: %w", err)
-	}
-
-	return &ServerHandler{ucanSvr}, nil
+	svr := retrieval.NewServer(p.ID)
+	return &ServerHandler{svr}, nil
 }
 
 // RegisterRoutes registers the UCAN routes with Echo.
 func (h *ServerHandler) RegisterRoutes(e *echo.Echo) {
-	e.GET("/piece/:cid", newEchoHandler(h.ucanServer))
+	e.GET("/piece/:cid", echo.WrapHandler(h.ucanServer))
 }
 
 // AsRouteRegistrar provides the ServerHandler as a RouteRegistrar.
@@ -95,80 +89,37 @@ func AsRouteRegistrar(h *ServerHandler) echofx.RouteRegistrar {
 	return h
 }
 
-// ProvideServerView provides the UCAN ServerView for testing.
-func ProvideServerView(h *ServerHandler) ucanserver.ServerView[ucanretrieval.Service] {
-	return h.ucanServer
+// TODO(forrest)[ucan1]: fix me!
+/*
+
+type retrievalJournalEventListener struct {
+	ets *egresstracker.Service
 }
 
-// newEchoHandler wraps a ucanto retrieval server into an echo handler.
-func newEchoHandler(server ucanserver.ServerView[ucanretrieval.Service]) echo.HandlerFunc {
-	return func(ctx echo.Context) error {
-		r := ctx.Request()
-		res, err := server.Request(r.Context(), ucanhttp.NewInboundRequest(r.URL, r.Body, r.Header))
-		if err != nil {
-			return fmt.Errorf("handling UCAN retrieval request: %w", err)
-		}
+var _ server.ResponseEncodeListener = (*retrievalJournalEventListener)(nil)
 
-		for key, vals := range res.Headers() {
-			for _, v := range vals {
-				ctx.Response().Header().Add(key, v)
-			}
-		}
-
-		// content type is empty as it will have been set by ucanto transport codec
-		return ctx.Stream(res.Status(), "", res.Body())
-	}
-}
-
-func withErrorHandler() ucanretrieval.Option {
-	return ucanretrieval.WithErrorHandler(func(err ucanserver.HandlerExecutionError[any]) {
-		l := log.With("error", err.Error())
-		if s := err.Stack(); s != "" {
-			l = l.With("stack", s)
-		}
-		l.Error("ucan retrieval handler execution error")
-	})
-}
-
-func withReceiptLogger(ets *egresstracker.Service) ucanretrieval.Option {
-	return ucanretrieval.WithReceiptLogger(func(_ context.Context, rcpt receipt.AnyReceipt, inv invocation.Invocation) error {
-		// Filter out capabilities that are not space/content/retrieve
-		if len(inv.Capabilities()) != 1 {
-			log.Warn("Expected exactly one capability in invocation")
-			return nil
-		}
-
-		capability := inv.Capabilities()[0]
-		if capability.Can() != content.RetrieveAbility {
-			log.Info("Receipt is for a %s invocation, ignoring", capability.Can())
-			return nil
-		}
-
-		// Egress tracking is optional, the service will be nil if it is disabled
-		if ets == nil {
-			log.Warn("Egress tracking is not configured")
-			return nil
-		}
-
-		// Make sure the receipt is self-contained, i.e. it also has invocation blocks
-		fullRcpt, err := rcpt.Clone()
-		if err != nil {
-			return err
-		}
-
-		if err := fullRcpt.AttachInvocation(inv); err != nil {
-			return err
-		}
-
-		retrievalRcpt, err := receipt.Rebind[content.RetrieveOk, failure.FailureModel](fullRcpt, content.RetrieveOkType(), failure.FailureType())
-		if err != nil {
-			return err
-		}
-
-		if err := ets.AddReceipt(context.Background(), retrievalRcpt); err != nil {
-			return err
-		}
-
+func (r retrievalJournalEventListener) OnResponseEncode(ctx context.Context, container ucan.Container) error {
+	if r.ets == nil {
 		return nil
-	})
+	}
+	// Filter out capabilities that are not space/content/retrieve
+	if len(container.Invocations()) != 1 {
+		log.Debug("Expected exactly one capability in invocation")
+		return nil
+	}
+
+	cmd := container.Invocations()[0].Command()
+
+	if cmd != content.RetrieveCommand {
+		log.Debug("Receipt is for a %s invocation, ignoring", cmd)
+		return nil
+
+	}
+
+	return r.ets.AddReceipt(context.TODO(), container.Receipts()[0])
 }
+
+func withReceiptLogger(ets *egresstracker.Service) server.HTTPOption {
+	return server.WithEventListener(retrievalJournalEventListener{ets: ets})
+}
+*/

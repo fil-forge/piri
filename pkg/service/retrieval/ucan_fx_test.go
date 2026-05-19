@@ -15,15 +15,15 @@ import (
 	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/fil-forge/go-ucanto/client"
 	retrievalclient "github.com/fil-forge/go-ucanto/client/retrieval"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
 	"github.com/fil-forge/go-ucanto/principal/absentee"
 	"github.com/fil-forge/go-ucanto/transport"
 	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
@@ -214,7 +214,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 
 func assertContentRetrieveOK(
 	t *testing.T,
-	task ucan.Link,
+	task cid.Cid,
 	xres client.ExecutionResponse,
 	hres transport.HTTPResponse,
 	expectBody []byte,

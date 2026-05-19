@@ -8,15 +8,16 @@ import (
 
 	"github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/ipfs/go-cid"
 	ipldprime "github.com/ipld/go-ipld-prime"
 	"github.com/ipld/go-ipld-prime/codec"
 	"github.com/ipld/go-ipld-prime/codec/dagcbor"
 	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/ipld/go-ipld-prime/node/bindnode"
 	"github.com/ipld/go-ipld-prime/schema"
-	"github.com/multiformats/go-multihash"
 )
 
 //go:embed allocation.ipldsch
@@ -36,23 +37,16 @@ func AllocationType() schema.Type {
 	return allocationTS.TypeByName("Allocation")
 }
 
-type Blob struct {
-	// Digest is the hash of the data.
-	Digest multihash.Multihash
-	// Size of the data in bytes.
-	Size uint64
-}
-
 type Allocation struct {
 	// Space is the DID of the space this data was allocated for.
 	Space did.DID
 	// Blob is the details of the data that was allocated.
-	Blob Blob
+	Blob blob.Blob
 	// Expires is the time (in seconds since unix epoch) at which the
 	// allocation becomes invalid and can no longer be accepted.
-	Expires uint64
+	Expires ucan.UnixTimestamp
 	// Cause is a link to the UCAN that requested the allocation.
-	Cause ucan.Link
+	Cause cid.Cid
 }
 
 func (a Allocation) ToIPLD() (datamodel.Node, error) {

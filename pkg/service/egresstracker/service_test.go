@@ -16,9 +16,6 @@ import (
 	"github.com/fil-forge/go-libstoracha/failure"
 	"github.com/fil-forge/go-libstoracha/testutil"
 	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/receipt/fx"
 	"github.com/fil-forge/go-ucanto/core/receipt/ran"
 	"github.com/fil-forge/go-ucanto/core/result"
@@ -26,15 +23,19 @@ import (
 	ucanserver "github.com/fil-forge/go-ucanto/server"
 	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
 	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/client/receipts"
-	piritutil "github.com/fil-forge/piri/pkg/internal/testutil"
-	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/client/receipts"
+	piritutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/store/consolidationstore"
+	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 )
 
 func TestAddReceipt(t *testing.T) {

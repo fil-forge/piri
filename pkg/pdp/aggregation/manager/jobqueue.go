@@ -8,7 +8,6 @@ import (
 
 	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -34,7 +33,7 @@ func NewAddRootsTaskHandler(
 	proofSet pdptypes.ProofSetIDProvider,
 	store types.Store,
 	accepter *PieceAcceptor,
-) jobqueue.TaskHandler[[]datamodel.Link] {
+) jobqueue.TaskHandler[[]cid.Cid] {
 	return &AddRootsTaskHandler{
 		api:           api,
 		proofSet:      proofSet,
@@ -54,7 +53,7 @@ func (a *AddRootsTaskHandler) Name() string {
 	return HandlerName
 }
 
-func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link) (retErr error) {
+func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []cid.Cid) (retErr error) {
 	ctx, span := traceutil.StartSpan(ctx, tracer, "manager.Handle")
 	defer func() {
 		if retErr != nil {
@@ -120,17 +119,17 @@ type QueueParams struct {
 	StorageConfig app.StorageConfig
 }
 
-func NewQueue(params QueueParams) (jobqueue.Service[[]datamodel.Link], error) {
+func NewQueue(params QueueParams) (jobqueue.Service[[]cid.Cid], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 
-	managerQueue, err := jobqueue.New[[]datamodel.Link](
+	managerQueue, err := jobqueue.New[[]cid.Cid](
 		QueueName,
 		params.DB,
-		&serializer.IPLDCBOR[[]datamodel.Link]{
+		&serializer.IPLDCBOR[[]cid.Cid]{
 			Typ:  bufferTS.TypeByName("AggregateLinks"),
 			Opts: captypes.Converters,
 		},

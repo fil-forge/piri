@@ -1,23 +1,12 @@
 package ucan
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/service/retrieval/handlers/spacecontent"
 )
 
 // InvalidResourceErrorName is the name given to an error where the resource did
@@ -32,6 +21,17 @@ type BlobRetrieveDeps struct {
 	Pieces types.PieceReaderAPI
 }
 
+func NewBlobRetrieveHandler(deps BlobRetrieveDeps) Handler {
+	return TypedHandler(
+		blob.Retrieve,
+		func(req *bindexec.Request[*blob.RetrieveArguments], rsp *bindexec.Response[*blob.RetrieveOK]) error {
+			return nil
+		},
+	)
+
+}
+
+/*
 func WithBlobRetrieveMethod(deps BlobRetrieveDeps) retrieval.Option {
 	return retrieval.WithServiceMethod(
 		blob.RetrieveAbility,
@@ -56,3 +56,6 @@ func WithBlobRetrieveMethod(deps BlobRetrieveDeps) retrieval.Option {
 		),
 	)
 }
+
+
+*/

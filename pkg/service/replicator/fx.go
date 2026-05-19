@@ -1,11 +1,14 @@
 package replicator
 
+// TODO(forrest)[ucan1]: will add this when we actually have replication.
+/*
+
 import (
 	"context"
 	"database/sql"
 	"fmt"
 
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 
@@ -120,3 +123,5 @@ func RegisterReplicationJobs(
 ) error {
 	return service.RegisterTransferTask(queue)
 }
+
+*/

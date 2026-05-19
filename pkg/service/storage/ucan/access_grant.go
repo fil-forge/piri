@@ -1,29 +1,24 @@
 package ucan
 
 import (
-	"context"
-	"fmt"
-	"io"
+	"bytes"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/go-ucanto/validator"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	fxlib "go.uber.org/fx"
+
+	"github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob/replica"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 )
@@ -35,157 +30,147 @@ const validity = time.Hour
 // UCAN method.
 type AccessGrantDeps struct {
 	fxlib.In
-	ID                     principal.Signer
-	ClaimValidationContext validator.ClaimContext
-	Upload                 app.UploadServiceConfig
+	ID     principal.Signer
+	Upload app.UploadServiceConfig
 }
 
-func WithAccessGrantMethod(deps AccessGrantDeps) server.Option {
-	return server.WithServiceMethod(
-		access.GrantAbility,
-		server.Provide(
-			access.Grant,
-			func(ctx context.Context, cap ucan.Capability[access.GrantCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[access.GrantOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				var cause invocation.Invocation
-				if cap.Nb().Cause != nil {
-					bs, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(inv.Blocks()))
-					if err != nil {
-						return nil, nil, fmt.Errorf("reading invocation blocks: %w", err)
-					}
-					i, err := invocation.NewInvocationView(cap.Nb().Cause, bs)
-					if err != nil {
-						return nil, nil, fmt.Errorf("creating cause invocation: %w", err)
-					}
-					cause = i
-				}
+func NewAccessGrantHandler(deps AccessGrantDeps) Handler {
+	return TypedHandler(
+		access.Grant,
+		func(req *bindexec.Request[*access.GrantArguments], rsp *bindexec.Response[*access.GrantOK]) error {
+			args := req.Task().Arguments()
 
-				if len(cap.Nb().Att) == 0 {
-					return result.Error[access.GrantOk, failure.IPLDBuilderFailure](access.NewMissingCapabilityError()), nil, nil
-				}
+			if len(args.Attenuations) == 0 {
+				return rsp.SetFailure(access.ErrMissingCapability)
+			}
 
-				delegations := map[string]delegation.Delegation{}
-				for _, cap := range cap.Nb().Att {
-					res, err := grantCapability(ctx, deps, inv.Issuer(), cap.Can, cause)
-					if err != nil {
-						return nil, nil, err
+			// Resolve the optional cause invocation from the request
+			// container. UCAN 1.0 carries the cause CID in the args and
+			// the envelope alongside in the container.
+			var cause ucan.Invocation
+			if args.Cause != nil {
+				for _, inv := range req.Metadata().Invocations() {
+					if inv.Link() == *args.Cause {
+						cause = inv
+						break
 					}
-					o, x := result.Unwrap(res)
-					if x != nil {
-						return result.Error[access.GrantOk](x), nil, nil
-					}
-					delegations[o.Link().String()] = o
 				}
+				if cause == nil {
+					return rsp.SetFailure(access.ErrUnknownCause)
+				}
+			}
 
-				res := access.GrantOk{
-					Delegations: access.DelegationsModel{Values: map[string][]byte{}},
-				}
-				for cid, dlg := range delegations {
-					r := dlg.Archive()
-					b, err := io.ReadAll(r)
-					if err != nil {
-						return nil, nil, fmt.Errorf("reading granted delegation archive: %w", err)
-					}
-					res.Delegations.Keys = append(res.Delegations.Keys, cid)
-					res.Delegations.Values[cid] = b
-				}
+			audience := req.Invocation().Issuer()
 
-				return result.Ok[access.GrantOk, failure.IPLDBuilderFailure](res), nil, nil
-			},
-		),
+			grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))
+			grantedLinks := make([]cid.Cid, 0, len(args.Attenuations))
+			for _, att := range args.Attenuations {
+				dlg, err := grantUcan1Capability(deps, audience, att.Command, cause)
+				if err != nil {
+					return rsp.SetFailure(err)
+				}
+				grantedDlgs = append(grantedDlgs, dlg)
+				grantedLinks = append(grantedLinks, dlg.Link())
+			}
+
+			// Attach signed delegation envelopes via response metadata so
+			// the caller can recover them from the receipt container.
+			if err := rsp.SetMetadata(container.New(container.WithDelegations(grantedDlgs...))); err != nil {
+				return err
+			}
+			return rsp.SetSuccess(&access.GrantOK{Delegations: grantedLinks})
+		},
 	)
 }
 
-func grantCapability(
-	ctx context.Context,
+// grantUcan1Capability dispatches a single requested capability to its
+// per-ability granter. Only /blob/retrieve is currently supported; other
+// commands surface as a stable UnknownAbility receipt failure.
+func grantUcan1Capability(
 	deps AccessGrantDeps,
-	audience ucan.Principal,
-	ability ucan.Ability,
-	cause invocation.Invocation,
-) (result.Result[delegation.Delegation, failure.IPLDBuilderFailure], error) {
-	switch ability {
-	case blob.RetrieveAbility:
-		return grantBlobRetrieve(ctx, deps, audience, cause)
+	audience did.DID,
+	cmd ucan.Command,
+	cause ucan.Invocation,
+) (ucan.Delegation, error) {
+	switch cmd {
+	case blob.RetrieveCommand:
+		return grantUcan1BlobRetrieve(deps, audience, cause)
 	default:
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnknownAbilityError(ability)), nil
+		return nil, errors.New(access.UnknownAbilityErrorName, "unknown ability: %s", cmd)
 	}
 }
 
-// Grant blob retrieve for the following:
-// 1. if the cause is a `blob/replica/allocate` issued by an upload service
-// 2. if the cause is an `assert/index` issued by an upload service
-func grantBlobRetrieve(
-	ctx context.Context,
+// grantUcan1BlobRetrieve issues a /blob/retrieve delegation when the
+// supplied cause invocation justifies it — i.e. it is a /blob/replica/
+// allocate or /assert/index invocation issued by the upload service to
+// the same audience. The cause's blob digest is extracted (for logging,
+// and as a future policy constraint anchor).
+func grantUcan1BlobRetrieve(
 	deps AccessGrantDeps,
-	audience ucan.Principal,
-	cause invocation.Invocation,
-) (result.Result[delegation.Delegation, failure.IPLDBuilderFailure], error) {
+	audience did.DID,
+	cause ucan.Invocation,
+) (ucan.Delegation, error) {
 	if cause == nil {
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewMissingCauseError()), nil
+		return nil, access.ErrMissingCause
 	}
-	if len(cause.Capabilities()) == 0 {
-		err := access.NewInvalidCauseError("missing capabilities")
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
+	if cause.Audience().String() != audience.String() {
+		return nil, errors.New(
+			access.InvalidCauseErrorName,
+			"audience is %s not %s", cause.Audience(), audience,
+		)
 	}
-	if cause.Audience().DID() != audience.DID() {
-		err := access.NewInvalidCauseError(fmt.Sprintf("audience is %s not %s", cause.Audience().DID(), audience.DID()))
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
-	}
-	if cause.Issuer().DID() != deps.Upload.Connection.ID().DID() {
-		err := access.NewInvalidCauseError(fmt.Sprintf("issuer is %s not %s", cause.Issuer().DID(), deps.Upload.Connection.ID().DID()))
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
+	uploadDID := deps.Upload.DID
+	if cause.Issuer() != uploadDID {
+		return nil, errors.New(
+			access.InvalidCauseErrorName,
+			"issuer is %s not %s", cause.Issuer(), uploadDID,
+		)
 	}
 
-	causeAbility := cause.Capabilities()[0].Can()
 	var digest multihash.Multihash
-	switch causeAbility {
-	case replica.AllocateAbility:
-		vctx := newValidationContextFromClaimContext(replica.Allocate, deps.ClaimValidationContext)
-		auth, verr := validator.Access(ctx, cause, vctx)
-		if verr != nil {
-			return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnauthorizedCauseError(verr)), nil
+	switch cause.Command() {
+	case replica.AllocateCommand:
+		var ca replica.AllocateArguments
+		if err := ca.UnmarshalCBOR(bytes.NewReader(cause.ArgumentsBytes())); err != nil {
+			return nil, errors.New(
+				access.InvalidCauseErrorName,
+				"decoding /blob/replica/allocate args: %s", err,
+			)
 		}
-		digest = auth.Capability().Nb().Blob.Digest
-	case assert.IndexAbility:
-		vctx := newValidationContextFromClaimContext(assert.Index, deps.ClaimValidationContext)
-		auth, verr := validator.Access(ctx, cause, vctx)
-		if verr != nil {
-			return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnauthorizedCauseError(verr)), nil
+		digest = ca.Blob.Digest
+	case assert.IndexCommand:
+		var ca assert.IndexArguments
+		if err := ca.UnmarshalCBOR(bytes.NewReader(cause.ArgumentsBytes())); err != nil {
+			return nil, errors.New(
+				access.InvalidCauseErrorName,
+				"decoding /assert/index args: %s", err,
+			)
 		}
-		digest = auth.Capability().Nb().Index.(cidlink.Link).Hash()
+		digest = ca.Index.Hash()
 	default:
-		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnknownCauseError()), nil
+		return nil, access.ErrUnknownCause
 	}
 
-	d, err := blob.Retrieve.Delegate(
+	// TODO(forrest)[ucan1]: constrain the delegation to `digest` via a
+	// UCAN 1.0 policy (`delegation.WithPolicyBuilder`). For now the
+	// delegation is unconstrained at the token level; the retrieve
+	// handler still authorizes by allocation membership.
+	dlg, err := blob.Retrieve.Delegate(
 		deps.ID,
 		audience,
-		// Allow blob retrieval on "us" i.e. this agent is the resource.
-		deps.ID.DID().String(),
-		// Allow only retrieval of the specified blob
-		blob.RetrieveCaveats{Blob: blob.Blob{Digest: digest}},
-		delegation.WithExpiration(ucan.Now()+int(validity.Seconds())),
+		deps.ID.DID(),
+		delegation.WithExpiration(ucan.Now()+ucan.UnixTimestamp(int64(validity.Seconds()))),
+		delegation.WithPolicyBuilder(), // TODO(forrest)[ucan1]: ostensibly this is where policy is enforced, unsure if required at this point?
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	log.Infow("delegated capability", "ability", blob.RetrieveAbility, "digest", digestutil.Format(digest), "audience", audience.DID().String(), "cause", causeAbility)
-	return result.Ok[delegation.Delegation, failure.IPLDBuilderFailure](d), nil
-}
-
-func newValidationContextFromClaimContext[T any](
-	capability validator.CapabilityParser[T],
-	ctx validator.ClaimContext,
-) validator.ValidationContext[T] {
-	return validator.NewValidationContext(
-		ctx.Authority(),
-		capability,
-		ctx.CanIssue,
-		ctx.ValidateAuthorization,
-		ctx.ResolveProof,
-		ctx.ParsePrincipal,
-		ctx.ResolveDIDKey,
-		ctx.ValidateTimeBounds,
-		ctx.AuthorityProofs()...,
+	log.Infow(
+		"delegated capability",
+		"command", blob.RetrieveCommand,
+		"digest", digest,
+		"audience", audience,
+		"cause", cause.Command(),
 	)
+	return dlg, nil
 }

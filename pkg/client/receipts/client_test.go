@@ -8,17 +8,18 @@ import (
 	"testing"
 
 	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
 	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/receipt/ran"
 	"github.com/fil-forge/go-ucanto/core/result"
 	"github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/core/result/ok"
 	"github.com/fil-forge/go-ucanto/transport/car/response"
 	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/client/receipts"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/client/receipts"
 )
 
 func TestFetch(t *testing.T) {
@@ -42,7 +43,7 @@ func TestFetch(t *testing.T) {
 		require.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			msg, err := message.Build(nil, []receipt.AnyReceipt{rcpt})
+			msg, err := message.Build(nil, []*receipt.Receipt{rcpt})
 			require.NoError(t, err)
 			res, err := response.Encode(msg)
 			require.NoError(t, err)

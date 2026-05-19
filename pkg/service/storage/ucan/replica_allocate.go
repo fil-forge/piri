@@ -1,23 +1,24 @@
 package ucan
 
+// TODO(forrest)[ucan1]: not doing
+
+/*
 import (
-	"context"
+	"bytes"
 	"fmt"
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob/replica"
+	"github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/service/replicator"
@@ -25,8 +26,15 @@ import (
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
 )
 
-// Time in seconds we allow ourselves to transfer the blob and conclude the task
+// transferTimeout caps how long we allow ourselves to transfer the blob
+// and conclude the task.
 const transferTimeout = time.Hour
+
+// Error names emitted by this handler.
+const (
+	MissingSiteErrorName = "MissingSite"
+	InvalidSiteErrorName = "InvalidSite"
+)
 
 // ReplicaAllocateDeps is the dependency set populated by fx for the
 // blob/replica/allocate UCAN method. It composes AllocateDeps with the
@@ -38,129 +46,114 @@ type ReplicaAllocateDeps struct {
 	Replicator replicator.Replicator
 }
 
-func WithReplicaAllocateMethod(deps ReplicaAllocateDeps) server.Option {
-	return server.WithServiceMethod(
-		replica.AllocateAbility,
-		server.Provide(
-			replica.Allocate,
-			func(ctx context.Context, cap ucan.Capability[replica.AllocateCaveats], inv invocation.Invocation, iCtx server.InvocationContext) (result.Result[replica.AllocateOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-				//
-				// UCAN Validation
-				//
+func NewReplicaAllocateHandler(deps ReplicaAllocateDeps) Handler {
+	return TypedHandler(
+		replica.Allocate,
+		func(req *bindexec.Request[*replica.AllocateArguments], rsp *bindexec.Response[*replica.AllocateOK]) error {
+			if err := requireSubject(req, deps.ID.DID()); err != nil {
+				return rsp.SetFailure(err)
+			}
 
-				// only service principal can perform an allocation
-				if cap.With() != iCtx.ID().DID().String() {
-					return result.Error[replica.AllocateOk, failure.IPLDBuilderFailure](NewUnsupportedCapabilityError(cap)), nil, nil
-				}
+			args := req.Task().Arguments()
+			space := req.Task().Subject()
 
-				//
-				// end UCAN Validation
-				//
+			// 1. Resolve the site (location commitment) from the request
+			//    container. UCAN 1.0 args carry the site CID; the
+			//    envelope rides alongside in container.Invocations().
+			var site ucan.Invocation
+			for _, inv := range req.Metadata().Invocations() {
+				if inv.Link() == args.Site {
+					site = inv
+					break
+				}
+			}
+			if site == nil {
+				return rsp.SetFailure(errors.New(
+					MissingSiteErrorName,
+					"site invocation %s not in request container", args.Site,
+				))
+			}
 
-				// read the location claim from this invocation to obtain the DID of the URL
-				// to replicate from on the primary storage node.
-				br, err := blockstore.NewBlockReader(blockstore.WithBlocksIterator(inv.Blocks()))
-				if err != nil {
-					return nil, nil, fmt.Errorf("creating block reader: %w", err)
-				}
-				claim, err := delegation.NewDelegationView(cap.Nb().Site, br)
-				if err != nil {
-					return nil, nil, fmt.Errorf("creating location commitment delegation view: %w", err)
-				}
+			var loc assert.LocationArguments
+			if err := loc.UnmarshalCBOR(bytes.NewReader(site.ArgumentsBytes())); err != nil {
+				return rsp.SetFailure(errors.New(
+					InvalidSiteErrorName,
+					"decoding location args: %s", err,
+				))
+			}
+			if len(loc.Location) == 0 {
+				return rsp.SetFailure(errors.New(
+					InvalidSiteErrorName,
+					"location claim has no URLs",
+				))
+			}
+			// TODO(forrest)[ucan1]: if loc.Location has multiple entries,
+			// the legacy path took the first. Keep that for now; revisit
+			// if we ever want a smarter picker.
+			replicaAddress := loc.Location[0]
 
-				// TODO since there is a slice of capabilities here we need to validate the 0th is the correct one
-				// unsure what `With()` should be compared with for a capability.
-				lc, err := assert.LocationCaveatsReader.Read(claim.Capabilities()[0].Nb())
-				if err != nil {
-					return nil, nil, err
-				}
+			resp, err := blobhandler.Allocate(req.Context(), deps.AllocateDeps, &blobhandler.AllocateRequest{
+				Space: space,
+				Blob:  blob.Blob{Digest: args.Blob.Digest, Size: args.Blob.Size},
+				Cause: req.Invocation().Link(),
+			})
+			if err != nil {
+				return fmt.Errorf("allocating replica: %w", err)
+			}
 
-				if len(lc.Location) < 1 {
-					return nil, nil, fmt.Errorf("URI missing in location commitment")
-				}
-
-				// TODO: which one do we pick if > 1?
-				replicaAddress := lc.Location[0]
-
-				resp, err := blobhandler.Allocate(ctx, deps.AllocateDeps, &blobhandler.AllocateRequest{
-					Space: cap.Nb().Space,
-					Blob:  cap.Nb().Blob,
-					Cause: inv.Link(),
-				})
-				if err != nil {
-					return nil, nil, fmt.Errorf("allocating replica: %w", err)
-				}
-
-				// create the transfer invocation: an fx of the allocate invocation receipt.
-				trnsfInv, err := replica.Transfer.Invoke(
-					deps.ID,
-					deps.ID,
-					deps.ID.DID().GoString(),
-					replica.TransferCaveats{
-						Space: cap.Nb().Space,
-						Blob: types.Blob{
-							Digest: cap.Nb().Blob.Digest,
-							// use the allocation response size since it may be zero, indicating
-							// an allocation already exists, and may or may not require transfer
-							Size: resp.Size,
-						},
-						Site:  cap.Nb().Site,
-						Cause: inv.Link(),
-					},
-					delegation.WithExpiration(
-						ucan.UTCUnixTimestamp(time.Now().Add(transferTimeout).Unix()),
-					),
-				)
-				if err != nil {
-					return nil, nil, err
-				}
-				for block, err := range inv.Blocks() {
-					if err != nil {
-						return nil, nil, fmt.Errorf("iterating replica allocate invocation blocks: %w", err)
-					}
-					if err := trnsfInv.Attach(block); err != nil {
-						return nil, nil, fmt.Errorf("failed to attach replica allocate invocation block (%s) to transfer invocation: %w", block.Link().String(), err)
-					}
-				}
-				// if blob.Allocated returned a nil address then the blob is already stored on this node.
-				var sink *url.URL
-				if resp.Address == nil {
-					// no data transfer needed; blob.allocate indicates the blob is already stored by returning a nil
-					//upload
-					// url
-					sink = nil
-				} else {
-					// we need to transfer the data; blob.allocate returned an upload URL.
-					sink = &resp.Address.URL
-				}
-
-				// will run replication async, sending the receipt of the transfer invocation
-				// to the upload service.
-				if err := deps.Replicator.Replicate(ctx, &replicahandler.TransferRequest{
-					Space:  cap.Nb().Space,
-					Blob:   cap.Nb().Blob,
-					Source: replicahandler.TransferSource{ID: claim.Issuer(), URL: replicaAddress},
-					Sink:   sink,
-					Cause:  trnsfInv,
-				}); err != nil {
-					return nil, nil, fmt.Errorf("failed to enqueue replication task: %w", err)
-				}
-
-				// Create a Promise for the transfer invocation
-				transferPromise := types.Promise{
-					UcanAwait: types.Await{
-						Selector: replica.AllocateSiteSelector,
-						Link:     trnsfInv.Link(),
-					},
-				}
-
-				return result.Ok[replica.AllocateOk, failure.IPLDBuilderFailure](
-					replica.AllocateOk{
+			// 3. Build the transfer invocation that fulfills the promise
+			//    we hand back to the caller.
+			transferInv, err := replica.Transfer.Invoke(
+				deps.ID,
+				deps.ID.DID(),
+				&replica.TransferArguments{
+					Blob: blob.Blob{
+						Digest: args.Blob.Digest,
+						// Use the allocation-response size (may be 0 when
+						// an allocation already exists, signaling no
+						// transfer is required).
 						Size: resp.Size,
-						Site: transferPromise,
 					},
-				), fx.NewEffects(fx.WithFork(fx.FromInvocation(trnsfInv))), nil
-			},
-		),
+					Site:  args.Site,
+					Cause: req.Invocation().Link(),
+				},
+				invocation.WithExpiration(ucan.Now()+ucan.UnixTimestamp(int64(transferTimeout.Seconds()))),
+			)
+			if err != nil {
+				return fmt.Errorf("building transfer invocation: %w", err)
+			}
+
+			var sink *url.URL
+			if resp.Address != nil {
+				sink = resp.Address.URL.URL()
+			}
+			if err := deps.Replicator.Replicate(req.Context(), &replicahandler.TransferRequest{
+				Space: space,
+				Blob:  blob.Blob{Digest: args.Blob.Digest, Size: resp.Size},
+				Source: replicahandler.TransferSource{
+					ID:  site.Issuer(),
+					URL: replicaAddress.URL(),
+				},
+				Sink:  sink,
+				Cause: req.Invocation(),
+			}); err != nil {
+				return fmt.Errorf("enqueueing replication: %w", err)
+			}
+
+			// 5. Build the typed OK with a promise pointing at the
+			//    transfer invocation we just enqueued.
+			ok := &replica.AllocateOK{
+				Site: promise.AwaitOK{
+					Task: transferInv.Link(),
+				},
+			}
+			if err := rsp.SetMetadata(container.New(container.WithInvocations(transferInv))); err != nil {
+				return fmt.Errorf("attaching transfer invocation: %w", err)
+			}
+			return rsp.SetSuccess(ok)
+		},
 	)
 }
+
+
+*/

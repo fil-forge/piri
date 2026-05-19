@@ -166,7 +166,6 @@ type baseConfigValues struct {
 	egressTrackerServiceDID string
 	egressTrackerServiceURL string
 	ipniAnnounceURLs        []string
-	principalMapping        map[string]string
 	// Storage configuration from base-config
 	database config.DatabaseConfig
 	s3Config *config.S3Config
@@ -263,7 +262,6 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		egressTrackerServiceDID: cfg.UCAN.Services.EgressTracker.DID,
 		egressTrackerServiceURL: cfg.UCAN.Services.EgressTracker.URL,
 		ipniAnnounceURLs:        cfg.UCAN.Services.Publisher.IPNIAnnounceURLs,
-		principalMapping:        cfg.UCAN.Services.PrincipalMapping,
 		database:                cfg.Repo.Database,
 		s3Config:                cfg.Repo.S3,
 	}, nil
@@ -370,7 +368,6 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 		egressTrackerServiceDID: egressTrackerDID,
 		egressTrackerServiceURL: egressTrackerURL,
 		ipniAnnounceURLs:        ipniURLs,
-		principalMapping:        preset.Services.PrincipalMapping,
 	}
 
 	return network, baseValues, nil
@@ -933,7 +930,6 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 		},
 		UCANService: config.UCANServiceConfig{
 			Services: config.ServicesConfig{
-				ServicePrincipalMapping: flags.baseConfig.principalMapping,
 				Indexer: config.IndexingServiceConfig{
 					DID:   flags.baseConfig.indexingServiceDID,
 					URL:   flags.baseConfig.indexingServiceURL,

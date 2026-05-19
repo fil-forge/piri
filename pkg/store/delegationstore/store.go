@@ -1,12 +1,13 @@
 package delegationstore
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"io"
 
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 
 	"github.com/fil-forge/piri/pkg/store/genericstore"
@@ -18,19 +19,19 @@ import (
 // DelegationStore stores UCAN delegations.
 type DelegationStore interface {
 	// Get retrieves a delegation by its root CID.
-	Get(context.Context, ucan.Link) (delegation.Delegation, error)
+	Get(context.Context, cid.Cid) (ucan.Delegation, error)
 	// Put adds or replaces a delegation in the store.
-	Put(context.Context, delegation.Delegation) error
+	Put(context.Context, ucan.Delegation) error
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
 type KeyEncoder interface {
-	EncodeKey(link ucan.Link) string
+	EncodeKey(link cid.Cid) string
 }
 
 // Store implements DelegationStore backed by genericstore.
 type Store struct {
-	store   *genericstore.Store[delegation.Delegation]
+	store   *genericstore.Store[ucan.Delegation]
 	encoder KeyEncoder
 }
 
@@ -39,12 +40,12 @@ var _ DelegationStore = (*Store)(nil)
 // New creates a DelegationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New[delegation.Delegation](backend, Codec{}),
+		store:   genericstore.New[ucan.Delegation](backend, Codec{}),
 		encoder: encoder,
 	}
 }
 
-func (s *Store) Get(ctx context.Context, link ucan.Link) (delegation.Delegation, error) {
+func (s *Store) Get(ctx context.Context, link cid.Cid) (ucan.Delegation, error) {
 	dlg, err := s.store.Get(ctx, s.encoder.EncodeKey(link))
 	if err != nil {
 		return nil, fmt.Errorf("getting delegation: %w", err)
@@ -52,32 +53,36 @@ func (s *Store) Get(ctx context.Context, link ucan.Link) (delegation.Delegation,
 	return dlg, nil
 }
 
-func (s *Store) Put(ctx context.Context, dlg delegation.Delegation) error {
+func (s *Store) Put(ctx context.Context, dlg ucan.Delegation) error {
 	return s.store.Put(ctx, s.encoder.EncodeKey(dlg.Link()), dlg)
 }
 
 // Codec implements genericstore.Codec for delegation.Delegation.
 type Codec struct{}
 
-func (Codec) Encode(dlg delegation.Delegation) ([]byte, error) {
-	return io.ReadAll(dlg.Archive())
+func (Codec) Encode(dlg ucan.Delegation) ([]byte, error) {
+	return dlg.Bytes(), nil
 }
 
-func (Codec) Decode(data []byte) (delegation.Delegation, error) {
-	return delegation.Extract(data)
+func (Codec) Decode(data []byte) (ucan.Delegation, error) {
+	out := new(delegation.Delegation)
+	if err := out.UnmarshalCBOR(bytes.NewReader(data)); err != nil {
+		return nil, fmt.Errorf("decoding delegation: %w", err)
+	}
+	return out, nil
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends.
 type S3KeyEncoder struct{}
 
-func (S3KeyEncoder) EncodeKey(link ucan.Link) string {
+func (S3KeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
 }
 
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends.
 type DatastoreKeyEncoder struct{}
 
-func (DatastoreKeyEncoder) EncodeKey(link ucan.Link) string {
+func (DatastoreKeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
 }
 

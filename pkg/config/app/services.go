@@ -4,14 +4,13 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/multiformats/go-multiaddr"
 )
 
 type ExternalServicesConfig struct {
-	PrincipalMapping map[string]string
-
 	Indexer       IndexingServiceConfig
 	EgressTracker EgressTrackerServiceConfig
 	Upload        UploadServiceConfig
@@ -21,20 +20,23 @@ type ExternalServicesConfig struct {
 // IndexingServiceConfig contains indexing service connection and proof(s) for
 // using the service
 type IndexingServiceConfig struct {
-	Connection client.Connection
-	Proofs     delegation.Proofs
+	DID    did.DID
+	Client execution.Executor
+	Proofs ucan.Delegation
 }
 
 type EgressTrackerServiceConfig struct {
-	Connection           client.Connection
-	Proofs               delegation.Proofs
+	DID                  did.DID
+	Client               execution.Executor
+	Proofs               ucan.Delegation
 	ReceiptsEndpoint     *url.URL
 	MaxBatchSizeBytes    int64
 	CleanupCheckInterval time.Duration
 }
 
 type UploadServiceConfig struct {
-	Connection client.Connection
+	DID    did.DID
+	Client execution.Executor
 }
 
 type PublisherServiceConfig struct {

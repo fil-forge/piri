@@ -6,20 +6,22 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	pdp_cap "github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/ucantone/ipld"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.uber.org/fx"
+
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/promise"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
@@ -59,15 +61,15 @@ var (
 
 type AcceptRequest struct {
 	Space did.DID
-	Blob  types.Blob
-	Put   blob.Promise
+	Blob  blob.Blob
+	Put   promise.AwaitOK
 	// Cause is a link to the `blob/accept` or `blob/replica/transfer` invocation.
-	Cause ipld.Link
+	Cause cid.Cid
 }
 
 type AcceptResponse struct {
-	Claim delegation.Delegation
-	PDP   invocation.Invocation
+	Claim ucan.Delegation
+	PDP   ucan.Invocation
 }
 
 func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *AcceptResponse, err error) {
@@ -81,7 +83,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	}()
 
 	log := log.With("blob", req.Blob.Digest)
-	log.Infof("%s %s", blob.AcceptAbility, req.Space)
+	log.Infof("%s %s", blob.AcceptCommand, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
 		attribute.Stringer("blob.digest", req.Blob.Digest),
@@ -111,31 +113,37 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
 	}
 	// generate the invocation that will complete when aggregation is complete and the piece is accepted
-	pdpAcceptInv, err := pdp_cap.Accept.Invoke(
+	pdpAcceptInv, err := pdp.Accept.Invoke(
 		deps.ID,
-		deps.ID,
-		deps.ID.DID().String(),
-		pdp_cap.AcceptCaveats{
+		deps.ID.DID(),
+		&pdp.AcceptArguments{
 			Blob: req.Blob.Digest,
-		}, delegation.WithNoExpiration())
+		}, invocation.WithNoExpiration())
 	if err != nil {
 		log.Error("creating piece accept invocation", "error", err)
 		return nil, fmt.Errorf("creating piece accept invocation: %w", err)
 	}
 
-	byteRange := assert.Range{Offset: 0, Length: &req.Blob.Size}
+	byteRange := assert.Range{Start: 0, End: &req.Blob.Size}
+	_ = byteRange
+	_ = loc
 	claim, err := assert.Location.Delegate(
 		deps.ID,
 		req.Space,
-		deps.ID.DID().String(),
-		assert.LocationCaveats{
-			Space:    req.Space,
-			Content:  types.FromHash(req.Blob.Digest),
-			Location: []url.URL{loc},
-			Range:    &byteRange,
-		},
+		req.Space,
+		/*
+			&assert.LocationArguments{
+				Space:    req.Space,
+				Content:  req.Blob.Digest,
+				Location: []capabilities.CborURL{capabilities.CborURL(loc)},
+				Range:    &byteRange,
+			},
+		*/
+		// TODO(forrest)[ucan1]: I think? the above arguments are not metadata, not sure how to mapify it.
+		delegation.WithMetadata(ipld.Map{}),
 		delegation.WithNoExpiration(),
 	)
+
 	if err != nil {
 		log.Errorw("creating location commitment", "error", err)
 		return nil, fmt.Errorf("creating location commitment: %w", err)

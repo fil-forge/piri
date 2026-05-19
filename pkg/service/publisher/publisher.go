@@ -1,6 +1,7 @@
 package publisher
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,20 +9,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/fil-forge/go-libstoracha/advertisement"
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/claim"
-	ipnipub "github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-libstoracha/metadata"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/principal"
-	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-ipld-prime"
@@ -31,8 +20,21 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
+
+	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
+	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	ipnipub "github.com/fil-forge/go-ipni-tools/pkg/publisher"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/claim"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+
+	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
+// TODO(forrest)[ucan1]: thread safety should be an attribute of the publisher package. Not this ad-hoc shit.
 type threadSafeAsyncPublisher struct {
 	ipnipub.AsyncPublisher
 	mu sync.Mutex
@@ -50,14 +52,14 @@ type PublisherService struct {
 	id                    principal.Signer
 	asyncPublisher        ipnipub.AsyncPublisher
 	provider              peer.AddrInfo
-	indexingService       client.Connection
-	indexingServiceProofs delegation.Proofs
+	indexingService       app.IndexingServiceConfig
+	indexingServiceProofs ucan.Delegation
 }
 
-func (pub *PublisherService) Publish(ctx context.Context, claim delegation.Delegation) error {
-	ability := claim.Capabilities()[0].Can()
+func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Delegation) error {
+	ability := claim.Command()
 	switch ability {
-	case assert.LocationAbility:
+	case assert.LocationCommand:
 		err := PublishLocationCommitment(ctx, pub.asyncPublisher, pub.provider, claim)
 		if err != nil {
 			return err
@@ -72,41 +74,50 @@ func PublishLocationCommitment(
 	ctx context.Context,
 	asyncPublisher ipnipub.AsyncPublisher,
 	provider peer.AddrInfo,
-	locationCommitment delegation.Delegation,
+	locationCommitment ucan.Delegation,
 ) error {
 	log := log.With("claim", locationCommitment.Link())
 
-	capability := locationCommitment.Capabilities()[0]
-	nb, rerr := assert.LocationCaveatsReader.Read(capability.Nb())
-	if rerr != nil {
-		return fmt.Errorf("reading location commitment data: %w", rerr)
+	var lc assert.LocationArguments
+	if err := lc.UnmarshalCBOR(bytes.NewReader(locationCommitment.Bytes())); err != nil {
+		return fmt.Errorf("unmarshalling location commitment: %w", err)
 	}
 
-	digests := []multihash.Multihash{nb.Content.Hash()}
-	contextid, err := advertisement.EncodeContextID(nb.Space, nb.Content.Hash())
+	shardCid, err := advertisement.ShardCID(provider, lc)
 	if err != nil {
-		return fmt.Errorf("encoding advertisement context ID: %w", err)
+		return fmt.Errorf(
+			"failed to extract shard CID for provider: %s locationCommitment %s: %w",
+			provider,
+			assert.LocationCommand,
+			err,
+		)
 	}
 
-	var exp int
+	var expiration ucan.UnixTimestamp
 	if locationCommitment.Expiration() != nil {
-		exp = *locationCommitment.Expiration()
-	}
-
-	shardCid, err := advertisement.ShardCID(provider, nb)
-	if err != nil {
-		return fmt.Errorf("failed to extract shard CID for provider: %s locationCommitment %s: %w", provider, capability, err)
+		expiration = *locationCommitment.Expiration()
 	}
 
 	meta := metadata.MetadataContext.New(
 		&metadata.LocationCommitmentMetadata{
 			Shard:      shardCid,
-			Claim:      asCID(locationCommitment.Link()),
-			Expiration: int64(exp),
+			Claim:      locationCommitment.Link(),
+			Expiration: int64(expiration),
 		},
 	)
 
-	err = asyncPublisher.Publish(ctx, provider, string(contextid), slices.Values(digests), meta)
+	contextid, err := advertisement.EncodeContextID(lc.Space, lc.Content)
+	if err != nil {
+		return fmt.Errorf("encoding advertisement context ID: %w", err)
+	}
+
+	err = asyncPublisher.Publish(
+		ctx,
+		provider,
+		string(contextid),
+		slices.Values([]multihash.Multihash{lc.Content}),
+		meta,
+	)
 	if err != nil {
 		if errors.Is(err, ipnipub.ErrAlreadyAdvertised) {
 			log.Warnf("Skipping previously published claim")
@@ -118,94 +129,59 @@ func PublishLocationCommitment(
 	return nil
 }
 
-var claimCacheReceiptSchema = []byte(`
-	type Result union {
-		| Unit "ok"
-		| Any "error"
-	} representation keyed
-
-	type Unit struct {}
-`)
-var claimCacheReceiptReader, _ = receipt.NewReceiptReader[ok.Unit, ipld.Node](claimCacheReceiptSchema)
-
 func CacheClaim(
 	ctx context.Context,
 	id principal.Signer,
-	indexingService client.Connection,
-	invocationProofs delegation.Proofs,
-	clm delegation.Delegation,
+	indexingService app.IndexingServiceConfig,
+	invocationProofs ucan.Delegation,
+	clm ucan.Delegation,
 	providerAddresses []multiaddr.Multiaddr,
 ) error {
 	log := log.With("claim", clm.Link())
 
-	if indexingService == nil {
+	if !indexingService.DID.Defined() {
 		log.Warnf("Cannot cache claim - indexing service is not configured")
 		return nil
 	}
 
+	// TODO I assume claim.Provider.Addresses is a slice of multiaddr byte slices?
+	providers := make([][]byte, len(providerAddresses))
+	for i, p := range providerAddresses {
+		providers[i] = p.Bytes()
+	}
+
 	inv, err := claim.Cache.Invoke(
 		id,
-		indexingService.ID(),
-		indexingService.ID().DID().String(),
-		claim.CacheCaveats{
+		indexingService.DID,
+		&claim.CacheArguments{
 			Claim:    clm.Link(),
-			Provider: claim.Provider{Addresses: providerAddresses},
+			Provider: claim.Provider{Addresses: providers},
 		},
-		delegation.WithProof(invocationProofs...),
+		// TODO(forres)[ucan1]: where do we attach the "Proof" for this now?
+		// this seems wrong, how does the Cid get to the service?
+		invocation.WithProofs(invocationProofs.Link()),
 	)
 	if err != nil {
 		return fmt.Errorf("creating invocation: %w", err)
 	}
 
-	for b, err := range clm.Blocks() {
-		if err != nil {
-			return fmt.Errorf("iterating claim blocks: %w", err)
-		}
-		err = inv.Attach(b)
-		if err != nil {
-			return fmt.Errorf("attaching block: %s: %w", b.Link(), err)
-		}
-	}
+	// TODO(forrest)[ucan1]: do we need to attach more things to the request?
 
-	res, err := client.Execute(ctx, []invocation.Invocation{inv}, indexingService)
+	res, err := indexingService.Client.Execute(execution.NewRequest(ctx, inv,
+		// TODO(forrest)[ucan1]: WithProofs and WithDelegations do the _exact same thing_, pick one kill the other.
+		execution.WithProofs(invocationProofs),
+		execution.WithDelegations(invocationProofs),
+	))
 	if err != nil {
 		return fmt.Errorf("executing invocation: %w", err)
 	}
 
-	rcptLink, exists := res.Get(inv.Link())
-	if !exists {
-		return fmt.Errorf("getting receipt link: %w", err)
+	if res.Receipt().Out().IsOK() {
+		return nil
 	}
-	rcpt, err := claimCacheReceiptReader.Read(rcptLink, res.Blocks())
-	if err != nil {
-		return fmt.Errorf("reading receipt: %w", err)
-	}
-	return result.MatchResultR1(
-		rcpt.Out(),
-		func(ok ok.Unit) error {
-			log.Info("Cached location commitment with indexing service")
-			return nil
-		},
-		func(node ipld.Node) error {
-			name := "UnknownError"
-			message := "claim/cache invocation failed"
-			nn, err := node.LookupByString("name")
-			if err == nil {
-				n, err := nn.AsString()
-				if err == nil {
-					name = n
-				}
-			}
-			mn, err := node.LookupByString("message")
-			if err == nil {
-				m, err := mn.AsString()
-				if err == nil {
-					message = m
-				}
-			}
-			return fmt.Errorf("%s: %s", name, message)
-		},
-	)
+	// else we be gettin errors
+	return fmt.Errorf("failed or some shit idk")
+
 }
 
 var _ Publisher = (*PublisherService)(nil)
@@ -278,7 +254,7 @@ func New(
 		return nil, fmt.Errorf("building provider info: %w", err)
 	}
 
-	if o.indexingService == nil {
+	if !o.indexingService.DID.Defined() {
 		log.Errorf("Indexing service is not configured - claims will not be cached")
 	}
 

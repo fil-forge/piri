@@ -1,6 +1,6 @@
 module github.com/fil-forge/piri
 
-go 1.25.3
+go 1.25.7
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -37,14 +37,14 @@ require (
 	github.com/ipfs/go-ds-leveldb v0.5.2
 	github.com/ipfs/go-log/v2 v2.9.1
 	github.com/ipld/go-car v0.6.3
-	github.com/ipld/go-ipld-prime v0.22.0
-	github.com/ipni/go-libipni v0.7.5
+	github.com/ipld/go-ipld-prime v0.23.0
+	github.com/ipni/go-libipni v0.7.8
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/labstack/echo-jwt/v4 v4.2.0
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/labstack/gommon v0.4.2
 	github.com/libp2p/go-buffer-pool v0.1.0
-	github.com/libp2p/go-libp2p v0.47.0
+	github.com/libp2p/go-libp2p v0.48.0
 	github.com/minio/minio-go/v7 v7.0.94
 	github.com/minio/selfupdate v0.6.0
 	github.com/minio/sha256-simd v1.0.1
@@ -134,6 +134,7 @@ require (
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/fil-forge/go-ipni-tools v0.0.0-20260515163636-e1326428a9de // indirect
 	github.com/fil-forge/libforge v0.0.0-20260515211802-935195a41ddb // indirect
 	github.com/fil-forge/ucantone v0.0.0-20260514184915-8bebe15b0096 // indirect
 	github.com/filecoin-project/go-amt-ipld/v2 v2.1.0 // indirect
@@ -210,7 +211,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/libp2p/go-flow-metrics v0.3.0 // indirect
-	github.com/libp2p/go-libp2p-pubsub v0.15.0 // indirect
+	github.com/libp2p/go-libp2p-pubsub v0.16.0 // indirect
 	github.com/libp2p/go-msgio v0.3.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.3.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
@@ -254,7 +255,7 @@ require (
 	github.com/petar/GoLLRB v0.0.0-20210522233825-ae3b015fd3e9 // indirect
 	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
 	github.com/pion/rtp v1.8.21 // indirect
-	github.com/pion/sdp/v3 v3.0.15 // indirect
+	github.com/pion/sdp/v3 v3.0.18 // indirect
 	github.com/pion/srtp/v3 v3.0.7 // indirect
 	github.com/pion/turn/v4 v4.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

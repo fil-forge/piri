@@ -1,5 +1,8 @@
 package replica
 
+// TODO(forrest)[ucan1]: lot of toil to implement this, we don't know in what form will support replication
+// punting
+/*
 import (
 	"context"
 	"encoding/json"
@@ -9,34 +12,35 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/capabilities/assert"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	pdp_cap "github.com/fil-forge/go-libstoracha/capabilities/pdp"
 	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	ucan_cap "github.com/fil-forge/go-libstoracha/capabilities/ucan"
-	"github.com/fil-forge/go-ucanto/client"
 	rclient "github.com/fil-forge/go-ucanto/client/retrieval"
 	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
 	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/receipt/fx"
 	"github.com/fil-forge/go-ucanto/core/receipt/ran"
 	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
 	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	basicnode "github.com/ipld/go-ipld-prime/node/basic"
 	"github.com/ipld/go-ipld-prime/printer"
 	"go.opentelemetry.io/otel/attribute"
 	fxlib "go.uber.org/fx"
+
+	"github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/libforge/capabilities/assert"
+	"github.com/fil-forge/libforge/capabilities/blob"
+	"github.com/fil-forge/libforge/capabilities/blob/replica"
+	ucancap "github.com/fil-forge/libforge/capabilities/ucan"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
@@ -75,9 +79,9 @@ func (d TransferDeps) acceptDeps() blobhandler.AcceptDeps {
 
 type TransferSource struct {
 	// Identity of the node to transfer from.
-	ID ucan.Principal
+	ID did.DID
 	// URL the blob may be requested from.
-	URL url.URL
+	URL *url.URL
 }
 
 type transferSourceModel struct {
@@ -89,19 +93,19 @@ type TransferRequest struct {
 	// Space is the space to associate with blob.
 	Space did.DID
 	// Blob is the blob in question.
-	Blob types.Blob
+	Blob blob.Blob
 	// Source is the location to replicate the blob from.
 	Source TransferSource
 	// Sink is the location to replicate the blob to.
 	Sink *url.URL
 	// Cause is the invocation responsible for spawning this replication
 	// should be a replica/transfer invocation.
-	Cause invocation.Invocation
+	Cause ucan.Invocation
 }
 
 type transferRequestModel struct {
 	Space  string              `json:"space"`
-	Blob   types.Blob          `json:"blob"`
+	Blob   blob.Blob           `json:"blob"`
 	Source transferSourceModel `json:"source"`
 	Sink   *string             `json:"sink,omitempty"`
 	Cause  []byte              `json:"cause"`
@@ -112,7 +116,7 @@ func (t *TransferRequest) MarshalJSON() ([]byte, error) {
 		Space: t.Space.String(),
 		Blob:  t.Blob,
 		Source: transferSourceModel{
-			ID:  t.Source.ID.DID().String(),
+			ID:  t.Source.ID.String(),
 			URL: t.Source.URL.String(),
 		},
 	}
@@ -122,11 +126,7 @@ func (t *TransferRequest) MarshalJSON() ([]byte, error) {
 		aux.Sink = &sinkStr
 	}
 
-	causeBytes, err := io.ReadAll(t.Cause.Archive())
-	if err != nil {
-		return nil, fmt.Errorf("marshaling cause: %w", err)
-	}
-	aux.Cause = causeBytes
+	aux.Cause = t.Cause.Bytes()
 
 	return json.Marshal(aux)
 }
@@ -154,7 +154,7 @@ func (t *TransferRequest) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return fmt.Errorf("parsing source URL: %w", err)
 	}
-	t.Source.URL = *sourceURL
+	t.Source.URL = sourceURL
 
 	if aux.Sink != nil {
 		sinkURL, err := url.Parse(*aux.Sink)
@@ -164,7 +164,7 @@ func (t *TransferRequest) UnmarshalJSON(b []byte) error {
 		t.Sink = sinkURL
 	}
 
-	inv, err := delegation.Extract(aux.Cause)
+	inv, err := invocation.Decode(aux.Cause)
 	if err != nil {
 		return fmt.Errorf("unmarshaling cause: %w", err)
 	}
@@ -191,11 +191,11 @@ func (t *TransferRequest) UnmarshalJSON(b []byte) error {
 // successful replication to the requesting node.
 func Transfer(ctx context.Context, deps TransferDeps, request *TransferRequest, metrics *Metrics) (err error) {
 	var (
-		rcpt  receipt.AnyReceipt
+		rcpt  *receipt.Receipt
 		forks []fx.Effect
 	)
 
-	stopwatch := metrics.startDuration(sourceLabel(&request.Source.URL), sinkLabel(request.Sink))
+	stopwatch := metrics.startDuration(sourceLabel(request.Source.URL), sinkLabel(request.Sink))
 	defer func() {
 		success := true
 		if err != nil {
@@ -368,11 +368,10 @@ func transferBlobFromSource(ctx context.Context, deps TransferDeps, request *Tra
 
 // extractReplicaAllocateInvocation extracts the `blob/replica/allocate`
 // invocation which is expected to be attached to the `blob/transfer` invocation
-func extractReplicaAllocateInvocation(trnsfInv invocation.Invocation) (invocation.Invocation, error) {
-	if len(trnsfInv.Capabilities()) != 1 {
+func extractReplicaAllocateInvocation(trnsfInv ucan.Invocation) (ucan.Invocation, error) {
+	if len(trnsfInv.Command()) != 1 {
 		return nil, fmt.Errorf("invalid %s invocation", replica.TransferAbility)
 	}
-	var err error
 	match, err := replica.Transfer.Match(validator.NewSource(trnsfInv.Capabilities()[0], trnsfInv))
 	if err != nil {
 		return nil, fmt.Errorf("matching %s invocation: %w", replica.TransferAbility, err)
@@ -391,16 +390,15 @@ func requestBlobRetrieveDelegation(
 	ctx context.Context,
 	endpoint url.URL,
 	issuer ucan.Signer,
-	audience ucan.Principal,
+	audience did.DID,
 	cause invocation.Invocation, // the `blob/replica/allocate` invocation
-) (delegation.Delegation, error) {
+) (ucan.Delegation, error) {
 	inv, err := access.Grant.Invoke(
 		issuer,
 		audience,
-		issuer.DID().String(),
-		access.GrantCaveats{
-			Att:   []access.CapabilityRequest{{Can: blob.Retrieve.Can()}},
-			Cause: cause.Link(),
+		&access.GrantArguments{
+			Attenuations: []access.CapabilityRequest{{Command: blob.Retrieve.Command()}},
+			Cause:        cause.Link(),
 		},
 	)
 	if err != nil {
@@ -498,7 +496,7 @@ func createLocationAssertion(ctx context.Context, deps TransferDeps, request *Tr
 }
 
 // issueTransferReceipt creates and stores a transfer receipt
-func issueTransferReceipt(ctx context.Context, deps TransferDeps, request *TransferRequest, siteLink ipld.Link, pdpLink *ipld.Link, forks []fx.Effect) (receipt.AnyReceipt, error) {
+func issueTransferReceipt(ctx context.Context, deps TransferDeps, request *TransferRequest, siteLink ipld.Link, pdpLink *ipld.Link, forks []fx.Effect) (*receipt.Receipt, error) {
 	transferReceipt := replica.TransferOk{
 		Site: siteLink,
 		PDP:  pdpLink,
@@ -538,7 +536,7 @@ func (f linksFact) ToIPLD() (map[string]ipld.Node, error) {
 }
 
 // sendMessageToUploadService sends the message containing invocations and receipts to the upload service
-func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt receipt.AnyReceipt) error {
+func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt *receipt.Receipt) error {
 	var rcptBlocks []ipld.Block
 	var rcptBlockLinks linksFact
 	for b, err := range rcpt.Blocks() {
@@ -549,15 +547,14 @@ func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt rec
 		rcptBlockLinks = append(rcptBlockLinks, b.Link())
 	}
 
-	concludeInv, err := ucan_cap.Conclude.Invoke(
+	concludeInv, err := ucancap.Conclude.Invoke(
 		deps.ID,
-		deps.Upload.Connection.ID().DID(),
-		deps.ID.DID().String(),
-		ucan_cap.ConcludeCaveats{
-			Receipt: rcpt.Root().Link(),
+		deps.Upload.DID,
+		&ucancap.ConcludeArguments{
+			Receipt: rcpt.Link(),
 		},
 		// ensure all receipt blocks remain included with this invocation
-		delegation.WithFacts([]ucan.FactBuilder{rcptBlockLinks}),
+		invocation.WithMetadata([]ucan.FactBuilder{rcptBlockLinks}),
 	)
 	if err != nil {
 		return fmt.Errorf("generating conclude invocation: %w", err)
@@ -602,11 +599,11 @@ func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt rec
 
 // SendFailureReceipt sends a failure receipt to the upload service when Transfer fails after all retries
 func SendFailureReceipt(ctx context.Context, deps TransferDeps, request *TransferRequest, transferErr error) error {
-	failure := replica.NewTransferError(fmt.Sprintf("failed to transfer after all retries: %s", transferErr.Error()))
-
-	errResult := result.Error[replica.TransferOk, replica.TransferError](failure)
-
-	rcpt, err := receipt.Issue(deps.ID, errResult, ran.FromInvocation(request.Cause))
+	// TODO(forrest)[ucan1]: unsure what to provide in the error aside from TransferOK?
+	rcpt, err := receipt.IssueErr(deps.ID, request.Cause.Link(), &replica.TransferOK{
+		Site: cid.Undef,
+		PDP:  promise.AwaitOK{Task: cid.Undef},
+	})
 	if err != nil {
 		return fmt.Errorf("issuing failure receipt: %w", err)
 	}
@@ -621,3 +618,5 @@ func SendFailureReceipt(ctx context.Context, deps TransferDeps, request *Transfe
 
 	return nil
 }
+
+*/

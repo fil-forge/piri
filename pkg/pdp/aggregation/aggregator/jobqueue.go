@@ -13,6 +13,7 @@ import (
 	"github.com/fil-forge/go-libstoracha/piece/piece"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
+	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -166,10 +167,12 @@ func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr err
 	}
 	if a != nil {
 		span.AddEvent("aggregate created", trace.WithAttributes(attribute.String("aggregate.root", a.Root.Link().String())))
-		if err := p.store.Put(ctx, a.Root.Link(), *a); err != nil {
+		// TODO(forrest)[ucan1]: more ipld trash, delete this
+		if err := p.store.Put(ctx, a.Root.Link().(cidlink.Link).Cid, *a); err != nil {
 			return fmt.Errorf("storing aggregate: %w", err)
 		}
-		if err := p.manager.Submit(ctx, a.Root.Link()); err != nil {
+		// TODO(forrest)[ucan1]: more ipld trash, delete this
+		if err := p.manager.Submit(ctx, a.Root.Link().(cidlink.Link).Cid); err != nil {
 			return fmt.Errorf("submitting aggregate to manager: %w", err)
 		}
 	}

@@ -1,17 +1,13 @@
 package consolidationstore
 
 import (
-	"io"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/capabilities"
+	"github.com/fil-forge/libforge/capabilities/space/egress"
+	"github.com/fil-forge/ucantone/testutil"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	"github.com/ipfs/go-datastore/namespace"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store"
@@ -101,48 +97,6 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 		require.NoError(t, err)
 		requireEqualConsolidation(t, c2, got)
 	})
-
-	t.Run("legacy migration", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-
-		// Create test consolidation
-		c := createTestConsolidation(t)
-		batchCID := randomCID(t)
-
-		// Write to legacy format directly
-		trackDS := namespace.Wrap(ds, datastore.NewKey(legacyTrackPrefix))
-		consolidateDS := namespace.Wrap(ds, datastore.NewKey(legacyConsolidatePrefix))
-
-		key := datastore.NewKey(batchCID.String())
-
-		// Archive the track invocation to CAR bytes
-		trackBytes, err := io.ReadAll(c.TrackInvocation.Archive())
-		require.NoError(t, err)
-		err = trackDS.Put(t.Context(), key, trackBytes)
-		require.NoError(t, err)
-
-		// Write consolidate CID bytes
-		err = consolidateDS.Put(t.Context(), key, c.ConsolidateInvocationCID.Bytes())
-		require.NoError(t, err)
-
-		// Create store and get - should read from legacy and migrate
-		s := NewDatastoreStore(ds)
-		got, err := s.Get(t.Context(), batchCID)
-		require.NoError(t, err)
-		requireEqualConsolidation(t, c, got)
-
-		// Verify legacy data was cleaned up
-		_, err = trackDS.Get(t.Context(), key)
-		require.ErrorIs(t, err, datastore.ErrNotFound)
-
-		_, err = consolidateDS.Get(t.Context(), key)
-		require.ErrorIs(t, err, datastore.ErrNotFound)
-
-		// Verify data is now in new format (can be retrieved again)
-		got2, err := s.Get(t.Context(), batchCID)
-		require.NoError(t, err)
-		requireEqualConsolidation(t, c, got2)
-	})
 }
 
 func createTestConsolidation(t *testing.T) consolidation.Consolidation {
@@ -151,32 +105,28 @@ func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 	signer := testutil.RandomSigner(t)
 	audience := testutil.RandomDID(t)
 
-	inv, err := delegation.Delegate(
+	inv, err := egress.Track.Invoke(
 		signer,
 		audience,
-		[]ucan.Capability[ok.Unit]{
-			ucan.NewCapability("space/egress/track", audience.String(), ok.Unit{}),
+		&egress.TrackArguments{
+			Receipts: testutil.RandomCID(t),
+			Endpoint: capabilities.CborURL{},
 		},
 	)
 	require.NoError(t, err)
 
-	return consolidation.Consolidation{
-		TrackInvocation:          inv,
-		ConsolidateInvocationCID: randomCID(t),
-	}
+	return consolidation.New(inv, randomCID(t))
 }
 
 func randomCID(t *testing.T) cid.Cid {
 	t.Helper()
-	link := testutil.RandomCID(t)
-	return link.(cidlink.Link).Cid
+	return testutil.RandomCID(t)
 }
 
 func requireEqualConsolidation(t *testing.T, expected, actual consolidation.Consolidation) {
 	t.Helper()
 
-	// Compare invocation links (the canonical identifier)
-	require.Equal(t, expected.TrackInvocation.Link(), actual.TrackInvocation.Link())
-	// Compare consolidate CIDs
+	// Persisted bytes round-trip exactly.
+	require.Equal(t, expected.TrackInvocationBytes, actual.TrackInvocationBytes)
 	require.Equal(t, expected.ConsolidateInvocationCID, actual.ConsolidateInvocationCID)
 }

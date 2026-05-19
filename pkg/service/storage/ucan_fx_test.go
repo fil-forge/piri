@@ -26,23 +26,23 @@ import (
 	"github.com/fil-forge/go-ucanto/client"
 	"github.com/fil-forge/go-ucanto/core/car"
 	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
 	"github.com/fil-forge/go-ucanto/core/ipld"
 	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/receipt/ran"
 	"github.com/fil-forge/go-ucanto/core/result"
 	ufailure "github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
 	ucanserver "github.com/fil-forge/go-ucanto/server"
 	ucan_car "github.com/fil-forge/go-ucanto/transport/car"
 	"github.com/fil-forge/go-ucanto/transport/headercar"
 	ucan_http "github.com/fil-forge/go-ucanto/transport/http"
 	"github.com/fil-forge/go-ucanto/ucan"
 	"github.com/fil-forge/go-ucanto/validator"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
@@ -1045,7 +1045,7 @@ func mustAssertTransferInvocation(
 	}
 }
 
-func mustGetInvocationCaveats[T ipld.Builder](t *testing.T, reader blockstore.BlockReader, inv ucan.Link, invReader func(any) (T, ufailure.Failure)) T {
+func mustGetInvocationCaveats[T ipld.Builder](t *testing.T, reader blockstore.BlockReader, inv cid.Cid, invReader func(any) (T, ufailure.Failure)) T {
 	view := testutil.Must(invocation.NewInvocationView(inv, reader))(t)
 	invc := testutil.Must(invReader(view.Capabilities()[0].Nb()))(t)
 	return invc
@@ -1091,7 +1091,7 @@ func startTestHTTPServer(
 			out := result.Ok[content.RetrieveOk, ipld.Builder](content.RetrieveOk{})
 			// alice is hard coded in the location claim so it is also hard coded here
 			rcpt := testutil.Must(receipt.Issue(testutil.Alice, out, ran.FromInvocation(inv)))(t)
-			msg = testutil.Must(message.Build(nil, []receipt.AnyReceipt{rcpt}))(t)
+			msg = testutil.Must(message.Build(nil, []*receipt.Receipt{rcpt}))(t)
 			resp := testutil.Must(accept.Encoder().Encode(msg))(t)
 			for key, values := range resp.Headers() {
 				for _, val := range values {
@@ -1127,7 +1127,7 @@ func startTestHTTPServer(
 			// alice is hard coded in the location claim so it is also hard coded here
 			rcpt, err := receipt.Issue(testutil.Alice, out, ran.FromInvocation(inv))
 			require.NoError(t, err)
-			msg, err = message.Build(nil, []receipt.AnyReceipt{rcpt})
+			msg, err = message.Build(nil, []*receipt.Receipt{rcpt})
 			require.NoError(t, err)
 			resp, err := accept.Encoder().Encode(msg)
 			require.NoError(t, err)
@@ -1177,7 +1177,7 @@ func startTestHTTPServer(
 		rcpt, err := receipt.Issue(id, result.Ok[ok.Unit, ipld.Builder](ok.Unit{}), ran.FromLink(invLinks[0]))
 		require.NoError(t, err)
 
-		respMessage, err := message.Build([]invocation.Invocation{}, []receipt.AnyReceipt{rcpt})
+		respMessage, err := message.Build([]invocation.Invocation{}, []*receipt.Receipt{rcpt})
 		require.NoError(t, err)
 
 		resp := car.Encode([]ipld.Link{respMessage.Root().Link()}, respMessage.Blocks())

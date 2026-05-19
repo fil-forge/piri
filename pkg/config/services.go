@@ -5,10 +5,9 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipni/go-libipni/maurl"
 
 	"github.com/fil-forge/piri/lib"
@@ -16,8 +15,6 @@ import (
 )
 
 type ServicesConfig struct {
-	ServicePrincipalMapping map[string]string `mapstructure:"principal_mapping" flag:"service-principal-mapping" toml:"principal_mapping,omitempty"`
-
 	Indexer       IndexingServiceConfig      `mapstructure:"indexer" validate:"required" toml:"indexer,omitempty"`
 	EgressTracker EgressTrackerServiceConfig `mapstructure:"etracker" toml:"etracker,omitempty"`
 	Upload        UploadServiceConfig        `mapstructure:"upload" validate:"required" toml:"upload,omitempty"`
@@ -61,12 +58,6 @@ func (s ServicesConfig) ToAppConfig(publicURL url.URL) (app.ExternalServicesConf
 		return app.ExternalServicesConfig{}, fmt.Errorf("creating publisher service app config: %w", err)
 	}
 
-	if s.ServicePrincipalMapping != nil {
-		out.PrincipalMapping = s.ServicePrincipalMapping
-	} else {
-		out.PrincipalMapping = make(map[string]string)
-	}
-
 	return out, nil
 }
 
@@ -89,21 +80,21 @@ func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error)
 	if err != nil {
 		return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service URL: %w", err)
 	}
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
+	c, err := client.NewHTTP(surl)
 	if err != nil {
 		return app.IndexingServiceConfig{}, fmt.Errorf("creating indexing service connection: %w", err)
 	}
 	out := app.IndexingServiceConfig{
-		Connection: sconn,
+		DID:    sdid,
+		Client: c,
 	}
 	// Parse indexing service proofs if provided
 	if s.Proof != "" {
-		dlg, err := delegation.Parse(s.Proof)
+		dlg, err := delegation.Decode([]byte(s.Proof))
 		if err != nil {
 			return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service proof: %w", err)
 		}
-		out.Proofs = delegation.Proofs{delegation.FromDelegation(dlg)}
+		out.Proofs = dlg
 	} else {
 		// TODO(forrest): in the event a node is run without an indexing service proof, it will
 		// almost always fail to index...obviously.
@@ -151,8 +142,7 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service URL: %w", err)
 	}
 
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
+	clnt, err := client.NewHTTP(surl)
 	if err != nil {
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("creating egress tracker service connection: %w", err)
 	}
@@ -163,7 +153,8 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 	}
 
 	out := app.EgressTrackerServiceConfig{
-		Connection:           sconn,
+		DID:                  sdid,
+		Client:               clnt,
 		ReceiptsEndpoint:     receiptsEndpoint,
 		MaxBatchSizeBytes:    c.MaxBatchSizeBytes,
 		CleanupCheckInterval: 1 * time.Hour,
@@ -171,11 +162,11 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 
 	// Parse egress tracker service proofs if provided
 	if c.Proof != "" {
-		dlg, err := delegation.Parse(c.Proof)
+		dlg, err := delegation.Decode([]byte(c.Proof))
 		if err != nil {
 			return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service proof: %w", err)
 		}
-		out.Proofs = delegation.Proofs{delegation.FromDelegation(dlg)}
+		out.Proofs = dlg
 	} else {
 		log.Warn("no egress tracker service proof provided, egress tracking is disabled")
 	}
@@ -201,13 +192,13 @@ func (s *UploadServiceConfig) ToAppConfig() (app.UploadServiceConfig, error) {
 	if err != nil {
 		return app.UploadServiceConfig{}, fmt.Errorf("parsing upload service URL: %w", err)
 	}
-	schannel := ucanhttp.NewChannel(surl)
-	sconn, err := client.NewConnection(sdid, schannel)
+	clnt, err := client.NewHTTP(surl)
 	if err != nil {
 		return app.UploadServiceConfig{}, fmt.Errorf("creating upload service connection: %w", err)
 	}
 	return app.UploadServiceConfig{
-		Connection: sconn,
+		DID:    sdid,
+		Client: clnt,
 	}, nil
 }
 

@@ -6,7 +6,7 @@ import (
 
 	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/multiformats/go-multihash"

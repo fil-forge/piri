@@ -7,7 +7,7 @@ import (
 	"github.com/fil-forge/go-libstoracha/capabilities/assert"
 	libtypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	libtestutil "github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"

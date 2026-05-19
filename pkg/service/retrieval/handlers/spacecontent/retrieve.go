@@ -8,7 +8,7 @@ import (
 
 	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
 	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/go-ucanto/core/result"
 	"github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/server/retrieval"

@@ -1,5 +1,12 @@
 package replicator
 
+// TODO(forrest)[ucan1]: will do this later maybe
+/*
+import (
+	"github.com/fil-forge/piri/lib/jobqueue"
+	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+)
+
 import (
 	"context"
 
@@ -30,3 +37,5 @@ func (r *Service) RegisterTransferTask(queue *jobqueue.JobQueue[*replicahandler.
 		return replicahandler.SendFailureReceipt(ctx, r.deps, msg, err)
 	}))
 }
+
+*/

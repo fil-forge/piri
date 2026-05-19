@@ -7,9 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
-	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/ucantone/principal/ed25519"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/build"
 )
 
 func TestVersionInfoHandler(t *testing.T) {

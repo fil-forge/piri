@@ -3,13 +3,11 @@ package publisher
 import (
 	"net/url"
 
-	ipnipub "github.com/fil-forge/go-libstoracha/ipnipublisher/publisher"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
-	logging "github.com/ipfs/go-log/v2"
+	ipnipub "github.com/fil-forge/go-ipni-tools/pkg/publisher"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 type options struct {
@@ -17,19 +15,11 @@ type options struct {
 	blobAddr              multiaddr.Multiaddr
 	announceAddr          multiaddr.Multiaddr
 	announceURLs          []url.URL
-	indexingService       client.Connection
-	indexingServiceProofs delegation.Proofs
+	indexingService       app.IndexingServiceConfig
+	indexingServiceProofs ucan.Delegation
 }
 
 type Option func(*options) error
-
-// WithAsyncPublisher configures the async publisher for IPNI advertisements (overrides any publisher specific config)
-func WithAsyncPublisher(p ipnipub.AsyncPublisher) Option {
-	return func(o *options) error {
-		o.asyncPublisher = p
-		return nil
-	}
-}
 
 // WithAnnounceAddress sets the address put into announce messages to tell
 // indexers where to fetch advertisements from.
@@ -57,22 +47,8 @@ func WithDirectAnnounce(announceURLs ...url.URL) Option {
 }
 
 // WithIndexingService sets the client connection to the indexing UCAN service.
-func WithIndexingService(conn client.Connection) Option {
+func WithIndexingService(conn app.IndexingServiceConfig) Option {
 	return func(opts *options) error {
-		opts.indexingService = conn
-		return nil
-	}
-}
-
-// WithIndexingServiceConfig configures UCAN service invocation details for
-// communicating with the indexing service.
-func WithIndexingServiceConfig(serviceDID ucan.Principal, serviceURL url.URL) Option {
-	return func(opts *options) error {
-		channel := http.NewChannel(&serviceURL)
-		conn, err := client.NewConnection(serviceDID, channel)
-		if err != nil {
-			return err
-		}
 		opts.indexingService = conn
 		return nil
 	}
@@ -80,17 +56,9 @@ func WithIndexingServiceConfig(serviceDID ucan.Principal, serviceURL url.URL) Op
 
 // WithIndexingServiceProof configures proofs for UCAN invocations to the
 // indexing service.
-func WithIndexingServiceProof(proof ...delegation.Proof) Option {
+func WithIndexingServiceProof(proof ucan.Delegation) Option {
 	return func(opts *options) error {
 		opts.indexingServiceProofs = proof
-		return nil
-	}
-}
-
-// WithLogLevel changes the log level for the publisher subsystem.
-func WithLogLevel(level string) Option {
-	return func(c *options) error {
-		logging.SetLogLevel("publisher", level)
 		return nil
 	}
 }
