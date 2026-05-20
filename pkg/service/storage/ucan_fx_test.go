@@ -1,7 +1,6 @@
 package storage_test
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -35,6 +34,7 @@ import (
 	ufailure "github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/core/result/ok"
 	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/go-ucanto/principal"
 	ucanserver "github.com/fil-forge/go-ucanto/server"
 	ucan_car "github.com/fil-forge/go-ucanto/transport/car"
 	"github.com/fil-forge/go-ucanto/transport/headercar"
@@ -51,18 +51,23 @@ import (
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
-	"github.com/fil-forge/piri/pkg/presigner"
+	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 )
 
 func TestFXServer(t *testing.T) {
 	// Create test app configuration directly (no CLI config needed!)
 	var (
 		// things we are testing
-		svc storage.Service
-		srv ucanserver.ServerView[ucanserver.Service]
+		srv        ucanserver.ServerView[ucanserver.Service]
+		fakePieces *pdpfake.Pieces
+		allocs     allocationstore.AllocationStore
+		accepts    acceptancestore.AcceptanceStore
+		claimStore delegationstore.DelegationStore
 	)
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
@@ -70,7 +75,8 @@ func TestFXServer(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		fx.Populate(&svc, &srv),
+		pdpfake.Module,
+		fx.Populate(&srv, &fakePieces, &allocs, &accepts, &claimStore),
 	)
 
 	testApp.RequireStart()
@@ -131,7 +137,7 @@ func TestFXServer(t *testing.T) {
 			fmt.Printf("%+v\n", ok)
 			require.Equal(t, size, ok.Size)
 
-			alloc, err := svc.Blobs().Allocations().Get(context.Background(), digest, space)
+			alloc, err := allocs.Get(context.Background(), digest, space)
 			require.NoError(t, err)
 
 			require.Equal(t, digest, alloc.Blob.Digest)
@@ -199,8 +205,7 @@ func TestFXServer(t *testing.T) {
 		})
 
 		// simulate a blob upload
-		err := svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
+		fakePieces.Put(digest, data)
 
 		// now again after upload
 		result.MatchResultR0(invokeBlobAllocate(), func(ok blob.AllocateOk) {
@@ -258,8 +263,7 @@ func TestFXServer(t *testing.T) {
 		})
 
 		// simulate a blob upload
-		err := svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
+		fakePieces.Put(digest, data)
 
 		// now again after upload, but in different space
 		result.MatchResultR0(invokeBlobAllocate(space1), func(ok blob.AllocateOk) {
@@ -296,10 +300,9 @@ func TestFXServer(t *testing.T) {
 		require.NoError(t, err)
 
 		// simulate a blob upload
-		err = svc.Blobs().Store().Put(context.Background(), digest, size, bytes.NewReader(data))
-		require.NoError(t, err)
-		// get the expected download URL
-		loc, err := svc.Blobs().Access().GetDownloadURL(digest)
+		fakePieces.Put(digest, data)
+		// get the expected download URL (matches what the handler returns)
+		loc, err := fakePieces.ReadPieceURL(cid.NewCidV1(cid.Raw, digest))
 		require.NoError(t, err)
 
 		// eventually service will invoke blob/accept
@@ -334,15 +337,16 @@ func TestFXServer(t *testing.T) {
 		result.MatchResultR0(rcpt.Out(), func(ok blob.AcceptOk) {
 			fmt.Printf("%+v\n", ok)
 
-			acc, err := svc.Blobs().Acceptances().Get(t.Context(), digest, space)
+			acc, err := accepts.Get(t.Context(), digest, space)
 			require.NoError(t, err)
 
 			require.Equal(t, digest, acc.Blob.Digest)
 			require.Equal(t, space, acc.Space)
 			require.Equal(t, acceptInv.Link(), acc.Cause)
-			require.Nil(t, acc.PDPAccept)
+			// With PDP enabled, acceptance records the pdp/accept promise.
+			require.NotNil(t, acc.PDPAccept)
 
-			claim, err := svc.Claims().Store().Get(context.Background(), ok.Site)
+			claim, err := claimStore.Get(context.Background(), ok.Site)
 			require.NoError(t, err)
 
 			require.Equal(t, testutil.Alice.DID(), claim.Issuer())
@@ -442,12 +446,13 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			sourcePath, sinkPath, uploadServicePath := "get", "put", "upload-service"
 
 			// Spin up storage service, using injected values for testing.
-			locationURL, uploadServiceURL, fakeBlobPresigner := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
+			locationURL, uploadServiceURL, sinkURL := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
 
 			// Create test app configuration with custom presigner and upload service
 			var (
-				svc storage.Service
-				srv ucanserver.ServerView[ucanserver.Service]
+				srv        ucanserver.ServerView[ucanserver.Service]
+				fakePieces *pdpfake.Pieces
+				allocs     allocationstore.AllocationStore
 			)
 
 			appConfig := piritestutil.NewTestConfig(t,
@@ -459,33 +464,29 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 				fx.NopLogger,
 				app.CommonModules(appConfig),
 				app.UCANModule,
-				// replace the RequestPresigner with our fake one.
-				fx.Decorate(func() presigner.RequestPresigner {
-					return fakeBlobPresigner
-				}),
+				pdpfake.Module,
 				// use the map resolver so no network calls are made that would fail anyway
 				fx.Decorate(func() validator.PrincipalResolver {
 					return testutil.Must(principalresolver.NewMapResolver(map[string]string{
 						testutil.WebService.DID().String(): testutil.WebService.Unwrap().DID().String(),
 					}))(t)
 				}),
-				// // use the mocked proof service
-				// fx.Decorate(func() proofs.ProofService {
-				// 	return
-				// }),
 				// replace the default replicator config with one that causes failures to happen faster
 				fx.Replace(appconfig.ReplicatorConfig{
 					MaxRetries: 2,
 					MaxWorkers: 1,
 					MaxTimeout: time.Second,
 				}),
-				fx.Populate(&svc, &srv),
+				fx.Populate(&srv, &fakePieces, &allocs),
 			)
+
+			// Route the handler's WritePieceURL to the test sink endpoint.
+			fakePieces.SetWriteURL(*sinkURL)
 
 			testApp.RequireStart()
 
 			fakeServer, transferOkChan, sourceGetCount, sinkPutCount := startTestHTTPServer(
-				ctx, t, expectedDigest, expectedData, svc,
+				ctx, t, expectedDigest, expectedData, testutil.Alice, fakePieces,
 				serverAddr, sourcePath, sinkPath, uploadServicePath,
 				tc.simulateRetry, tc.simulateFailure,
 			)
@@ -513,7 +514,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			// Condition: If existing allocation, store an existing allocation
 			// coverage when an allocation has been made but not transfered.
 			if tc.hasExistingAllocation {
-				require.NoError(t, svc.Blobs().Allocations().Put(ctx, allocation.Allocation{
+				require.NoError(t, allocs.Put(ctx, allocation.Allocation{
 					Space: expectedSpace,
 					Blob: allocation.Blob{
 						Digest: expectedDigest,
@@ -528,9 +529,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 			// covers when an allocation and replica already exist, meaning no transfer required.
 			// though we still expect a transfer receipt.
 			if tc.hasExistingData {
-				require.NoError(t, svc.Blobs().Store().Put(
-					ctx, expectedDigest, expectedSize, bytes.NewReader(expectedData),
-				))
+				fakePieces.Put(expectedDigest, expectedData)
 			}
 
 			// Build + execute the actual replica.Allocate invocation.
@@ -594,6 +593,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 					expectedAllocateCaveats,
 					expectedReplicaCaveats,
 					tc.simulateFailure,
+					fakePieces,
 				)
 
 				// Verify blob was only transferred once
@@ -627,6 +627,7 @@ func TestFXReplicaAllocateTransfer(t *testing.T) {
 					expectedAllocateCaveats,
 					expectedReplicaCaveats,
 					tc.simulateFailure,
+					fakePieces,
 				)
 			}
 		})
@@ -649,12 +650,13 @@ func TestNewAllocationExistingData(t *testing.T) {
 	sourcePath, sinkPath, uploadServicePath := "get", "put", "upload-service"
 
 	// Spin up storage service, using injected values for testing.
-	locationURL, uploadServiceURL, fakeBlobPresigner := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
+	locationURL, uploadServiceURL, sinkURL := setupURLs(t, serverAddr, sourcePath, sinkPath, uploadServicePath)
 
 	// Create test app configuration with custom presigner and upload service
 	var (
-		svc storage.Service
-		srv ucanserver.ServerView[ucanserver.Service]
+		srv        ucanserver.ServerView[ucanserver.Service]
+		fakePieces *pdpfake.Pieces
+		allocs     allocationstore.AllocationStore
 	)
 
 	appConfig := piritestutil.NewTestConfig(t,
@@ -666,33 +668,28 @@ func TestNewAllocationExistingData(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		// replace the RequestPresigner with our fake one.
-		fx.Decorate(func() presigner.RequestPresigner {
-			return fakeBlobPresigner
-		}),
+		pdpfake.Module,
 		// use the map resolver so no network calls are made that would fail anyway
 		fx.Decorate(func() validator.PrincipalResolver {
 			return testutil.Must(principalresolver.NewMapResolver(map[string]string{
 				testutil.WebService.DID().String(): testutil.WebService.Unwrap().DID().String(),
 			}))(t)
 		}),
-		// // use the mocked proof service
-		// fx.Decorate(func() proofs.ProofService {
-		// 	return
-		// }),
 		// replace the default replicator config with one that causes failures to happen faster
 		fx.Replace(appconfig.ReplicatorConfig{
 			MaxRetries: 2,
 			MaxWorkers: 1,
 			MaxTimeout: time.Second,
 		}),
-		fx.Populate(&svc, &srv),
+		fx.Populate(&srv, &fakePieces, &allocs),
 	)
+
+	fakePieces.SetWriteURL(*sinkURL)
 
 	testApp.RequireStart()
 
 	fakeServer, transferOkChan, _, _ := startTestHTTPServer(
-		ctx, t, expectedDigest, expectedData, svc,
+		ctx, t, expectedDigest, expectedData, testutil.Alice, fakePieces,
 		serverAddr, sourcePath, sinkPath, uploadServicePath,
 		false, false,
 	)
@@ -718,7 +715,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	)
 
 	// create an allocation for the blob
-	require.NoError(t, svc.Blobs().Allocations().Put(ctx, allocation.Allocation{
+	require.NoError(t, allocs.Put(ctx, allocation.Allocation{
 		Space: initialAllocationSpace,
 		Blob: allocation.Blob{
 			Digest: expectedDigest,
@@ -729,9 +726,7 @@ func TestNewAllocationExistingData(t *testing.T) {
 	}))
 
 	// "upload"/store the blob
-	require.NoError(t, svc.Blobs().Store().Put(
-		ctx, expectedDigest, expectedSize, bytes.NewReader(expectedData),
-	))
+	fakePieces.Put(expectedDigest, expectedData)
 
 	// create a new allocation for a blob that already exists in a different space
 	// NB(forrest): this is the key difference from other test cases:
@@ -775,33 +770,30 @@ func TestNewAllocationExistingData(t *testing.T) {
 		expectedAllocateCaveats,
 		expectedReplicaCaveats,
 		false,
+		fakePieces,
 	)
 
 	// assert there are now two allocations for this blob (one per space)
-	_, err = svc.Blobs().Allocations().Get(ctx, expectedDigest, initialAllocationSpace)
+	_, err = allocs.Get(ctx, expectedDigest, initialAllocationSpace)
 	require.NoError(t, err, "expected allocation in initial allocation space")
 
-	_, err = svc.Blobs().Allocations().Get(ctx, expectedDigest, expectedSpace)
+	_, err = allocs.Get(ctx, expectedDigest, expectedSpace)
 	require.NoError(t, err, "expected allocation in expected (replicated) allocation space")
 
 }
 
-// Sets up the pre-signed URLs + returns them for use in testing
+// Sets up the URLs for source, sink, and upload service used in testing.
 func setupURLs(
 	t *testing.T,
 	serverAddr string,
 	sourcePath, sinkPath, uploadServicePath string,
-) (*url.URL, *url.URL, *FakePresigned) {
+) (locationURL *url.URL, uploadServiceURL *url.URL, sinkURL *url.URL) {
 	makeURL := func(path string) *url.URL {
 		return testutil.Must(
 			url.Parse(fmt.Sprintf("http://127.0.0.1%s/%s", serverAddr, path)),
 		)(t)
 	}
-	locationURL := makeURL(sourcePath)
-	uploadServiceURL := makeURL(uploadServicePath)
-	presignedURL := makeURL(sinkPath)
-	fakeBlobPresigner := &FakePresigned{uploadURL: *presignedURL}
-	return locationURL, uploadServiceURL, fakeBlobPresigner
+	return makeURL(sourcePath), makeURL(uploadServicePath), makeURL(sinkPath)
 }
 
 // Builds the UCAN delegation proof needed for replicate + allocate
@@ -955,6 +947,7 @@ func mustAssertTransferInvocation(
 	expectedAllocateCav replica.AllocateCaveats,
 	expectedReplicaCav blob2.ReplicateCaveats,
 	simulateFailure bool,
+	fakePieces *pdpfake.Pieces,
 ) {
 	// sanity check
 	require.NotNil(t, ucanConcludeMsg)
@@ -1020,15 +1013,18 @@ func mustAssertTransferInvocation(
 			result.Unwrap(result.MapError(transferReceipt.Out(), failure.FromFailureModel)),
 		)(t)
 
-		// PDP isn't enabled in this test setup, so no PDP proof expected.
-		require.Nil(t, transferOk.PDP)
+		// With PDP enabled, the transfer receipt carries a pdp/accept fx link.
+		require.NotNil(t, transferOk.PDP)
 
 		// read the receipt of the transfer invocation asserting the location caveats of Site contain expected values.
 		locationCavRct := mustGetInvocationCaveats[assert.LocationCaveats](t, reader, transferOk.Site, assert.LocationCaveatsReader.Read)
 		require.Equal(t, expectedSpace, locationCavRct.Space)
 		require.Equal(t, expectedDigest, locationCavRct.Content.Hash())
 		require.Len(t, locationCavRct.Location, 1)
-		require.Equal(t, fmt.Sprintf("/blob/z%s", expectedDigest.B58String()), locationCavRct.Location[0].Path)
+		// The handler returns whatever URL the fake's ReadPieceURL produces.
+		expectedReadURL, err := fakePieces.ReadPieceURL(cid.NewCidV1(cid.Raw, expectedDigest))
+		require.NoError(t, err)
+		require.Equal(t, expectedReadURL.String(), locationCavRct.Location[0].String())
 	} else {
 		transferErrorReceiptReader := testutil.Must(
 			receipt.NewReceiptReaderFromTypes[replica.TransferError, failure.FailureModel](
@@ -1059,7 +1055,8 @@ func startTestHTTPServer(
 	t *testing.T,
 	digest multihash.Multihash,
 	serveData []byte,
-	svc storage.Service,
+	id principal.Signer,
+	fakePieces *pdpfake.Pieces,
 	addr, sourcePath, sinkPath, uploadServicePath string,
 	simulateRetry bool,
 	simulateFailure bool,
@@ -1145,7 +1142,7 @@ func startTestHTTPServer(
 	// Endpoint to store data on the replica.
 	mux.HandleFunc(fmt.Sprintf("/%s", sinkPath), func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&sinkPutCount, 1)
-		require.NoError(t, svc.Blobs().Store().Put(ctx, digest, uint64(len(serveData)), bytes.NewReader(serveData)))
+		fakePieces.Put(digest, serveData)
 		_, _ = w.Write(serveData)
 	})
 	// Endpoint to simulate the upload service.
@@ -1175,7 +1172,7 @@ func startTestHTTPServer(
 		invLinks := agentMessage.Invocations()
 		require.Len(t, invLinks, 1)
 
-		rcpt, err := receipt.Issue(svc.ID(), result.Ok[ok.Unit, ipld.Builder](ok.Unit{}), ran.FromLink(invLinks[0]))
+		rcpt, err := receipt.Issue(id, result.Ok[ok.Unit, ipld.Builder](ok.Unit{}), ran.FromLink(invLinks[0]))
 		require.NoError(t, err)
 
 		respMessage, err := message.Build([]invocation.Invocation{}, []receipt.AnyReceipt{rcpt})
@@ -1204,19 +1201,4 @@ func startTestHTTPServer(
 		require.NoError(t, server.Close())
 	})
 	return server, agentCh, &sourceGetCount, &sinkPutCount
-}
-
-// FakePresigned is a stub for upload URL presigning.
-// TODO turn this into a mock
-type FakePresigned struct {
-	uploadURL url.URL
-}
-
-func (f *FakePresigned) SignUploadURL(_ context.Context, _ multihash.Multihash, _, _ uint64) (url.URL, http.Header, error) {
-	return f.uploadURL, nil, nil
-}
-
-func (f *FakePresigned) VerifyUploadURL(_ context.Context, _ url.URL, _ http.Header) (url.URL, http.Header, error) {
-	// TODO: implement when needed.
-	panic("implement me")
 }

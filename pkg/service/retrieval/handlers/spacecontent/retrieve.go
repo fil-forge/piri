@@ -12,17 +12,19 @@ import (
 	"github.com/fil-forge/go-ucanto/core/result"
 	"github.com/fil-forge/go-ucanto/core/result/failure"
 	"github.com/fil-forge/go-ucanto/server/retrieval"
-	"github.com/fil-forge/piri/pkg/store"
-	"github.com/fil-forge/piri/pkg/store/blobstore"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
+
+	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 var log = logging.Logger("retrieval/handlers/spacecontent")
 
 func Retrieve(
 	ctx context.Context,
-	blobs blobstore.BlobGetter,
+	pieces types.PieceReaderAPI,
 	inv invocation.Invocation,
 	digest multihash.Multihash,
 	byteRange *blobstore.Range,
@@ -32,23 +34,23 @@ func Retrieve(
 	cap := inv.Capabilities()[0]
 	log := log.With("iss", inv.Issuer().DID(), "can", cap.Can(), "with", cap.With(), "digest", digestStr)
 
-	var getOpts []blobstore.GetOption
+	var readOpts []types.ReadPieceOption
 
 	if byteRange != nil {
 		start := byteRange.Start
 		end := byteRange.End
 		rangeStr := fmt.Sprintf("%d-", start)
 		if end != nil {
-			rangeStr += fmt.Sprintf("%d", end)
+			rangeStr += fmt.Sprintf("%d", *end)
 		}
 		log = log.With("range", rangeStr)
 
 		if start > 0 || end != nil {
-			getOpts = append(getOpts, blobstore.WithRange(start, end))
+			readOpts = append(readOpts, types.WithRange(start, end))
 		}
 	}
 
-	blob, err := blobs.Get(ctx, digest, getOpts...)
+	piece, err := pieces.Read(ctx, digest, readOpts...)
 	if err != nil {
 		var erns blobstore.RangeNotSatisfiableError
 		if errors.Is(err, store.ErrNotFound) {
@@ -71,20 +73,20 @@ func Retrieve(
 	res := result.Ok[content.RetrieveOk, failure.IPLDBuilderFailure](content.RetrieveOk{})
 	status := http.StatusOK
 	headers := http.Header{}
-	contentLength := uint64(blob.Size())
+	contentLength := uint64(piece.Size)
 
 	if byteRange != nil {
 		start := byteRange.Start
 		// end is inclusive
-		end := uint64(blob.Size() - 1)
+		end := uint64(piece.Size - 1)
 		if byteRange.End != nil {
 			end = *byteRange.End
 		}
 		contentLength = end - start + 1
 
-		if contentLength != uint64(blob.Size()) {
+		if contentLength != uint64(piece.Size) {
 			status = http.StatusPartialContent
-			headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, blob.Size()))
+			headers.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, piece.Size))
 			headers.Add("Vary", "Range")
 		}
 	}
@@ -96,6 +98,6 @@ func Retrieve(
 	headers.Set("Cache-Control", "public, max-age=29030400, immutable")
 	headers.Set("Etag", fmt.Sprintf(`"%s"`, digestStr))
 	headers.Set("Vary", "Accept-Encoding")
-	resp := retrieval.NewResponse(status, headers, blob.Body())
+	resp := retrieval.NewResponse(status, headers, piece.Data)
 	return res, resp, nil
 }

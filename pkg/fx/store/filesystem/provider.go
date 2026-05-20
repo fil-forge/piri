@@ -16,7 +16,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
@@ -50,11 +49,7 @@ var Module = fx.Module("filesystem-store",
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 	),
 )
 
@@ -199,7 +194,7 @@ func NewAcceptanceStore(cfg app.AcceptanceStorageConfig, lc fx.Lifecycle) (accep
 	return acceptancestore.NewDatastoreStore(ds), nil
 }
 
-func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (claimstore.ClaimStore, error) {
+func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (delegationstore.DelegationStore, error) {
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for claim store")
 	}

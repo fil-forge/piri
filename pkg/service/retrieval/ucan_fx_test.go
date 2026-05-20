@@ -1,7 +1,6 @@
 package retrieval_test
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,13 +29,15 @@ import (
 
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/principalresolver"
-	"github.com/fil-forge/piri/pkg/service/storage"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 func TestFXSpaceContentRetrieve(t *testing.T) {
-	var svc storage.Service
+	var allocs allocationstore.AllocationStore
+	var fakePieces *pdpfake.Pieces
 
 	retrievalServiceID := testutil.Alice
 	uploadServiceID := testutil.WebService
@@ -51,13 +52,14 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
+		pdpfake.Module,
 		// use the map resolver so no network calls are made that would fail anyway
 		fx.Decorate(func() validator.PrincipalResolver {
 			return testutil.Must(principalresolver.NewMapResolver(map[string]string{
 				uploadServiceID.DID().String(): uploadServiceID.Unwrap().DID().String(),
 			}))(t)
 		}),
-		fx.Populate(&svc),
+		fx.Populate(&allocs, &fakePieces),
 	)
 
 	testApp.RequireStart()
@@ -72,7 +74,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			cid   cid.Cid
 		}{randBytes, cid.NewCidV1(cid.Raw, testutil.MultihashFromBytes(t, randBytes))}
 
-		svc.Blobs().Allocations().Put(t.Context(), allocation.Allocation{
+		allocs.Put(t.Context(), allocation.Allocation{
 			Blob: allocation.Blob{
 				Digest: blob.cid.Hash(),
 				Size:   uint64(len(blob.bytes)),
@@ -81,13 +83,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			Expires: 0,
 			Cause:   testutil.RandomCID(t),
 		})
-		err := svc.Blobs().Store().Put(
-			t.Context(),
-			blob.cid.Hash(),
-			uint64(len(blob.bytes)),
-			bytes.NewReader(blob.bytes),
-		)
-		require.NoError(t, err)
+		fakePieces.Put(blob.cid.Hash(), blob.bytes)
 
 		prf := delegation.FromDelegation(
 			testutil.Must(
@@ -140,7 +136,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			cid   cid.Cid
 		}{randBytes, cid.NewCidV1(cid.Raw, testutil.MultihashFromBytes(t, randBytes))}
 
-		svc.Blobs().Allocations().Put(t.Context(), allocation.Allocation{
+		allocs.Put(t.Context(), allocation.Allocation{
 			Blob: allocation.Blob{
 				Digest: blob.cid.Hash(),
 				Size:   uint64(len(blob.bytes)),
@@ -149,13 +145,7 @@ func TestFXSpaceContentRetrieve(t *testing.T) {
 			Expires: 0,
 			Cause:   testutil.RandomCID(t),
 		})
-		err := svc.Blobs().Store().Put(
-			t.Context(),
-			blob.cid.Hash(),
-			uint64(len(blob.bytes)),
-			bytes.NewReader(blob.bytes),
-		)
-		require.NoError(t, err)
+		fakePieces.Put(blob.cid.Hash(), blob.bytes)
 
 		account := absentee.From(testutil.Must(did.Parse("did:mailto:web.mail:bob"))(t))
 
@@ -251,14 +241,15 @@ func assertContentRetrieveOK(
 }
 
 func TestFXBlobRetrieve(t *testing.T) {
-	var svc storage.Service
+	var fakePieces *pdpfake.Pieces
 
 	appConfig := piritestutil.NewTestConfig(t, piritestutil.WithSigner(testutil.Alice))
 	testApp := fxtest.New(t,
 		fx.NopLogger,
 		app.CommonModules(appConfig),
 		app.UCANModule,
-		fx.Populate(&svc),
+		pdpfake.Module,
+		fx.Populate(&fakePieces),
 	)
 
 	testApp.RequireStart()
@@ -272,13 +263,7 @@ func TestFXBlobRetrieve(t *testing.T) {
 			cid   cid.Cid
 		}{randBytes, cid.NewCidV1(cid.Raw, testutil.MultihashFromBytes(t, randBytes))}
 
-		err := svc.Blobs().Store().Put(
-			t.Context(),
-			blob.cid.Hash(),
-			uint64(len(blob.bytes)),
-			bytes.NewReader(blob.bytes),
-		)
-		require.NoError(t, err)
+		fakePieces.Put(blob.cid.Hash(), blob.bytes)
 
 		prf := delegation.FromDelegation(
 			testutil.Must(

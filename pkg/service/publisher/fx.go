@@ -9,43 +9,41 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
-	"github.com/fil-forge/piri/pkg/service/publisher"
 )
 
 var Module = fx.Module("publisher",
 	fx.Provide(
-		// Also provide the interface
 		fx.Annotate(
-			NewService,
-			fx.As(new(publisher.Publisher)),
+			NewFx,
+			fx.As(new(Publisher)),
 		),
 		fx.Annotate(
-			publisher.NewServer,
+			NewServer,
 			fx.As(new(echofx.RouteRegistrar)),
 			fx.ResultTags(`group:"route_registrar"`),
 		),
 	),
 )
 
-func NewService(
-	cfg app.AppConfig,
+// NewFx wires the publisher service from its narrow configs.
+func NewFx(
+	pubCfg app.PublisherServiceConfig,
+	idxCfg app.IndexingServiceConfig,
 	id principal.Signer,
 	publisherStore store.PublisherStore,
-) (*publisher.PublisherService, error) {
-	pubCfg := cfg.UCANService.Services.Publisher
+) (*PublisherService, error) {
 	if pubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
 	}
 
-	return publisher.New(
+	return New(
 		id,
 		publisherStore,
 		pubCfg.PublicMaddr,
-		publisher.WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		publisher.WithIndexingService(cfg.UCANService.Services.Indexer.Connection),
-		publisher.WithIndexingServiceProof(cfg.UCANService.Services.Indexer.Proofs...),
-		publisher.WithAnnounceAddress(pubCfg.AnnounceMaddr),
-		publisher.WithBlobAddress(pubCfg.BlobMaddr),
+		WithDirectAnnounce(pubCfg.AnnounceURLs...),
+		WithIndexingService(idxCfg.Connection),
+		WithIndexingServiceProof(idxCfg.Proofs...),
+		WithAnnounceAddress(pubCfg.AnnounceMaddr),
+		WithBlobAddress(pubCfg.BlobMaddr),
 	)
-
 }

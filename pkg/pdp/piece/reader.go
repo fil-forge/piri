@@ -15,11 +15,11 @@ import (
 const DefaultHasSetSize = 100_000
 
 type StoreReader struct {
-	store  blobstore.PDPStore
+	store  blobstore.Blobstore
 	hasSet mapset.Set[string]
 }
 
-func NewStoreReader(store blobstore.PDPStore) (types.PieceReaderAPI, error) {
+func NewStoreReader(store blobstore.Blobstore) (types.PieceReaderAPI, error) {
 	return &StoreReader{
 		store:  store,
 		hasSet: mapset.NewSetWithSize[string](DefaultHasSetSize),

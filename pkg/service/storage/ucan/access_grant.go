@@ -11,7 +11,6 @@ import (
 	"github.com/fil-forge/go-libstoracha/capabilities/blob"
 	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
 	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/client"
 	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
 	"github.com/fil-forge/go-ucanto/core/delegation"
 	"github.com/fil-forge/go-ucanto/core/invocation"
@@ -24,18 +23,24 @@ import (
 	"github.com/fil-forge/go-ucanto/validator"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/multiformats/go-multihash"
+	fxlib "go.uber.org/fx"
+
+	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 // validity is the time a granted delegation is valid for.
 const validity = time.Hour
 
-type AccessGrantService interface {
-	ID() principal.Signer
-	ClaimValidationContext() validator.ClaimContext
-	UploadConnection() client.Connection
+// AccessGrantDeps is the dependency set populated by fx for the access/grant
+// UCAN method.
+type AccessGrantDeps struct {
+	fxlib.In
+	ID                     principal.Signer
+	ClaimValidationContext validator.ClaimContext
+	Upload                 app.UploadServiceConfig
 }
 
-func WithAccessGrantMethod(service AccessGrantService) server.Option {
+func WithAccessGrantMethod(deps AccessGrantDeps) server.Option {
 	return server.WithServiceMethod(
 		access.GrantAbility,
 		server.Provide(
@@ -60,7 +65,7 @@ func WithAccessGrantMethod(service AccessGrantService) server.Option {
 
 				delegations := map[string]delegation.Delegation{}
 				for _, cap := range cap.Nb().Att {
-					res, err := grantCapability(ctx, service, inv.Issuer(), cap.Can, cause)
+					res, err := grantCapability(ctx, deps, inv.Issuer(), cap.Can, cause)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -92,14 +97,14 @@ func WithAccessGrantMethod(service AccessGrantService) server.Option {
 
 func grantCapability(
 	ctx context.Context,
-	service AccessGrantService,
+	deps AccessGrantDeps,
 	audience ucan.Principal,
 	ability ucan.Ability,
 	cause invocation.Invocation,
 ) (result.Result[delegation.Delegation, failure.IPLDBuilderFailure], error) {
 	switch ability {
 	case blob.RetrieveAbility:
-		return grantBlobRetrieve(ctx, service, audience, cause)
+		return grantBlobRetrieve(ctx, deps, audience, cause)
 	default:
 		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnknownAbilityError(ability)), nil
 	}
@@ -110,7 +115,7 @@ func grantCapability(
 // 2. if the cause is an `assert/index` issued by an upload service
 func grantBlobRetrieve(
 	ctx context.Context,
-	service AccessGrantService,
+	deps AccessGrantDeps,
 	audience ucan.Principal,
 	cause invocation.Invocation,
 ) (result.Result[delegation.Delegation, failure.IPLDBuilderFailure], error) {
@@ -125,8 +130,8 @@ func grantBlobRetrieve(
 		err := access.NewInvalidCauseError(fmt.Sprintf("audience is %s not %s", cause.Audience().DID(), audience.DID()))
 		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
 	}
-	if cause.Issuer().DID() != service.UploadConnection().ID().DID() {
-		err := access.NewInvalidCauseError(fmt.Sprintf("issuer is %s not %s", cause.Issuer().DID(), service.UploadConnection().ID().DID()))
+	if cause.Issuer().DID() != deps.Upload.Connection.ID().DID() {
+		err := access.NewInvalidCauseError(fmt.Sprintf("issuer is %s not %s", cause.Issuer().DID(), deps.Upload.Connection.ID().DID()))
 		return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](err), nil
 	}
 
@@ -134,14 +139,14 @@ func grantBlobRetrieve(
 	var digest multihash.Multihash
 	switch causeAbility {
 	case replica.AllocateAbility:
-		vctx := newValidationContextFromClaimContext(replica.Allocate, service.ClaimValidationContext())
+		vctx := newValidationContextFromClaimContext(replica.Allocate, deps.ClaimValidationContext)
 		auth, verr := validator.Access(ctx, cause, vctx)
 		if verr != nil {
 			return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnauthorizedCauseError(verr)), nil
 		}
 		digest = auth.Capability().Nb().Blob.Digest
 	case assert.IndexAbility:
-		vctx := newValidationContextFromClaimContext(assert.Index, service.ClaimValidationContext())
+		vctx := newValidationContextFromClaimContext(assert.Index, deps.ClaimValidationContext)
 		auth, verr := validator.Access(ctx, cause, vctx)
 		if verr != nil {
 			return result.Error[delegation.Delegation, failure.IPLDBuilderFailure](access.NewUnauthorizedCauseError(verr)), nil
@@ -152,10 +157,10 @@ func grantBlobRetrieve(
 	}
 
 	d, err := blob.Retrieve.Delegate(
-		service.ID(),
+		deps.ID,
 		audience,
 		// Allow blob retrieval on "us" i.e. this agent is the resource.
-		service.ID().DID().String(),
+		deps.ID.DID().String(),
 		// Allow only retrieval of the specified blob
 		blob.RetrieveCaveats{Blob: blob.Blob{Digest: digest}},
 		delegation.WithExpiration(ucan.Now()+int(validity.Seconds())),

@@ -14,7 +14,7 @@ import (
 	"github.com/fil-forge/go-ucanto/principal/signer"
 	"github.com/spf13/cobra"
 
-	"github.com/fil-forge/piri/cmd/cliutil"
+	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config"
 )
 
@@ -66,7 +66,7 @@ func doGenerate(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	id, err := cliutil.ReadPrivateKeyFromPEM(cfg.Identity.KeyFile)
+	id, err := lib.SignerFromEd25519PEMFile(cfg.Identity.KeyFile)
 	if err != nil {
 		return fmt.Errorf("parsing private key: %w", err)
 	}

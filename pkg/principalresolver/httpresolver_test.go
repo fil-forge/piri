@@ -11,7 +11,6 @@ import (
 	"github.com/fil-forge/go-ucanto/did"
 	"github.com/stretchr/testify/require"
 
-	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/principalresolver"
 )
 
@@ -575,24 +574,4 @@ func TestExtractDomainFromDID(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRealTest(t *testing.T) {
-	iKey, _ := did.Parse("did:key:z6Mkr4QkdinnXQmJ9JdnzwhcEjR8nMnuVPEwREyh9jp2Pb7k")
-	uKey, _ := did.Parse("did:key:z6MkpR58oZpK7L3cdZZciKT25ynGro7RZm6boFouWQ7AzF7v")
-
-	preset, _ := presets.GetPreset(presets.WarmStaging)
-
-	presolv, err := principalresolver.NewHTTPResolver([]did.DID{preset.Services.IndexingServiceDID, preset.Services.UploadServiceDID})
-	require.NoError(t, err)
-
-	resp, err := presolv.ResolveDIDKey(t.Context(), preset.Services.IndexingServiceDID)
-	require.NoError(t, err)
-
-	require.Equal(t, iKey, resp.DID())
-
-	resp, err = presolv.ResolveDIDKey(t.Context(), preset.Services.UploadServiceDID)
-	require.NoError(t, err)
-
-	require.Equal(t, uKey, resp.DID())
 }

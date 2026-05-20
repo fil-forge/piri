@@ -4,17 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-datastore"
-	dssync "github.com/ipfs/go-datastore/sync"
-	leveldb "github.com/ipfs/go-ds-leveldb"
 	logging "github.com/ipfs/go-log/v2"
-	ldbopts "github.com/syndtr/goleveldb/leveldb/opt"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
@@ -32,7 +27,6 @@ var log = logging.Logger("egresstracker")
 var Module = fx.Module("egresstracker",
 	fx.Provide(
 		ProvideEgressTrackerQueue,
-		//ProvideConsolidationStore,
 		ProvideReceiptsClient,
 		NewEgressTrackerService,
 		fx.Annotate(
@@ -89,44 +83,8 @@ func ProvideEgressTrackerQueue(lc fx.Lifecycle, params QueueParams) (EgressTrack
 	return NewEgressTrackerQueue(queue), nil
 }
 
-func ProvideConsolidationStore(lc fx.Lifecycle, cfg app.AppConfig) (consolidationstore.Store, error) {
-	baseDir := cfg.Storage.EgressTracker.Dir
-
-	var ds datastore.Datastore
-	var err error
-
-	if baseDir == "" {
-		// Use memory-based store
-		log.Info("using memory-based consolidation store")
-		ds = dssync.MutexWrap(datastore.NewMapDatastore())
-	} else {
-		// Use leveldb
-		dsPath := filepath.Join(baseDir, "consolidation")
-		ds, err = leveldb.NewDatastore(dsPath, &leveldb.Options{
-			Compression: ldbopts.NoCompression,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating leveldb datastore: %w", err)
-		}
-
-		// Add lifecycle hook to close leveldb on shutdown
-		lc.Append(fx.Hook{
-			OnStop: func(ctx context.Context) error {
-				if err := ds.Close(); err != nil {
-					log.Errorf("error closing consolidation datastore: %v", err)
-					return err
-				}
-				return nil
-			},
-		})
-	}
-
-	return consolidationstore.NewDatastoreStore(ds), nil
-}
-
-func ProvideReceiptsClient(lc fx.Lifecycle, cfg app.AppConfig) *receipts.Client {
-	receiptsEndpoint := cfg.UCANService.Services.EgressTracker.ReceiptsEndpoint
-	return receipts.NewClient(receiptsEndpoint)
+func ProvideReceiptsClient(cfg app.EgressTrackerServiceConfig) *receipts.Client {
+	return receipts.NewClient(cfg.ReceiptsEndpoint)
 }
 
 func NewEgressTrackerService(
@@ -136,30 +94,26 @@ func NewEgressTrackerService(
 	consolidationStore consolidationstore.Store,
 	queue EgressTrackerQueue,
 	rcptsClient *receipts.Client,
-	cfg app.AppConfig,
+	serverCfg app.ServerConfig,
+	cfg app.EgressTrackerServiceConfig,
 ) (*Service, error) {
-	batchEndpoint := cfg.Server.PublicURL.JoinPath(ReceiptsPath + "/{cid}")
-	egressTrackerConn := cfg.UCANService.Services.EgressTracker.Connection
-	egressTrackerProofs := cfg.UCANService.Services.EgressTracker.Proofs
-	receiptsEndpoint := cfg.UCANService.Services.EgressTracker.ReceiptsEndpoint
-	cleanupCheckInterval := cfg.UCANService.Services.EgressTracker.CleanupCheckInterval
-
-	if egressTrackerConn == nil {
+	if cfg.Connection == nil {
 		log.Warn("no egress tracker service connection provided, egress tracking is disabled")
 		return nil, nil
 	}
 
+	cleanupCheckInterval := cfg.CleanupCheckInterval
 	// Disable cleanup if receipts endpoint is not configured or empty
-	if receiptsEndpoint == nil || receiptsEndpoint.String() == "" {
+	if cfg.ReceiptsEndpoint == nil || cfg.ReceiptsEndpoint.String() == "" {
 		log.Warn("no egress tracker receipts endpoint configured, cleanup task will be disabled")
 		cleanupCheckInterval = 0 // Disable cleanup
 	}
 
 	svc, err := New(
 		id,
-		egressTrackerConn,
-		egressTrackerProofs,
-		batchEndpoint,
+		cfg.Connection,
+		cfg.Proofs,
+		serverCfg.PublicURL.JoinPath(ReceiptsPath+"/{cid}"),
 		journal,
 		consolidationStore,
 		queue,

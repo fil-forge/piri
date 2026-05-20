@@ -19,7 +19,9 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	fxlib "go.uber.org/fx"
 
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/retrieval/handlers/spacecontent"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
@@ -28,12 +30,15 @@ import (
 
 var log = logging.Logger("retrieval/ucan")
 
-type SpaceContentRetrievalService interface {
-	Allocations() allocationstore.AllocationStore
-	Blobs() blobstore.BlobGetter
+// SpaceContentRetrieveDeps is the dependency set populated by fx for the
+// space/content/retrieve UCAN method.
+type SpaceContentRetrieveDeps struct {
+	fxlib.In
+	Allocations allocationstore.AllocationStore
+	Pieces      types.PieceReaderAPI
 }
 
-func WithSpaceContentRetrieveMethod(retrievalService SpaceContentRetrievalService) retrieval.Option {
+func WithSpaceContentRetrieveMethod(deps SpaceContentRetrieveDeps) retrieval.Option {
 	return retrieval.WithServiceMethod(
 		content.RetrieveAbility,
 		retrieval.Provide(
@@ -76,7 +81,7 @@ func WithSpaceContentRetrieveMethod(retrievalService SpaceContentRetrievalServic
 					"range", fmt.Sprintf("%d-%d", start, end),
 				)
 
-				_, err = retrievalService.Allocations().Get(ctx, digest, space)
+				_, err = deps.Allocations.Get(ctx, digest, space)
 				if err != nil {
 					if errors.Is(err, store.ErrNotFound) {
 						log.Debugw("allocation not found", "status", http.StatusNotFound)
@@ -89,7 +94,7 @@ func WithSpaceContentRetrieveMethod(retrievalService SpaceContentRetrievalServic
 					return nil, nil, retrieval.Response{}, fmt.Errorf("getting allocation: %w", err)
 				}
 
-				res, resp, err = spacecontent.Retrieve(ctx, retrievalService.Blobs(), inv, digest, &blobstore.Range{Start: start, End: &end})
+				res, resp, err = spacecontent.Retrieve(ctx, deps.Pieces, inv, digest, &blobstore.Range{Start: start, End: &end})
 				if err != nil {
 					return nil, nil, retrieval.Response{}, err
 				}

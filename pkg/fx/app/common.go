@@ -9,9 +9,9 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/database"
 	"github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/fx/identity"
-	"github.com/fil-forge/piri/pkg/fx/proofs"
 	"github.com/fil-forge/piri/pkg/fx/store"
 	"github.com/fil-forge/piri/pkg/health"
+	"github.com/fil-forge/piri/pkg/service/proofs"
 )
 
 func CommonModules(cfg app.AppConfig) fx.Option {
@@ -24,6 +24,11 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		fx.Supply(cfg.Server),
 		fx.Supply(cfg.Storage),
 		fx.Supply(cfg.UCANService),
+		fx.Supply(cfg.UCANService.Services),
+		fx.Supply(cfg.UCANService.Services.Upload),
+		fx.Supply(cfg.UCANService.Services.Indexer),
+		fx.Supply(cfg.UCANService.Services.Publisher),
+		fx.Supply(cfg.UCANService.Services.EgressTracker),
 		fx.Supply(cfg.PDPService),
 		fx.Supply(cfg.Replicator),
 		fx.Supply(cfg.PDPService.SigningService),

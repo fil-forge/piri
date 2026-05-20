@@ -13,11 +13,12 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
-	"github.com/fil-forge/piri/pkg/service/claims"
-	"github.com/fil-forge/piri/pkg/service/replicator"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
+	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -28,13 +29,11 @@ var Module = fx.Module("replicator",
 		ProvideReplicationQueue,
 		fx.Annotate(
 			New,
-			fx.As(fx.Self()),                  // provide as concrete type for RegisterReplicationJobs
-			fx.As(new(replicator.Replicator)), // also provide as interface
+			fx.As(fx.Self()),       // provide as concrete type for RegisterReplicationJobs
+			fx.As(new(Replicator)), // also provide as interface
 		),
 	),
-	fx.Invoke(
-		RegisterReplicationJobs,
-	),
+	fx.Invoke(RegisterReplicationJobs),
 )
 
 type QueueParams struct {
@@ -45,7 +44,6 @@ type QueueParams struct {
 }
 
 func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.JobQueue[*replicahandler.TransferRequest], error) {
-	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
 		d = dialect.Postgres
@@ -71,46 +69,54 @@ func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.Job
 			return replicationQueue.Start(queueCtx)
 		},
 		OnStop: func(ctx context.Context) error {
-			cancel()                          // Cancel the Start context first
-			return replicationQueue.Stop(ctx) // Then wait for graceful shutdown
+			cancel()
+			return replicationQueue.Stop(ctx)
 		},
 	})
 
 	return replicationQueue, nil
 }
 
+// Params is the dependency set populated by fx for the replicator service.
 type Params struct {
 	fx.In
 
-	Config       app.AppConfig
-	ID           principal.Signer
-	PDP          pdp.PDP `optional:"true"`
-	Blobs        blobs.Blobs
-	Claims       claims.Claims
-	ReceiptStore receiptstore.ReceiptStore
-	Queue        *jobqueue.JobQueue[*replicahandler.TransferRequest]
+	ID          principal.Signer
+	Upload      app.UploadServiceConfig
+	Pieces      pdptypes.PieceAPI
+	Commp       commp.Calculator
+	Acceptances acceptancestore.AcceptanceStore
+	ClaimStore  delegationstore.DelegationStore
+	Publisher   publisher.Publisher
+	Receipts    receiptstore.ReceiptStore
+	Queue       *jobqueue.JobQueue[*replicahandler.TransferRequest]
 }
 
-func New(params Params) (*replicator.Service, error) {
-	r, err := replicator.New(
-		params.ID,
-		params.PDP,
-		params.Blobs,
-		params.Claims,
-		params.ReceiptStore,
-		params.Config.UCANService.Services.Upload.Connection,
-		params.Queue,
-	)
+// New constructs the replicator service.
+func New(p Params) (*Service, error) {
+	metrics, err := replicahandler.NewMetrics()
 	if err != nil {
-		return nil, fmt.Errorf("new replicator: %w", err)
+		return nil, err
 	}
-
-	return r, nil
+	return &Service{
+		queue: p.Queue,
+		deps: replicahandler.TransferDeps{
+			ID:          p.ID,
+			Acceptances: p.Acceptances,
+			Pieces:      p.Pieces,
+			Commp:       p.Commp,
+			ClaimStore:  p.ClaimStore,
+			Publisher:   p.Publisher,
+			Receipts:    p.Receipts,
+			Upload:      p.Upload,
+		},
+		metrics: metrics,
+	}, nil
 }
 
 func RegisterReplicationJobs(
 	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
-	service *replicator.Service,
+	service *Service,
 ) error {
 	return service.RegisterTransferTask(queue)
 }

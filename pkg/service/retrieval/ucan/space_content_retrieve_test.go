@@ -28,23 +28,11 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
+	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
-
-type retrievalService struct {
-	allocations allocationstore.AllocationStore
-	blobs       blobstore.BlobGetter
-}
-
-func (rs *retrievalService) Allocations() allocationstore.AllocationStore {
-	return rs.allocations
-}
-
-func (rs *retrievalService) Blobs() blobstore.BlobGetter {
-	return rs.blobs
-}
 
 func TestSpaceContentRetrieve(t *testing.T) {
 	logging.SetLogLevel("retrieval/ucan", "DEBUG")
@@ -320,8 +308,13 @@ func TestSpaceContentRetrieve(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			service := retrievalService{allocations, blobs}
-			server, err := retrieval.NewServer(testutil.Service, WithSpaceContentRetrieveMethod(&service))
+			pieces, err := piece.NewStoreReader(blobs)
+			require.NoError(t, err)
+
+			server, err := retrieval.NewServer(testutil.Service, WithSpaceContentRetrieveMethod(SpaceContentRetrieveDeps{
+				Allocations: allocations,
+				Pieces:      pieces,
+			}))
 			require.NoError(t, err)
 
 			inv, err := invocation.Invoke(

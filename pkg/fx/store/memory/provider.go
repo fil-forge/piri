@@ -15,7 +15,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/delegationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
@@ -46,11 +45,7 @@ var Module = fx.Module("memory-store",
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 	),
 )
 
@@ -68,7 +63,7 @@ func NewAcceptanceStore() acceptancestore.AcceptanceStore {
 	return acceptancestore.NewDatastoreStore(ds)
 }
 
-func NewClaimStore() claimstore.ClaimStore {
+func NewClaimStore() delegationstore.DelegationStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
 	return delegationstore.NewDatastoreStore(ds)
 }
