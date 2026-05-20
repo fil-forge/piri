@@ -14,9 +14,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/libforge/capabilities/blob"
-	"github.com/fil-forge/libforge/capabilities/blob/replica"
-	"github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/commands/blob/replica"
+	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
@@ -787,10 +787,10 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		cfg.Identity.Signer,
 		flags.baseConfig.uploadServiceDID,
 		[]ucan.Command{
-			blob.AllocateCommand,
-			blob.AcceptCommand,
+			blob.Allocate.Command,
+			blob.Accept.Command,
 			pdp.InfoCommand,
-			replica.AllocateCommand,
+			replica.Allocate.Command,
 		},
 		delegation.WithNoExpiration(),
 	)

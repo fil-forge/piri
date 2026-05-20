@@ -6,19 +6,18 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/root"
 	"github.com/fil-forge/piri/pkg/service/claims"
 	"github.com/fil-forge/piri/pkg/service/publisher"
-	retrievalucan "github.com/fil-forge/piri/pkg/service/retrieval/ucan"
-	"github.com/fil-forge/piri/pkg/service/storage"
-	storageucan "github.com/fil-forge/piri/pkg/service/storage/ucan"
+	ucanhandlersfx "github.com/fil-forge/piri/pkg/ucanhandlers/ucanfx"
 )
 
 var UCANModule = fx.Module("ucan",
 	root.Module,      // Provides root http handler
 	claims.Module,    // Provides claims service and handler
 	publisher.Module, // Provides publisher service and handler
+	ucanhandlersfx.Module,
 	//egresstracker.Module,     // Provides egress tracker service
 	//replicator.Module,        // Provides replicator service
-	storage.Module, // Wires upload connection + consumer-side interface bindings
+	//storage.Module, // Wires upload connection + consumer-side interface bindings
 	//principalresolver.Module, // Provides principal resolver for UCAN
-	storageucan.Module,   // Provides storage UCAN handler
-	retrievalucan.Module, // Provides retrieval UCAN handler
+	//storageucan.Module,   // Provides storage UCAN handler
+	//retrievalucan.Module, // Provides retrieval UCAN handler
 )

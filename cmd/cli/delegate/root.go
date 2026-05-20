@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fil-forge/libforge/capabilities/blob"
-	"github.com/fil-forge/libforge/capabilities/blob/replica"
-	"github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/commands/blob/replica"
+	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal/signer"
 	"github.com/fil-forge/ucantone/ucan"
@@ -110,10 +110,10 @@ func doGenerate(cmd *cobra.Command, _ []string) error {
 		id,
 		clientDid,
 		[]ucan.Command{
-			blob.AllocateCommand,
-			blob.AcceptCommand,
+			blob.Allocate.Command,
+			blob.Accept.Command,
 			pdp.InfoCommand,
-			replica.AllocateCommand,
+			replica.Allocate.Command,
 		},
 		delegation.WithNoExpiration(),
 	)

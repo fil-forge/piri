@@ -11,8 +11,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/fil-forge/ucantone/did"
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
+	"github.com/fil-forge/ucantone/did"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 )

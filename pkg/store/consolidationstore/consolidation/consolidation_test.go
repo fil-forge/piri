@@ -3,8 +3,8 @@ package consolidation_test
 import (
 	"testing"
 
-	"github.com/fil-forge/libforge/capabilities"
-	"github.com/fil-forge/libforge/capabilities/space/egress"
+	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/commands/space/egress"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/stretchr/testify/require"
 
@@ -43,7 +43,7 @@ func TestConsolidation(t *testing.T) {
 		inv, err := c.Track()
 		require.NoError(t, err)
 		require.NotNil(t, inv)
-		require.Equal(t, egress.TrackCommand, string(inv.Command()))
+		require.Equal(t, egress.Track.Command, inv.Command())
 	})
 
 	t.Run("Track on empty bytes errors", func(t *testing.T) {
@@ -63,7 +63,7 @@ func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 		audience,
 		&egress.TrackArguments{
 			Receipts: testutil.RandomCID(t),
-			Endpoint: capabilities.CborURL{},
+			Endpoint: commands.CborURL{},
 		},
 	)
 	require.NoError(t, err)

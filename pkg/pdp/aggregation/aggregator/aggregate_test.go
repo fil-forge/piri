@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/piece/digest"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/filecoin-project/go-data-segment/merkletree"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 func TestAggregate(t *testing.T) {
@@ -21,26 +21,33 @@ func TestAggregate(t *testing.T) {
 	oddsReduction := 0.8
 	maxSize := 28 // 256 mb
 	minSize := 16 // 64 kb
-	pieceLinks, err := generatePieceLinks(uint8(maxSize), oddsShrink, oddsReduction, uint8(minSize))
+	pieces, err := generatePieces(uint8(maxSize), oddsShrink, oddsReduction, uint8(minSize))
 	require.NoError(t, err)
-	out, err := json.MarshalIndent(pieceLinks, "", "  ")
+	out, err := json.MarshalIndent(pieces, "", "  ")
 	require.NoError(t, err)
 	t.Log("piece links\n", string(out))
-	agg, err := aggregator.NewAggregate(pieceLinks)
+	agg, err := aggregator.NewAggregate(pieces)
 	require.NoError(t, err)
-	rootNode := (*merkletree.Node)(agg.Root.DataCommitment())
+
+	// Aggregate fields are cid.Cid; convert back to Piece to use
+	// DataCommitment() and friends.
+	rootPiece, err := piri_piece.FromCID(agg.Root)
+	require.NoError(t, err)
+	rootNode := (*merkletree.Node)(rootPiece.DataCommitment())
 	for _, aggPiece := range agg.Pieces {
-		subTree := (*merkletree.Node)(aggPiece.Link.DataCommitment())
+		piecePL, err := piri_piece.FromCID(aggPiece.Link)
+		require.NoError(t, err)
+		subTree := (*merkletree.Node)(piecePL.DataCommitment())
 		require.NoError(t, aggPiece.InclusionProof.ValidateSubtree(subTree, rootNode))
 	}
 }
 
 // this generates a random series of pieces decaying in size that should add up to a size between 2^(height-1) and 2^(height)
-func generatePieceLinks(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]piece.PieceLink, error) {
+func generatePieces(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]piri_piece.Piece, error) {
 	size := 0
 	targetSize := 1 << (height - 1)
 	currentHeight := height
-	var pieceLinks []piece.PieceLink
+	var pieces []piri_piece.Piece
 	for size <= targetSize {
 		for {
 			if currentHeight <= smallestSize {
@@ -69,12 +76,12 @@ func generatePieceLinks(height uint8, oddsShrink float64, oddsReduction float64,
 		if actualSize != uint64(paddedSize) {
 			return nil, errors.New("calculated wrong")
 		}
-		digest, err := digest.FromCommitmentAndSize(commP, uint64(blobSize))
+		p, err := piri_piece.FromCommitmentAndSize(commP, uint64(blobSize))
 		if err != nil {
 			return nil, err
 		}
-		pieceLinks = append(pieceLinks, piece.FromPieceDigest(digest))
+		pieces = append(pieces, p)
 		size += paddedSize
 	}
-	return pieceLinks, nil
+	return pieces, nil
 }

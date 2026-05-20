@@ -6,37 +6,44 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/libforge/commands/access"
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/execution/bindexec"
-	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
-	"github.com/fil-forge/ucantone/validator"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/service/proofs"
 )
 
+// TestCachingProofsService exercises CachingProofService.RequestAccess against
+// an in-process /access/grant handler. It covers the four behaviors that
+// callers rely on:
+//
+//  1. A fresh request returns a delegation that matches the requested command
+//     and is rooted at the audience service.
+//  2. A repeat request with the same (issuer, audience, command) tuple is
+//     served from cache — proved by an unchanged nonce.
+//  3. Changing the issuer bypasses the cache and triggers a server round-trip.
+//  4. Requesting a minimum TTL longer than the cached delegation's remaining
+//     lifetime forces a refresh, also producing a new nonce.
+//
+// The grant handler issues a short-lived delegation per call with a random
+// nonce, so nonce equality across calls is a reliable cache-hit signal.
 func TestCachingProofsService(t *testing.T) {
 	webService := testutil.RandomSigner(t)
 	alice := testutil.RandomSigner(t)
 	bob := testutil.RandomSigner(t)
 
-	// /access/grant is the bootstrap step in the access flow — any caller
-	// must be able to self-issue it. Pass a permissive CanIssue so the
-	// validator accepts the unauthenticated invocations from this test.
-	srv := server.NewHTTP(
-		webService,
-		server.WithValidationOptions(validator.WithCanIssue(func(_ ucan.Capability, _ did.DID) bool {
-			return true
-		})),
-	)
-	srv.Handle(access.Grant, bindexec.NewHandler(
+	// /access/grant is the bootstrap step in the access flow; the proofs
+	// service self-issues the invocation (subject == issuer), which the
+	// validator accepts without any delegation chain.
+	srv := server.NewHTTP(webService)
+	srv.Handle(access.Grant.Command, bindexec.NewHandler(
 		func(req *bindexec.Request[*access.GrantArguments], res *bindexec.Response[*access.GrantOK]) error {
 			args := req.Task().Arguments()
 			require.NotEmpty(t, args.Attenuations)

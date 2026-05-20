@@ -1,7 +1,6 @@
 package types
 
 import (
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
@@ -21,9 +20,6 @@ type StoreParams struct {
 const AggregatePrefix = "aggregates/"
 
 func NewStore(params StoreParams) Store {
-	return ipldstore.IPLDStore[cid.Cid, Aggregate](
-		store.SimpleStoreFromDatastore(namespace.Wrap(params.Datastore, datastore.NewKey(AggregatePrefix))),
-		AggregateType(), captypes.Converters...,
-	)
-
+	ss := store.SimpleStoreFromDatastore(namespace.Wrap(params.Datastore, datastore.NewKey(AggregatePrefix)))
+	return ipldstore.CBORStore[cid.Cid, Aggregate](ss)
 }

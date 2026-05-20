@@ -2,38 +2,23 @@ package manager
 
 import (
 	"context"
-	// for go:embed
-	_ "embed"
 	"fmt"
 	"sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/namespace"
-	"github.com/ipld/go-ipld-prime"
-	"github.com/ipld/go-ipld-prime/schema"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/internal/ipldstore"
 )
 
-//go:embed buffer.ipldsch
-var bufferSchema []byte
-
-var bufferTS *schema.TypeSystem
-
-func init() {
-	ts, err := ipld.LoadSchemaBytes(bufferSchema)
-	if err != nil {
-		panic(fmt.Errorf("loading submission buffer schema: %w", err))
-	}
-	bufferTS = ts
-}
-
+// Aggregation is the persisted submission buffer — the list of
+// aggregate root CIDs waiting to be batched into a chain submission.
+// cborgen-generated marshalers live in cbor_gen.go.
 type Aggregation struct {
-	Roots []cid.Cid
+	Roots []cid.Cid `cborgen:"roots"`
 }
 
 // BufferStore provides persistent storage for submission state
@@ -67,11 +52,7 @@ const ManagerKey = "manager/"
 func NewSubmissionWorkspace(params SubmissionWorkspaceParams) (BufferStore, error) {
 	ss := store.SimpleStoreFromDatastore(namespace.Wrap(params.Datastore, datastore.NewKey(ManagerKey)))
 	sw := &submissionWorkspace{
-		store: ipldstore.IPLDStore[aggBufferKey, Aggregation](
-			ss,
-			bufferTS.TypeByName("Aggregates"),
-			types.Converters...,
-		),
+		store: ipldstore.CBORStore[aggBufferKey, Aggregation](ss),
 	}
 
 	// Initialize empty buffer at creation time to avoid race conditions

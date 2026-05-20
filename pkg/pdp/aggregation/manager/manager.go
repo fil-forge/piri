@@ -14,6 +14,7 @@ import (
 
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
 
 var log = logging.Logger("aggregator/manager")
@@ -30,8 +31,8 @@ const (
 type Manager struct {
 	// input parameters
 	buffer      BufferStore
-	taskHandler jobqueue.TaskHandler[[]cid.Cid]
-	queue       jobqueue.Service[[]cid.Cid]
+	taskHandler jobqueue.TaskHandler[types.ManagerJob]
+	queue       jobqueue.Service[types.ManagerJob]
 
 	// configuration provider (abstracts static vs dynamic config)
 	configProvider ConfigProvider
@@ -56,8 +57,8 @@ type Manager struct {
 type ManagerParams struct {
 	fx.In
 
-	Queue          jobqueue.Service[[]cid.Cid]
-	TaskHandler    jobqueue.TaskHandler[[]cid.Cid]
+	Queue          jobqueue.Service[types.ManagerJob]
+	TaskHandler    jobqueue.TaskHandler[types.ManagerJob]
 	Buffer         BufferStore
 	ConfigProvider ConfigProvider
 	Options        []ManagerOption `group:"manager_options"`
@@ -344,7 +345,7 @@ func (m *Manager) doSubmit(aggregates Aggregation) error {
 	// before submitting
 	// or 2. the signing service should reject signing data that has already been added.
 	// if either 1. or 2. are implemented, the task fill eventually leave the queue, moving to deadletter
-	if err := m.queue.Enqueue(m.ctx, m.taskHandler.Name(), aggregates.Roots); err != nil {
+	if err := m.queue.Enqueue(m.ctx, m.taskHandler.Name(), types.ManagerJob{Roots: aggregates.Roots}); err != nil {
 		return fmt.Errorf("failed to enqueue batch submission roots: %w", err)
 	}
 

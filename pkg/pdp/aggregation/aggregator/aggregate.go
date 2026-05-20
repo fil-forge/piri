@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"math/bits"
 
-	"github.com/fil-forge/go-libstoracha/piece/digest"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	"github.com/fil-forge/go-libstoracha/piece/size"
-	"github.com/fil-forge/libforge/merkletree"
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
+	"github.com/filecoin-project/go-data-segment/merkletree"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
+	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 // This code is adapted from
@@ -37,17 +35,17 @@ func (s stackFrame) isLeaf() bool {
 
 // NewAggregate generates an aggregate for a list of pieces that combine in size, and are sorted
 // largest to smallest. It returns the aggregate piece link and proof trees for all pieces
-func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
+func NewAggregate(pieces []piri_piece.Piece) (types.Aggregate, error) {
 
-	if len(pieceLinks) == 0 {
+	if len(pieces) == 0 {
 		return types.Aggregate{}, errors.New("no pieces provided")
 	}
 
-	todo := make([]stackFrame, len(pieceLinks))
+	todo := make([]stackFrame, len(pieces))
 
 	// sancheck everything
 	lastSize := uint64(0)
-	for i, p := range pieceLinks {
+	for i, p := range pieces {
 		if p.PaddedSize() < 128 {
 			return types.Aggregate{}, fmt.Errorf("invalid Size of PieceInfo %d: value %d is too small", i, p.PaddedSize())
 		}
@@ -90,22 +88,22 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 		)
 	}
 
-	aggregatePieces := make([]types.AggregatePiece, 0, len(pieceLinks))
+	aggregatePieces := make([]types.AggregatePiece, 0, len(pieces))
 	pieceIndex := 0
 	err := visitLeaves(&stack[0], func(parents []*stackFrame, index uint64, commP []byte) (bool, error) {
-		if !bytes.Equal(pieceLinks[pieceIndex].DataCommitment(), commP) {
+		if !bytes.Equal(pieces[pieceIndex].DataCommitment(), commP) {
 			return false, fmt.Errorf("tree leave does not match piece link")
 		}
 
 		aggregatePieces = append(aggregatePieces, types.AggregatePiece{
-			Link: pieceLinks[pieceIndex],
+			Link: pieces[pieceIndex].CID(),
 			InclusionProof: merkletree.ProofData{
 				Path:  getProof(parents, index),
 				Index: index,
 			},
 		})
 		pieceIndex++
-		return pieceIndex < len(pieceLinks), nil
+		return pieceIndex < len(pieces), nil
 	})
 	if err != nil {
 		return types.Aggregate{}, err
@@ -118,24 +116,22 @@ func NewAggregate(pieceLinks []piece.PieceLink) (types.Aggregate, error) {
 	// Per FRC-0069, the CIDv2 should encode the actual data size, not the padded tree size
 	// The padding field in the CID will indicate how much zero-padding was added
 	actualDataSize := uint64(0)
-	for _, p := range pieceLinks {
+	for _, p := range pieces {
 		actualDataSize += p.PaddedSize()
 	}
 
 	// The unpadded size of the aggregate is the sum of the size of each piece
 	// (padded) except the last piece, which is the unpadded size.
-	actualDataSize -= pieceLinks[len(pieceLinks)-1].Padding()
+	actualDataSize -= pieces[len(pieces)-1].Padding()
 
 	// Use actual data size, not padded tree size
-	digest, err := digest.FromCommitmentAndSize(stack[0].commP, size.MaxDataSize(actualDataSize))
+	aggregateLink, err := piri_piece.FromCommitmentAndSize(stack[0].commP, piri_piece.MaxDataSize(actualDataSize))
 	if err != nil {
 		return types.Aggregate{}, fmt.Errorf("error building aggregate link: %w", err)
 	}
 
-	aggregateLink := piece.FromPieceDigest(digest)
-
 	return types.Aggregate{
-		Root:   aggregateLink,
+		Root:   aggregateLink.CID(),
 		Pieces: aggregatePieces,
 	}, nil
 }

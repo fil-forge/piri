@@ -4,10 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	// TODO(forrest)[ucan1]: trash. remove this dep
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-
-	"github.com/fil-forge/libforge/capabilities/pdp"
+	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -46,7 +43,6 @@ func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []cid.
 		}
 		aggregates = append(aggregates, aggregate)
 	}
-	// TODO: Should we actually send a piece accept invocation? It seems unnecessary it's all the same machine
 	receipts, err := GenerateReceiptsForAggregates(ctx, pa.issuer, aggregates, pa.resolver)
 	if err != nil {
 		return fmt.Errorf("generating receipts: %w", err)
@@ -62,12 +58,12 @@ func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []cid.
 func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*receipt.Receipt, error) {
 	receipts := make([]*receipt.Receipt, 0, len(aggregate.Pieces))
 	for _, aggregatePiece := range aggregate.Pieces {
-		blob, found, err := resolver.ResolveToBlob(ctx, aggregatePiece.Link.Link().(cidlink.Link).Cid.Hash())
+		blob, found, err := resolver.ResolveToBlob(ctx, aggregatePiece.Link.Hash())
 		if err != nil {
 			return nil, fmt.Errorf("resolving piece for receipt: %w", err)
 		}
 		if !found {
-			return nil, fmt.Errorf("piece not found for receipt generation: %s", aggregatePiece.Link.Link().String())
+			return nil, fmt.Errorf("piece not found for receipt generation: %s", aggregatePiece.Link.String())
 		}
 		inv, err := pdp.Accept.Invoke(
 			issuer,
@@ -81,11 +77,10 @@ func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.A
 		if err != nil {
 			return nil, fmt.Errorf("generating invocation: %w", err)
 		}
-		// TODO(forrest)[ucan1] fix ipld garbage/implement new a PieceLink type.
 		rcpt, err := receipt.IssueOK(issuer, inv.Link(), &pdp.AcceptOK{
-			Aggregate:      aggregate.Root.Link().(cidlink.Link).Cid,
+			Aggregate:      aggregate.Root,
 			InclusionProof: aggregatePiece.InclusionProof,
-			Piece:          aggregatePiece.Link.Link().(cidlink.Link).Cid,
+			Piece:          aggregatePiece.Link,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("issuing receipt: %w", err)

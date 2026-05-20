@@ -7,7 +7,6 @@ import (
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
@@ -16,8 +15,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
-
-var log = logging.Logger("consolidationstore")
 
 // Store stores egress/track invocations and their corresponding
 // consolidate invocation CIDs, indexed by batch CID.
@@ -50,7 +47,6 @@ func (DatastoreKeyEncoder) EncodeKey(batchCID cid.Cid) string {
 	return batchCID.String()
 }
 
-// consolidationStore implements Store backed by genericstore with legacy fallback.
 type consolidationStore struct {
 	store   *genericstore.Store[consolidation.Consolidation]
 	encoder KeyEncoder
@@ -58,7 +54,7 @@ type consolidationStore struct {
 
 var _ Store = (*consolidationStore)(nil)
 
-// New creates a ConsolidationStore with the given backend, key encoder, and legacy reader.
+// New creates a ConsolidationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *consolidationStore {
 	return &consolidationStore{
 		store:   genericstore.New[consolidation.Consolidation](backend, consolidation.Codec{}),
@@ -67,20 +63,17 @@ func New(backend objectstore.ListableStore, encoder KeyEncoder) *consolidationSt
 }
 
 func (s *consolidationStore) Get(ctx context.Context, batchCID cid.Cid) (consolidation.Consolidation, error) {
-	// 1. Try new format first
 	c, err := s.store.Get(ctx, s.encoder.EncodeKey(batchCID))
 	if err == nil {
 		return c, nil
 	}
-	if !errors.Is(err, store.ErrNotFound) {
-		return consolidation.Consolidation{}, fmt.Errorf("getting consolidation: %w", err)
+	if errors.Is(err, store.ErrNotFound) {
+		return consolidation.Consolidation{}, store.ErrNotFound
 	}
-
-	return c, nil
+	return consolidation.Consolidation{}, fmt.Errorf("getting consolidation: %w", err)
 }
 
 func (s *consolidationStore) Put(ctx context.Context, batchCID cid.Cid, c consolidation.Consolidation) error {
-	// Always write to new format only
 	return s.store.Put(ctx, s.encoder.EncodeKey(batchCID), c)
 }
 
@@ -99,7 +92,6 @@ func NewS3Store(backend *minio.Store) *consolidationStore {
 
 // NewDatastoreStore creates a ConsolidationStore for LevelDB/datastore backends.
 // Consolidations are stored with keys formatted as "{batchCID}".
-// Legacy data at "track/" and "consolidate/" namespaces is read and migrated.
 func NewDatastoreStore(ds datastore.Datastore) *consolidationStore {
 	return New(
 		dsadapter.New(ds),

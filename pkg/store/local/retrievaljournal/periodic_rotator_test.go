@@ -5,9 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/libforge/testutil"
 	"github.com/ipfs/go-cid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
@@ -15,14 +14,14 @@ import (
 
 func TestPeriodicRotator(t *testing.T) {
 	batches := []cid.Cid{
-		testutil.RandomCID(t).(cidlink.Link).Cid,
+		testutil.RandomCID(t),
 		cid.Undef, // signal for no rotation due to empty batch
-		testutil.RandomCID(t).(cidlink.Link).Cid,
-		testutil.RandomCID(t).(cidlink.Link).Cid,
-		testutil.RandomCID(t).(cidlink.Link).Cid,
+		testutil.RandomCID(t),
+		testutil.RandomCID(t),
+		testutil.RandomCID(t),
 		cid.Undef,
-		testutil.RandomCID(t).(cidlink.Link).Cid,
-		testutil.RandomCID(t).(cidlink.Link).Cid,
+		testutil.RandomCID(t),
+		testutil.RandomCID(t),
 	}
 	i := 0
 	rj := mockRetrievalJournal{

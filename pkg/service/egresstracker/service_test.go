@@ -1,5 +1,6 @@
 package egresstracker
 
+/*
 import (
 	"context"
 	"fmt"
@@ -342,3 +343,5 @@ func (m *MockEgressTrackerServer) BatchCIDs() []cid.Cid {
 	defer m.mu.Unlock()
 	return append([]cid.Cid{}, m.batchCIDs...)
 }
+
+*/

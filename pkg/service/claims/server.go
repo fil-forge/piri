@@ -15,16 +15,16 @@ import (
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/server/handler"
 	"github.com/fil-forge/piri/pkg/store"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
 var _ echofx.RouteRegistrar = (*Server)(nil)
 
 type Server struct {
-	claims delegationstore.DelegationStore
+	claims invocationstore.InvocationStore
 }
 
-func NewServer(claims delegationstore.DelegationStore) (*Server, error) {
+func NewServer(claims invocationstore.InvocationStore) (*Server, error) {
 	return &Server{claims}, nil
 }
 
@@ -32,7 +32,7 @@ func (srv *Server) RegisterRoutes(e *echo.Echo) {
 	e.GET("/claim/:claim", NewHandler(srv.claims).ToEcho())
 }
 
-func NewHandler(claims delegationstore.DelegationStore) handler.Func {
+func NewHandler(claims invocationstore.InvocationStore) handler.Func {
 	return func(ctx handler.Context) error {
 		r := ctx.Request()
 		parts := strings.Split(r.URL.Path, "/")

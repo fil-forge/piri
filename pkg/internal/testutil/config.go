@@ -71,10 +71,14 @@ func WithSigner(signer principal.Signer) TestConfigOption {
 	}
 }
 
-// WithUploadServiceConfig is a stub placeholder until Phase 5 migrates the
-// UploadServiceConfig wire shape to ucantone. Currently a no-op.
-func WithUploadServiceConfig(_ did.DID, _ *url.URL) TestConfigOption {
-	return func(_ *testing.T, _ *app.AppConfig) {}
+// WithUploadServiceConfig sets the upload service DID on the test config.
+// The Client field is left nil — handlers that only read the DID (e.g.
+// access/grant) don't need a working client; tests exercising flows that
+// dispatch back to the upload service must wire one explicitly.
+func WithUploadServiceConfig(uploadDID did.DID, _ *url.URL) TestConfigOption {
+	return func(_ *testing.T, cfg *app.AppConfig) {
+		cfg.UCANService.Services.Upload.DID = uploadDID
+	}
 }
 
 func mustMaddr(t *testing.T, s string) multiaddr.Multiaddr {

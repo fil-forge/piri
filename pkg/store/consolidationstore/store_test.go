@@ -3,8 +3,8 @@ package consolidationstore
 import (
 	"testing"
 
-	"github.com/fil-forge/libforge/capabilities"
-	"github.com/fil-forge/libforge/capabilities/space/egress"
+	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/commands/space/egress"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
@@ -110,7 +110,7 @@ func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 		audience,
 		&egress.TrackArguments{
 			Receipts: testutil.RandomCID(t),
-			Endpoint: capabilities.CborURL{},
+			Endpoint: commands.CborURL{},
 		},
 	)
 	require.NoError(t, err)

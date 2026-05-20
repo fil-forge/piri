@@ -3,6 +3,7 @@ package publisher
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"iter"
@@ -11,10 +12,7 @@ import (
 
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/ipld/go-ipld-prime"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
 	ipnimeta "github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -25,8 +23,8 @@ import (
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
 	ipnipub "github.com/fil-forge/go-ipni-tools/pkg/publisher"
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
-	"github.com/fil-forge/libforge/capabilities/assert"
-	"github.com/fil-forge/libforge/capabilities/claim"
+	"github.com/fil-forge/libforge/commands/assert"
+	"github.com/fil-forge/libforge/commands/claim"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 
@@ -56,10 +54,10 @@ type PublisherService struct {
 	indexingServiceProofs ucan.Delegation
 }
 
-func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Delegation) error {
+func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
-	case assert.LocationCommand:
+	case assert.Location.Command:
 		err := PublishLocationCommitment(ctx, pub.asyncPublisher, pub.provider, claim)
 		if err != nil {
 			return err
@@ -74,12 +72,15 @@ func PublishLocationCommitment(
 	ctx context.Context,
 	asyncPublisher ipnipub.AsyncPublisher,
 	provider peer.AddrInfo,
-	locationCommitment ucan.Delegation,
+	locationCommitment ucan.Invocation,
 ) error {
 	log := log.With("claim", locationCommitment.Link())
 
+	// ArgumentsBytes returns the raw CBOR map for the invocation args;
+	// Bytes() returns the whole signed envelope, which can't be decoded
+	// as LocationArguments directly.
 	var lc assert.LocationArguments
-	if err := lc.UnmarshalCBOR(bytes.NewReader(locationCommitment.Bytes())); err != nil {
+	if err := lc.UnmarshalCBOR(bytes.NewReader(locationCommitment.ArgumentsBytes())); err != nil {
 		return fmt.Errorf("unmarshalling location commitment: %w", err)
 	}
 
@@ -88,7 +89,7 @@ func PublishLocationCommitment(
 		return fmt.Errorf(
 			"failed to extract shard CID for provider: %s locationCommitment %s: %w",
 			provider,
-			assert.LocationCommand,
+			assert.Location.Command,
 			err,
 		)
 	}
@@ -134,7 +135,7 @@ func CacheClaim(
 	id principal.Signer,
 	indexingService app.IndexingServiceConfig,
 	invocationProofs ucan.Delegation,
-	clm ucan.Delegation,
+	clm ucan.Invocation,
 	providerAddresses []multiaddr.Multiaddr,
 ) error {
 	log := log.With("claim", clm.Link())
@@ -166,11 +167,13 @@ func CacheClaim(
 	}
 
 	// TODO(forrest)[ucan1]: do we need to attach more things to the request?
+	// Answer: No, this good
 
 	res, err := indexingService.Client.Execute(execution.NewRequest(ctx, inv,
 		// TODO(forrest)[ucan1]: WithProofs and WithDelegations do the _exact same thing_, pick one kill the other.
 		execution.WithProofs(invocationProofs),
 		execution.WithDelegations(invocationProofs),
+		execution.WithInvocations(clm),
 	))
 	if err != nil {
 		return fmt.Errorf("executing invocation: %w", err)
@@ -208,7 +211,9 @@ func New(
 			return nil, err
 		}
 	}
-	priv, err := crypto.UnmarshalEd25519PrivateKey(id.Raw())
+	// ucantone's ed25519 Signer.Raw() returns the 32-byte seed; libp2p
+	// expects the 64-byte Go private-key form (seed || pub). Expand here.
+	priv, err := crypto.UnmarshalEd25519PrivateKey(ed25519.NewKeyFromSeed(id.Raw()))
 	if err != nil {
 		return nil, fmt.Errorf("unmarshaling private key: %w", err)
 	}
@@ -285,11 +290,4 @@ func providerInfo(peerID peer.ID, publicAddr multiaddr.Multiaddr, blobAddr multi
 	provider.Addrs = append(provider.Addrs, claimAddr)
 
 	return provider, nil
-}
-
-func asCID(link ipld.Link) cid.Cid {
-	if cl, ok := link.(cidlink.Link); ok {
-		return cl.Cid
-	}
-	return cid.MustParse(link.String())
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -130,8 +130,8 @@ func NewAcceptanceStore(stores *Stores) acceptancestore.AcceptanceStore {
 	return acceptancestore.NewS3Store(stores.Acceptances)
 }
 
-func NewClaimStore(stores *Stores) delegationstore.DelegationStore {
-	return delegationstore.NewS3Store(stores.Claims)
+func NewClaimStore(stores *Stores) invocationstore.InvocationStore {
+	return invocationstore.NewS3Store(stores.Claims)
 }
 
 func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {

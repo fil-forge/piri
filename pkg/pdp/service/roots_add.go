@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	libforgesign "github.com/fil-forge/libforge/capabilities/pdp/sign"
+	libforgesign "github.com/fil-forge/libforge/commands/pdp/sign"
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"

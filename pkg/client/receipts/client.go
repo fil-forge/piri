@@ -1,5 +1,7 @@
 package receipts
 
+/*
+
 import (
 	"context"
 	"errors"
@@ -49,3 +51,6 @@ func (c *Client) Fetch(ctx context.Context, lnk cid.Cid) (*receipt.Receipt, erro
 	// smells like a trash fire.
 	panic("FIX ME FORREST - MIGRATE THE ETRACKER")
 }
+
+
+*/

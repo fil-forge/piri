@@ -9,5 +9,5 @@ import (
 type Publisher interface {
 	// Publish advertises content claims/commitments found on this node to the
 	// storacha network.
-	Publish(context.Context, ucan.Delegation) error
+	Publish(context.Context, ucan.Invocation) error
 }

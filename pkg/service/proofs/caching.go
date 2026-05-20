@@ -10,11 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fil-forge/libforge/capabilities/access"
+	"github.com/fil-forge/libforge/commands/access"
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 )
 
 // defaultMinTTL is the minimum time a cached delegation should still be valid
@@ -127,7 +128,10 @@ func requestDelegation(
 		c := cause.Link()
 		args.Cause = &c
 	}
-	inv, err := access.Grant.Invoke(issuer, audience, args)
+	// /access/grant is the bootstrap step of the access flow: the issuer has
+	// no prior delegation to lean on, so the invocation must be self-issued
+	// (subject == issuer) with an explicit audience pointing at the service.
+	inv, err := access.Grant.Invoke(issuer, issuer.DID(), args, invocation.WithAudience(audience))
 	if err != nil {
 		return nil, fmt.Errorf("building %s invocation: %w", access.GrantCommand, err)
 	}
