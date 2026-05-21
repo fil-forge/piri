@@ -60,8 +60,11 @@ var Module = fx.Module("ucan",
 
 			// did:key is self-describing — resolve it locally rather than
 			// over HTTP, which only makes sense for did:web.
+			resolveDIDKey := func(ctx context.Context, did did.DID) (ucan.Verifier, error) {
+				return verifier.FromDIDKey(did)
+			}
 			return validator.VerifierResolverMap{
-				"key": validator.ResolveDIDKeyVerifier,
+				"key": resolveDIDKey,
 				"web": cachedRes.Resolve,
 			}, nil
 		},
