@@ -192,7 +192,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	rangeEnd := req.Blob.Size - 1
 	claim, err := assert.Location.Invoke(
 		deps.ID,
-		req.Space,
+		deps.ID.DID(),
 		&assert.LocationArguments{
 			Space:    req.Space,
 			Content:  req.Blob.Digest,
