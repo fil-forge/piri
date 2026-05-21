@@ -18,7 +18,7 @@ type Consolidation struct {
 	// TrackInvocationBytes is the raw CBOR envelope of the
 	// /space/egress/track invocation sent to the tracker service.
 	TrackInvocationBytes []byte `cborgen:"trackInvocation"`
-	// ConsolidateInvocationCID is the CID of the /space/egress/
+	// ConsolidateInvocationCID is the CID of the /egress/consolidate
 	// consolidate invocation the tracker promised as a fork effect
 	// on the track receipt.
 	ConsolidateInvocationCID cid.Cid `cborgen:"consolidateInvocationCID"`
