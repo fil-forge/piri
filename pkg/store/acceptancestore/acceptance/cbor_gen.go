@@ -10,6 +10,7 @@ import (
 	"math"
 	"sort"
 
+	promise "github.com/fil-forge/ucantone/ucan/promise"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
@@ -85,7 +86,7 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 		return err
 	}
 
-	// t.PDPAccept (acceptance.Promise) (struct)
+	// t.PDPAccept (promise.AwaitOK) (struct)
 	if t.PDPAccept != nil {
 
 		if len("pdpAccept") > 8192 {
@@ -197,7 +198,7 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 			}
-			// t.PDPAccept (acceptance.Promise) (struct)
+			// t.PDPAccept (promise.AwaitOK) (struct)
 		case "pdpAccept":
 
 			{
@@ -210,7 +211,7 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 					if err := cr.UnreadByte(); err != nil {
 						return err
 					}
-					t.PDPAccept = new(Promise)
+					t.PDPAccept = new(promise.AwaitOK)
 					if err := t.PDPAccept.UnmarshalCBOR(cr); err != nil {
 						return xerrors.Errorf("unmarshaling t.PDPAccept pointer: %w", err)
 					}
@@ -375,227 +376,6 @@ func (t *Blob) UnmarshalCBOR(r io.Reader) (err error) {
 
 			if _, err := io.ReadFull(cr, t.Digest); err != nil {
 				return err
-			}
-
-		default:
-			// Field doesn't exist on this type, so ignore it
-			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-func (t *Await) MarshalCBOR(w io.Writer) error {
-	if t == nil {
-		_, err := w.Write(cbg.CborNull)
-		return err
-	}
-
-	cw := cbg.NewCborWriter(w)
-
-	if _, err := cw.Write([]byte{162}); err != nil {
-		return err
-	}
-
-	// t.Link (cid.Cid) (struct)
-	if len("link") > 8192 {
-		return xerrors.Errorf("Value in field \"link\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("link"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("link")); err != nil {
-		return err
-	}
-
-	if err := cbg.WriteCid(cw, t.Link); err != nil {
-		return xerrors.Errorf("failed to write cid field t.Link: %w", err)
-	}
-
-	// t.Selector (string) (string)
-	if len("selector") > 8192 {
-		return xerrors.Errorf("Value in field \"selector\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("selector"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("selector")); err != nil {
-		return err
-	}
-
-	if len(t.Selector) > 8192 {
-		return xerrors.Errorf("Value in field t.Selector was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.Selector))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string(t.Selector)); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (t *Await) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = Await{}
-
-	cr := cbg.NewCborReader(r)
-
-	maj, extra, err := cr.ReadHeader()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-	}()
-
-	if maj != cbg.MajMap {
-		return fmt.Errorf("cbor input should be of type map")
-	}
-
-	if extra > cbg.MaxLength {
-		return fmt.Errorf("Await: map struct too large (%d)", extra)
-	}
-
-	n := extra
-
-	nameBuf := make([]byte, 8)
-	for i := uint64(0); i < n; i++ {
-		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			// Field doesn't exist on this type, so ignore it
-			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
-				return err
-			}
-			continue
-		}
-
-		switch string(nameBuf[:nameLen]) {
-		// t.Link (cid.Cid) (struct)
-		case "link":
-
-			{
-
-				c, err := cbg.ReadCid(cr)
-				if err != nil {
-					return xerrors.Errorf("failed to read cid field t.Link: %w", err)
-				}
-
-				t.Link = c
-
-			}
-			// t.Selector (string) (string)
-		case "selector":
-
-			{
-				sval, err := cbg.ReadStringWithMax(cr, 8192)
-				if err != nil {
-					return err
-				}
-
-				t.Selector = string(sval)
-			}
-
-		default:
-			// Field doesn't exist on this type, so ignore it
-			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-func (t *Promise) MarshalCBOR(w io.Writer) error {
-	if t == nil {
-		_, err := w.Write(cbg.CborNull)
-		return err
-	}
-
-	cw := cbg.NewCborWriter(w)
-
-	if _, err := cw.Write([]byte{161}); err != nil {
-		return err
-	}
-
-	// t.UcanAwait (acceptance.Await) (struct)
-	if len("ucan/await") > 8192 {
-		return xerrors.Errorf("Value in field \"ucan/await\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("ucan/await"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("ucan/await")); err != nil {
-		return err
-	}
-
-	if err := t.UcanAwait.MarshalCBOR(cw); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (t *Promise) UnmarshalCBOR(r io.Reader) (err error) {
-	*t = Promise{}
-
-	cr := cbg.NewCborReader(r)
-
-	maj, extra, err := cr.ReadHeader()
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-	}()
-
-	if maj != cbg.MajMap {
-		return fmt.Errorf("cbor input should be of type map")
-	}
-
-	if extra > cbg.MaxLength {
-		return fmt.Errorf("Promise: map struct too large (%d)", extra)
-	}
-
-	n := extra
-
-	nameBuf := make([]byte, 10)
-	for i := uint64(0); i < n; i++ {
-		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
-		if err != nil {
-			return err
-		}
-
-		if !ok {
-			// Field doesn't exist on this type, so ignore it
-			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
-				return err
-			}
-			continue
-		}
-
-		switch string(nameBuf[:nameLen]) {
-		// t.UcanAwait (acceptance.Await) (struct)
-		case "ucan/await":
-
-			{
-
-				if err := t.UcanAwait.UnmarshalCBOR(cr); err != nil {
-					return xerrors.Errorf("unmarshaling t.UcanAwait: %w", err)
-				}
-
 			}
 
 		default:

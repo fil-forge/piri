@@ -77,7 +77,7 @@ func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.A
 		if err != nil {
 			return nil, fmt.Errorf("generating invocation: %w", err)
 		}
-		rcpt, err := receipt.IssueOK(issuer, inv.Link(), &pdp.AcceptOK{
+		rcpt, err := receipt.IssueOK(issuer, inv.Task().Link(), &pdp.AcceptOK{
 			Aggregate:      aggregate.Root,
 			InclusionProof: aggregatePiece.InclusionProof,
 			Piece:          aggregatePiece.Link,

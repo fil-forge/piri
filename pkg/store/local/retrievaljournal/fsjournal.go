@@ -132,14 +132,19 @@ func (j *fsJournal) newBatch(truncate bool) error {
 	return nil
 }
 
-// TODO(forrest)[ucan1]: should this method validate the receipt didn't error? Not much point
-// in tracking a failure receipt with the etracker,
-//its extra bytes we send that receive no compensation; toil for toils sake.
-
-// Append is broken and needs TLC.
+// TODO(forrest)[ucan1]: Append currently journals only the bare receipt.
+// UCAN 1.0 is flat, so to be self-describing it needs the receipt plus the
+// invocation it ran and any proofs, bundled as a container. See #10.
 func (j *fsJournal) Append(_ context.Context, rcpt ucan.Receipt) (bool, cid.Cid, error) {
 	if rcpt == nil {
 		return false, cid.Cid{}, fmt.Errorf("receipt is nil")
+	}
+
+	// Don't journal failure receipts: the egress tracker only accounts for
+	// successful retrievals, so a failure receipt is extra bytes we'd send
+	// that earn no compensation.
+	if rcpt.Out().IsErr() {
+		return false, cid.Cid{}, nil
 	}
 
 	archiveCID, err := cid.V1Builder{

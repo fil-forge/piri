@@ -26,8 +26,6 @@ func main() {
 	models := []any{
 		acceptance.Acceptance{},
 		acceptance.Blob{},
-		acceptance.Await{},
-		acceptance.Promise{},
 	}
 	const cborFile = "../cbor_gen.go"
 	if err := cbg.WriteMapEncodersToFile(cborFile, "acceptance", models...); err != nil {

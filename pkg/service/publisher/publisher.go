@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sync"
 
+	errdm "github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
 	logging "github.com/ipfs/go-log/v2"
@@ -145,7 +146,6 @@ func CacheClaim(
 		return nil
 	}
 
-	// TODO I assume claim.Provider.Addresses is a slice of multiaddr byte slices?
 	providers := make([][]byte, len(providerAddresses))
 	for i, p := range providerAddresses {
 		providers[i] = p.Bytes()
@@ -158,20 +158,13 @@ func CacheClaim(
 			Claim:    clm.Link(),
 			Provider: claim.Provider{Addresses: providers},
 		},
-		// TODO(forres)[ucan1]: where do we attach the "Proof" for this now?
-		// this seems wrong, how does the Cid get to the service?
 		invocation.WithProofs(invocationProofs.Link()),
 	)
 	if err != nil {
 		return fmt.Errorf("creating invocation: %w", err)
 	}
 
-	// TODO(forrest)[ucan1]: do we need to attach more things to the request?
-	// Answer: No, this good
-
 	res, err := indexingService.Client.Execute(execution.NewRequest(ctx, inv,
-		// TODO(forrest)[ucan1]: WithProofs and WithDelegations do the _exact same thing_, pick one kill the other.
-		execution.WithProofs(invocationProofs),
 		execution.WithDelegations(invocationProofs),
 		execution.WithInvocations(clm),
 	))
@@ -182,9 +175,13 @@ func CacheClaim(
 	if res.Receipt().Out().IsOK() {
 		return nil
 	}
-	// else we be gettin errors
-	return fmt.Errorf("failed or some shit idk")
 
+	_, errBytes := res.Receipt().Out().Unpack()
+	var rcptErr errdm.ErrorModel
+	if err := rcptErr.UnmarshalCBOR(bytes.NewReader(errBytes)); err != nil {
+		return fmt.Errorf("unmarshaling receipt error: %w", err)
+	}
+	return rcptErr
 }
 
 var _ Publisher = (*PublisherService)(nil)

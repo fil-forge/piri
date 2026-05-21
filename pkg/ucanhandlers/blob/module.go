@@ -9,18 +9,27 @@ import (
 	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
-// Module wires the blob/* capabilities. Adapter providers pass the broader
-// concrete types (allocationstore, acceptancestore, pdp PieceAPI) through
-// to the narrow interfaces each handler declares.
+// Module wires the blob/* capabilities. fx.As re-exposes the broad
+// concrete types (allocationstore, acceptancestore, pdp PieceAPI) as the
+// narrow interfaces each handler declares.
 var Module = fx.Module("ucan/blob",
 	fx.Provide(
 		ucanhandlers.ProvideRPC(NewAcceptHandler),
 		ucanhandlers.ProvideRPC(NewBlobAllocateHandler),
 		ucanhandlers.ProvideRetrieval(NewBlobRetrieveHandler),
 
-		func(a allocationstore.AllocationStore) AllocationStore { return a },
-		func(a acceptancestore.AcceptanceStore) AcceptanceStore { return a },
-		func(p pdptypes.PieceAPI) PieceAllocator { return p },
-		func(p pdptypes.PieceAPI) PieceReader { return p },
+		fx.Annotate(
+			func(a allocationstore.AllocationStore) allocationstore.AllocationStore { return a },
+			fx.As(new(AllocationStore)),
+		),
+		fx.Annotate(
+			func(a acceptancestore.AcceptanceStore) acceptancestore.AcceptanceStore { return a },
+			fx.As(new(AcceptanceStore)),
+		),
+		fx.Annotate(
+			func(p pdptypes.PieceAPI) pdptypes.PieceAPI { return p },
+			fx.As(new(PieceAllocator)),
+			fx.As(new(PieceReader)),
+		),
 	),
 )

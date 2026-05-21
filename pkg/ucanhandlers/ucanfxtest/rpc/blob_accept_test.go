@@ -8,6 +8,7 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
@@ -15,9 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// /blob/accept (like /blob/allocate) requires invocation subject == service
-// DID (per pkg/ucanhandlers/blob/accept.go:75) and reads the space from the
-// invocation subject. The handler:
+// /blob/accept is performed by the upload service: the handler requires the
+// invocation issuer to be the upload service DID and reads the space from the
+// invocation subject (authorized by a space->upload-service delegation). The
+// handler:
 //   - looks up the blob bytes in the piece store (Has check)
 //   - writes an acceptance record carrying a /pdp/accept promise
 //   - issues a /assert/location claim and persists it in the invocation store
@@ -41,17 +43,25 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	// promise, it just persists it alongside the acceptance record.
 	putAwait := promise.AwaitOK{Task: testutil.RandomCID(t)}
 
+	// /blob/accept is performed by the upload service: the space delegates
+	// /blob/accept to the upload service (the guppy chain), which then
+	// issues the invocation with the space as its subject and the
+	// delegation as proof.
+	proof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), s.ServiceID.DID(), blob.Accept.Command,
+	))(t)
 	inv := testutil.Must(blob.Accept.Invoke(
-		s.ServiceID,
+		s.UploadServiceIdentity,
 		s.ServiceID.DID(),
 		&blob.AcceptArguments{
 			Blob: blob.Blob{Digest: digest, Size: size},
 			Put:  putAwait,
 		},
 		invocation.WithAudience(s.ServiceID.DID()),
+		invocation.WithProofs(proof.Link()),
 	))(t)
 
-	rcpt := s.sendInvocation(t, inv)
+	rcpt := s.sendInvocationWithProofs(t, inv, proof)
 	ok := decodeAcceptOK(t, rcpt)
 	require.NotEqual(t, cid.Undef, ok.Site, "AcceptOK.Site is the location claim CID")
 
@@ -61,7 +71,7 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	require.Equal(t, digest, acc.Blob.Digest)
 	require.Equal(t, size, acc.Blob.Size)
 	require.Equal(t, s.ServiceID.DID(), acc.Space)
-	require.Equal(t, inv.Link(), acc.Cause, "cause records the accept invocation link")
+	require.Equal(t, inv.Task().Link(), acc.Cause, "cause records the accept task link")
 	require.NotNil(t, acc.PDPAccept, "PDP accept promise is recorded for aggregation completion")
 
 	// Invocation store carries the location commitment under AcceptOK.Site.
@@ -107,9 +117,9 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	size := uint64(len(data))
 
-	// Two spaces, each its own did:key signer. Each signs invocations
-	// against itself as subject — issuer == subject, no proof chain
-	// required for the validator.
+	// Two spaces, each its own did:key signer. Each self-issues its
+	// /blob/allocate (issuer == subject, no proof chain) but delegates
+	// /blob/accept to the upload service, which issues that invocation.
 	spaceA := testutil.RandomSigner(t)
 	spaceB := testutil.RandomSigner(t)
 
@@ -131,16 +141,23 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 	// Simulate the upload completing.
 	s.Pieces.Put(digest, data)
 
+	// /blob/accept is issued by the upload service; each space delegates
+	// the capability to it (the guppy chain) and the delegation rides
+	// along as proof.
+	acceptProofA := testutil.Must(delegation.Delegate(
+		spaceA, s.UploadServiceIdentity.DID(), spaceA.DID(), blob.Accept.Command,
+	))(t)
 	acceptA := testutil.Must(blob.Accept.Invoke(
-		spaceA,
+		s.UploadServiceIdentity,
 		spaceA.DID(),
 		&blob.AcceptArguments{
 			Blob: blob.Blob{Digest: digest, Size: size},
 			Put:  promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProofA.Link()),
 	))(t)
-	acceptOKA := decodeAcceptOK(t, s.sendInvocation(t, acceptA))
+	acceptOKA := decodeAcceptOK(t, s.sendInvocationWithProofs(t, acceptA, acceptProofA))
 
 	// --- spaceB: bytes are already present from spaceA's upload ---
 
@@ -159,16 +176,20 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 	require.Nil(t, okB.Address,
 		"bytes already in store from spaceA — no upload URL for spaceB")
 
+	acceptProofB := testutil.Must(delegation.Delegate(
+		spaceB, s.UploadServiceIdentity.DID(), spaceB.DID(), blob.Accept.Command,
+	))(t)
 	acceptB := testutil.Must(blob.Accept.Invoke(
-		spaceB,
+		s.UploadServiceIdentity,
 		spaceB.DID(),
 		&blob.AcceptArguments{
 			Blob: blob.Blob{Digest: digest, Size: size},
 			Put:  promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProofB.Link()),
 	))(t)
-	acceptOKB := decodeAcceptOK(t, s.sendInvocation(t, acceptB))
+	acceptOKB := decodeAcceptOK(t, s.sendInvocationWithProofs(t, acceptB, acceptProofB))
 
 	// --- both spaces have independent records keyed on (digest, space) ---
 
@@ -177,8 +198,8 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 		site   cid.Cid
 		cause  cid.Cid
 	}{
-		{spaceA, acceptOKA.Site, acceptA.Link()},
-		{spaceB, acceptOKB.Site, acceptB.Link()},
+		{spaceA, acceptOKA.Site, acceptA.Task().Link()},
+		{spaceB, acceptOKB.Site, acceptB.Task().Link()},
 	} {
 		alloc, err := s.Allocations.Get(t.Context(), digest, sp.signer.DID())
 		require.NoError(t, err, "allocation persisted under space=%s", sp.signer.DID())

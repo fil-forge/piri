@@ -153,7 +153,7 @@ func Retrieve(
 	headers.Set("Content-Type", "application/octet-stream")
 	headers.Set("Cache-Control", "public, max-age=29030400, immutable")
 	headers.Set("Etag", fmt.Sprintf(`"%s"`, digestStr))
-	headers.Set("Vary", "Accept-Encoding")
+	headers.Add("Vary", "Accept-Encoding")
 
 	log.Debugw("serving bytes", "status", status, "size", contentLength, "digest", digestStr)
 

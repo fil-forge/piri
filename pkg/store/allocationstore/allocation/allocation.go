@@ -19,7 +19,7 @@ type Allocation struct {
 	// Expires is the time (in seconds since unix epoch) at which the
 	// allocation becomes invalid and can no longer be accepted.
 	Expires ucan.UnixTimestamp `cborgen:"expires" dagjsongen:"expired"`
-	// Cause is a link to the UCAN that requested the allocation.
+	// Cause is a link to the task that requested the allocation.
 	Cause cid.Cid `cborgen:"cause" dagjsongen:"cause"`
 }
 

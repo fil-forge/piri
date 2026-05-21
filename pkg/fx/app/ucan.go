@@ -14,8 +14,8 @@ var UCANModule = fx.Module("ucan",
 	claims.Module,    // Provides claims service and handler
 	publisher.Module, // Provides publisher service and handler
 	ucanhandlersfx.Module,
-	//egresstracker.Module,     // Provides egress tracker service
-	//replicator.Module,        // Provides replicator service
+	//egresstracker.Module,     // Provides egress tracker service — re-enable: see #14
+	//replicator.Module,        // Provides replicator service — re-enable: see #15
 	//storage.Module, // Wires upload connection + consumer-side interface bindings
 	//principalresolver.Module, // Provides principal resolver for UCAN
 	//storageucan.Module,   // Provides storage UCAN handler

@@ -423,7 +423,7 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		metadata[i] = []eip712.MetadataEntry{}
 	}
 
-	// TODO(phase 5a): rebuild proof bundling on top of ucantone receipts +
+	// TODO(forrest)[ucan1] #9: rebuild proof bundling on top of ucantone receipts +
 	// libforge pdp/sign.PieceProofs. The previous go-ucanto path collected
 	// blob/accept and pdp/accept invocations + receipts into per-piece agent
 	// messages; that requires the receipt/acceptance stores to be migrated

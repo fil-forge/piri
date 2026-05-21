@@ -600,7 +600,7 @@ func sendMessageToUploadService(ctx context.Context, deps TransferDeps, rcpt *re
 // SendFailureReceipt sends a failure receipt to the upload service when Transfer fails after all retries
 func SendFailureReceipt(ctx context.Context, deps TransferDeps, request *TransferRequest, transferErr error) error {
 	// TODO(forrest)[ucan1]: unsure what to provide in the error aside from TransferOK?
-	rcpt, err := receipt.IssueErr(deps.ID, request.Cause.Link(), &replica.TransferOK{
+	rcpt, err := receipt.IssueErr(deps.ID, request.Cause.Task().Link(), &replica.TransferOK{
 		Site: cid.Undef,
 		PDP:  promise.AwaitOK{Task: cid.Undef},
 	})

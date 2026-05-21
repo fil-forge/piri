@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 )
@@ -14,11 +15,11 @@ type Acceptance struct {
 	Blob Blob `cborgen:"blob"`
 	// PDPAccept is the promise of the `/pdp/accept` task completion.
 	// Nil for acceptances that did not enqueue PDP aggregation.
-	PDPAccept *Promise `cborgen:"pdpAccept,omitempty"`
+	PDPAccept *promise.AwaitOK `cborgen:"pdpAccept,omitempty"`
 	// ExecutedAt is the approximate time (in seconds since unix epoch) that
 	// the `/blob/accept` invocation was executed.
 	ExecutedAt uint64 `cborgen:"executedAt"`
-	// Cause is a link to the `/blob/accept` invocation that requested the
+	// Cause is a link to the `/blob/accept` task that requested the
 	// acceptance.
 	Cause cid.Cid `cborgen:"cause"`
 }
@@ -27,15 +28,4 @@ type Acceptance struct {
 type Blob struct {
 	Digest multihash.Multihash `cborgen:"digest"`
 	Size   uint64              `cborgen:"size"`
-}
-
-// Await wraps the selector + task link of a UCAN await reference.
-type Await struct {
-	Selector string  `cborgen:"selector"`
-	Link     cid.Cid `cborgen:"link"`
-}
-
-// Promise wraps a UCAN await reference under the "ucan/await" tag.
-type Promise struct {
-	UcanAwait Await `cborgen:"ucan/await"`
 }

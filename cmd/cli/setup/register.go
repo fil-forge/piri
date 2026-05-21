@@ -14,13 +14,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/libforge/commands/blob"
-	"github.com/fil-forge/libforge/commands/blob/replica"
-	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
-	"github.com/fil-forge/ucantone/ucan"
-	"github.com/fil-forge/ucantone/ucan/delegation"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -37,7 +32,6 @@ import (
 
 	delgclient "github.com/fil-forge/delegator/client"
 
-	"github.com/fil-forge/piri/cmd/cli/delegate"
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
@@ -773,77 +767,16 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 	}
 }
 
-// registerWithDelegator handles registration with the delegator service
+// registerWithDelegator handles registration with the delegator service.
+//
+// TODO(forrest)[ucan1]: this flow depends on generating a delegation proof for
+// the upload service, which was removed along with the `delegate` command
+// during the UCAN 1.0 migration. Reimplement proof generation using
+// container.Encode(container.Base64Gzip, ...) and confirm the wire format the
+// delegator service expects, then restore the IsRegistered/Register/RequestProofs
+// flow. See #13.
 func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64) (string, string, error) {
-	c, err := delgclient.New(flags.delegatorURL)
-	if err != nil {
-		return "", "", fmt.Errorf("creating delegator client: %w", err)
-	}
-
-	// Generate delegation proof for upload service. UCAN 1.0 delegations
-	// are single-command, so we issue one per ability and bundle them in
-	// a container.
-	dlgs, err := delegate.MakeDelegations(
-		cfg.Identity.Signer,
-		flags.baseConfig.uploadServiceDID,
-		[]ucan.Command{
-			blob.Allocate.Command,
-			blob.Accept.Command,
-			pdp.InfoCommand,
-			replica.Allocate.Command,
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return "", "", fmt.Errorf("creating delegation: %w", err)
-	}
-	envelope, err := delegate.EncodeDelegationsContainer(dlgs)
-	if err != nil {
-		return "", "", fmt.Errorf("encoding delegation container: %w", err)
-	}
-	nodeProof, err := delegate.FormatDelegationBytes(envelope)
-	if err != nil {
-		return "", "", fmt.Errorf("formatting delegation: %w", err)
-	}
-
-	req := &delgclient.RegisterRequest{
-		Operator:      cfg.Identity.Signer.DID().String(),
-		OwnerAddress:  ownerAddress.String(),
-		ProofSetID:    proofSetID,
-		OperatorEmail: flags.operatorEmail,
-		PublicURL:     flags.publicURL.String(),
-		Proof:         nodeProof,
-	}
-
-	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: cfg.Identity.Signer.DID().String()})
-	if err != nil {
-		return "", "", fmt.Errorf("checking registration status: %w", err)
-	}
-
-	if !registered {
-		err = c.Register(ctx, req)
-		if err != nil {
-			return "", "", fmt.Errorf("registering with delegator: %w", err)
-		}
-		cmd.PrintErrln("✅ Successfully registered with delegator service")
-	} else {
-		cmd.PrintErrln("✅ Node already registered with delegator service")
-	}
-
-	// Request proofs from delegator
-	cmd.PrintErrln("📥 Requesting proofs from delegator service...")
-	res, err := c.RequestProofs(ctx, cfg.Identity.Signer.DID().String())
-	if err != nil {
-		return "", "", fmt.Errorf("requesting delegator proof: %w", err)
-	}
-
-	if res == nil || res.Proofs.Indexer == "" || res.Proofs.EgressTracker == "" {
-		return "", "", fmt.Errorf("missing proofs from delegator")
-	}
-
-	cmd.PrintErrln("✅ Received proofs from delegator")
-
-	return res.Proofs.Indexer, res.Proofs.EgressTracker, nil
+	panic("not implemented: delegator proof generation pending reimplementation")
 }
 
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {

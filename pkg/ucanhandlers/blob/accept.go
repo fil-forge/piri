@@ -18,12 +18,14 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
 
+	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/publisher"
@@ -38,10 +40,16 @@ import (
 // to be a cidlink wasn't).
 const InternalErrorName = "InternalError"
 
+// InvalidCauseErrorName is the stable receipt-failure name for a
+// /blob/accept invocation issued by a principal other than the upload
+// service.
+const InvalidCauseErrorName = "InvalidCause"
+
 // AcceptDeps is the dependency set populated by fx for the Accept handler.
 type AcceptDeps struct {
 	fx.In
 	ID          principal.Signer
+	Upload      app.UploadServiceConfig
 	Acceptances AcceptanceStore
 	Pieces      PieceReader
 	Commp       commp.Calculator
@@ -72,10 +80,19 @@ func NewAcceptHandler(deps AcceptDeps) ucanhandlers.CapabilityHandler {
 		func(req *bindexec.Request[*blob.AcceptArguments], rsp *bindexec.Response[*blob.AcceptOK]) error {
 			args := req.Task().Arguments()
 
-			// /blob/accept is space-scoped: the invocation subject IS
-			// the space being accepted into. Authorization is enforced
-			// by the validator's proof chain, not by an issuer-equals-
-			// service check.
+			// /blob/accept is performed by the upload service, so the only
+			// authorization required here is that the invocation issuer is
+			// the upload service.
+			// TODO(forrest)[ucan1]: confirm how this relates to the proof
+			// chain originating from guppy — is that chain validated
+			// elsewhere, and does it make this issuer check redundant or
+			// complementary?
+			if iss := req.Invocation().Issuer(); iss != deps.Upload.DID {
+				return rsp.SetFailure(errors.New(
+					InvalidCauseErrorName,
+					"issuer is %s not the upload service %s", iss, deps.Upload.DID,
+				))
+			}
 
 			resp, err := Accept(req.Context(), deps, &AcceptRequest{
 				Space: req.Task().Subject(),
@@ -83,15 +100,13 @@ func NewAcceptHandler(deps AcceptDeps) ucanhandlers.CapabilityHandler {
 					Digest: args.Blob.Digest,
 					Size:   args.Blob.Size,
 				},
-				// TODO(forrest)[ucan1]: need to double check this..
 				Put:   args.Put,
-				Cause: req.Invocation().Link(),
+				Cause: req.Invocation().Task().Link(),
 			})
 			if err != nil {
 				return err
 			}
 
-			// TODO(forrest)[ucan1]: ensure this is the correct way to attach the invocations
 			if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
 				return fmt.Errorf("setting metadata on response: %w", err)
 			}
@@ -167,6 +182,11 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("creating piece accept invocation: %w", err)
 	}
 
+	// Range.End is inclusive, so the last byte offset is size-1.
+	// TODO(forrest)[ucan1]: this feels wrong — accept should have its own
+	// blob-size type whose range End cannot be nil, rather than threading a
+	// pointer-to-uint64 here. See #12.
+	rangeEnd := req.Blob.Size - 1
 	claim, err := assert.Location.Invoke(
 		deps.ID,
 		req.Space,
@@ -174,7 +194,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 			Space:    req.Space,
 			Content:  req.Blob.Digest,
 			Location: []commands.CborURL{commands.CborURL(loc)},
-			Range:    &assert.Range{Start: 0, End: &req.Blob.Size},
+			Range:    &assert.Range{Start: 0, End: &rangeEnd},
 		},
 		invocation.WithNoExpiration(),
 	)
@@ -192,12 +212,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		},
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
-		PDPAccept: &acceptance.Promise{
-			UcanAwait: acceptance.Await{
-				Selector: ".out.ok",
-				Link:     pdpAcceptInv.Link(),
-			},
-		},
+		PDPAccept: &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
 	}
 	err = deps.Acceptances.Put(ctx, acc)
 	if err != nil {

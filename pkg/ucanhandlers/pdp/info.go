@@ -87,20 +87,17 @@ func NewPDPInfoHandler(deps PDPInfoDeps) ucanhandlers.CapabilityHandler {
 				return fmt.Errorf("building /pdp/accept invocation: %w", err)
 			}
 
-			// TODO(forrest)[claude I think this TODO is don't verify)
-			// TODO(forrest)[ucan1]: the receipt store is still go-ucanto-
-			// typed. deps.Receipts.GetByRan returns a *receipt.Receipt
-			// today; the call below won't compile until Phase 5a migrates
-			// receiptstore to ucantone. The shape below is what it WILL
-			// look like: rcpt.Out().Unpack() yields ok/err CBOR bytes,
-			// decoded via pdp.AcceptOK{}.UnmarshalCBOR.
-			rcpt, err := deps.Receipts.GetByRan(ctx, pdpAcceptInv.Link())
+			// The receipt is indexed under the /pdp/accept task link, and
+			// rcpt.Out().Unpack() yields ok/err CBOR bytes decoded via
+			// pdp.AcceptOK{}.UnmarshalCBOR.
+			// TODO(forrest)[ucan1]: revisit how this lookup composes once the
+			// receipt/acceptance stores are fully migrated — see #11.
+			rcpt, err := deps.Receipts.GetByRan(ctx, pdpAcceptInv.Task().Link())
 			if err != nil {
-				// Receipt absent is expected while aggregation is in
-				// flight — surface as a normal failure result, not a
-				// transport error.
+				// An error looking up the receipt is unexpected (internal),
+				// not a named result the client should interpret — return it.
 				log.Errorw("looking up /pdp/accept receipt", "error", err)
-				return rsp.SetFailure(err)
+				return err
 			}
 			okBytes, errBytes := rcpt.Out().Unpack()
 			if errBytes != nil {

@@ -58,8 +58,10 @@ var Module = fx.Module("ucan",
 				return nil, fmt.Errorf("could not create cached resolver: %w", err)
 			}
 
+			// did:key is self-describing — resolve it locally rather than
+			// over HTTP, which only makes sense for did:web.
 			return validator.VerifierResolverMap{
-				"key": httpResolver.Resolve,
+				"key": validator.ResolveDIDKeyVerifier,
 				"web": cachedRes.Resolve,
 			}, nil
 		},
@@ -79,7 +81,7 @@ var Module = fx.Module("ucan",
 
 	access.Module,
 	blob.Module,
-	//replica.Module,
+	//replica.Module, // re-enable: see #15
 	content.Module,
 	pdp.Module,
 )

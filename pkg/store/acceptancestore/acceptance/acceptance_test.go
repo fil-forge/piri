@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fil-forge/ucantone/testutil"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
@@ -38,12 +39,7 @@ func TestRoundtrip(t *testing.T) {
 				Digest: testutil.RandomDigest(t),
 				Size:   rand.Uint64N(1000000),
 			},
-			PDPAccept: &acceptance.Promise{
-				UcanAwait: acceptance.Await{
-					Selector: ".out.ok",
-					Link:     testutil.RandomCID(t),
-				},
-			},
+			PDPAccept: &promise.AwaitOK{Task: testutil.RandomCID(t)},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
 		}
