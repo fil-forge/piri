@@ -69,7 +69,7 @@ func (s *proofServiceSigner) SignCreateDataSet(
 	proofsIn []ucan.Delegation,
 	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	d, err := s.grant(ctx, issuer, sign.DataSetCreateCommand)
+	d, err := s.grant(ctx, issuer, sign.DataSetCreate.Command)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (s *proofServiceSigner) SignAddPieces(
 	proofsIn []ucan.Delegation,
 	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	d, err := s.grant(ctx, issuer, sign.PiecesAddCommand)
+	d, err := s.grant(ctx, issuer, sign.PiecesAdd.Command)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (s *proofServiceSigner) SignSchedulePieceRemovals(
 	proofsIn []ucan.Delegation,
 	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	d, err := s.grant(ctx, issuer, sign.PiecesRemoveScheduleCommand)
+	d, err := s.grant(ctx, issuer, sign.PiecesRemoveSchedule.Command)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (s *proofServiceSigner) SignDeleteDataSet(
 	proofsIn []ucan.Delegation,
 	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	d, err := s.grant(ctx, issuer, sign.DataSetDeleteCommand)
+	d, err := s.grant(ctx, issuer, sign.DataSetDelete.Command)
 	if err != nil {
 		return nil, err
 	}

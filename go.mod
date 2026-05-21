@@ -14,12 +14,12 @@ require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/fil-forge/delegator v0.0.0-20260507185724-e05a758b98b8
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
-	github.com/fil-forge/go-ipni-tools v0.0.0-20260515163636-e1326428a9de
+	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
 	github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773
 	github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab
-	github.com/fil-forge/libforge v0.0.0-20260519133220-4d5747ca0927
-	github.com/fil-forge/piri-signing-service v0.0.0-20260507185716-28d8ef3808fc
-	github.com/fil-forge/ucantone v0.0.0-20260519193222-ad31490eaa10
+	github.com/fil-forge/libforge v0.0.0-20260520212325-851c11cee90e
+	github.com/fil-forge/piri-signing-service v0.0.0-20260520222315-ea3317f0f97d
+	github.com/fil-forge/ucantone v0.0.0-20260520215010-8f52d2552322
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
@@ -327,13 +327,3 @@ require (
 )
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240617180043-68d350f18fd4
-
-// Local replace directives for the UCAN 1.0 migration. Develop libforge,
-// ucantone, and piri-signing-service in-tree; pin to released versions before
-// the migration PR lands.
-replace (
-	github.com/fil-forge/go-ipni-tools => ../go-ipni-tools
-	github.com/fil-forge/libforge => ../libforge
-	github.com/fil-forge/piri-signing-service => ../piri-signing-service
-	github.com/fil-forge/ucantone => ../ucantone
-)

@@ -35,7 +35,10 @@ type CapabilityHandler struct {
 // MalformedArgumentsError. Equivalent to [server.HandleTyped] but
 // produces a CapabilityHandler value for the fx group instead of registering
 // directly on a server.
-func TypedHandler[A bindcom.Arguments, O bindexec.Success](
+func TypedHandler[A interface {
+	bindcom.Arguments
+	bindexec.Arguments
+}, O bindexec.Success](
 	cmd bindcom.Command[A],
 	fn bindexec.HandlerFunc[A, O],
 ) CapabilityHandler {
