@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
@@ -19,7 +21,6 @@ import (
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -32,7 +33,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // InternalErrorName is the stable receipt-failure name for invariant
@@ -74,10 +74,10 @@ var (
 	_ PieceReader     = (pdptypes.PieceAPI)(nil)
 )
 
-func NewAcceptHandler(deps AcceptDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewAcceptHandler(deps AcceptDeps) server.Route {
+	return server.NewRoute(
 		blob.Accept,
-		func(req *bindexec.Request[*blob.AcceptArguments], rsp *bindexec.Response[*blob.AcceptOK]) error {
+		func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
 			args := req.Task().Arguments()
 
 			// /blob/accept is performed by the upload service, so the only
@@ -110,7 +110,10 @@ func NewAcceptHandler(deps AcceptDeps) ucanhandlers.CapabilityHandler {
 			if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
 				return fmt.Errorf("setting metadata on response: %w", err)
 			}
-			return rsp.SetSuccess(&blob.AcceptOK{Site: resp.Claim.Link()})
+			return rsp.SetSuccess(&blob.AcceptOK{
+				Site: resp.Claim.Link(),
+				PDP:  promise.AwaitOK{Task: resp.PDP.Task().Link()},
+			})
 		},
 	)
 }
@@ -212,7 +215,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		},
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
-		PDPAccept: &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
+		PDPAccept:  &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
 	}
 	err = deps.Acceptances.Put(ctx, acc)
 	if err != nil {

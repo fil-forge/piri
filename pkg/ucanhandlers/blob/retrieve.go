@@ -10,9 +10,10 @@ import (
 
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/ucan/retrieval"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/multiformats/go-multihash"
 	fxlib "go.uber.org/fx"
@@ -20,7 +21,6 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // InvalidResourceErrorName is the name given to an error where the resource did
@@ -49,10 +49,10 @@ type BlobRetrieveDeps struct {
 	Pieces types.PieceReaderAPI
 }
 
-func NewBlobRetrieveHandler(deps BlobRetrieveDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewBlobRetrieveHandler(deps BlobRetrieveDeps) server.Route {
+	return server.NewRoute(
 		blob.Retrieve,
-		func(req *bindexec.Request[*blob.RetrieveArguments], rsp *bindexec.Response[*blob.RetrieveOK]) error {
+		func(req *binding.Request[*blob.RetrieveArguments], rsp *binding.Response[*blob.RetrieveOK]) error {
 			args := req.Task().Arguments()
 
 			// /blob/retrieve is service-level: no space scoping, no byte range.
@@ -70,7 +70,7 @@ func NewBlobRetrieveHandler(deps BlobRetrieveDeps) ucanhandlers.CapabilityHandle
 
 // Retrieve reads a blob (or a range of it) from the piece store and
 // returns a retrieval response container ready to be set as
-// rsp.SetMetadata on a bindexec response.
+// rsp.SetMetadata on a binding response.
 //
 // On success the container carries a 2xx status with the byte stream
 // and a nil error. On a known read failure the container carries the

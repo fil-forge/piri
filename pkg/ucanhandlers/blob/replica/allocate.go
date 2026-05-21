@@ -13,7 +13,7 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/blob/replica"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
@@ -46,10 +46,10 @@ type ReplicaAllocateDeps struct {
 	Replicator replicator.Replicator
 }
 
-func NewReplicaAllocateHandler(deps ReplicaAllocateDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewReplicaAllocateHandler(deps ReplicaAllocateDeps) server.Route {
+	return server.NewRoute(
 		replica.Allocate,
-		func(req *bindexec.Request[*replica.AllocateArguments], rsp *bindexec.Response[*replica.AllocateOK]) error {
+		func(req *binding.Request[*replica.AllocateArguments], rsp *binding.Response[*replica.AllocateOK]) error {
 			if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
 				return rsp.SetFailure(err)
 			}

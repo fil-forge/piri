@@ -14,9 +14,9 @@ import (
 	"github.com/fil-forge/libforge/commands/claim"
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
@@ -111,8 +111,8 @@ func TestPublisherService(t *testing.T) {
 			receivedClaim cid.Cid
 		)
 		srv := server.NewHTTP(testutil.Bob)
-		srv.Handle(claim.Cache.Command, bindexec.NewHandler(
-			func(req *bindexec.Request[*claim.CacheArguments], res *bindexec.Response[*claim.CacheOK]) error {
+		srv.Handle(claim.Cache.Command, binding.NewHandler(
+			func(req *binding.Request[*claim.CacheArguments], res *binding.Response[*claim.CacheOK]) error {
 				handlerCalled = true
 				receivedClaim = req.Task().Arguments().Claim
 				return res.SetSuccess(&claim.CacheOK{})

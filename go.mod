@@ -17,9 +17,9 @@ require (
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
 	github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773
 	github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab
-	github.com/fil-forge/libforge v0.0.0-20260520212325-851c11cee90e
-	github.com/fil-forge/piri-signing-service v0.0.0-20260520222315-ea3317f0f97d
-	github.com/fil-forge/ucantone v0.0.0-20260520215010-8f52d2552322
+	github.com/fil-forge/libforge v0.0.0-20260521215559-0f7fa19c9ebc
+	github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465
+	github.com/fil-forge/ucantone v0.0.0-20260521210642-84d8c533075b
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
@@ -27,7 +27,7 @@ require (
 	github.com/filecoin-project/go-data-segment v0.0.1
 	github.com/filecoin-project/go-fil-commcid v0.3.1
 	github.com/filecoin-project/go-fil-commp-hashhash v0.2.0
-	github.com/filecoin-project/go-state-types v0.18.0-dev
+	github.com/filecoin-project/go-state-types v0.18.0
 	github.com/filecoin-project/lotus v1.35.1
 	github.com/glebarez/go-sqlite v1.21.2
 	github.com/glebarez/sqlite v1.11.0

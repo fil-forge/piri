@@ -6,6 +6,8 @@ import (
 	"net/url"
 
 	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -18,7 +20,6 @@ import (
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/ucan"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -27,7 +28,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 var log = logging.Logger("storage/handlers/blob")
@@ -70,10 +70,10 @@ var (
 	_ PieceAllocator  = (types.PieceAPI)(nil)
 )
 
-func NewBlobAllocateHandler(deps AllocateDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
+	return server.NewRoute(
 		blob.Allocate,
-		func(req *bindexec.Request[*blob.AllocateArguments], rsp *bindexec.Response[*blob.AllocateOK]) error {
+		func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
 			args := req.Task().Arguments()
 
 			// /blob/allocate is space-scoped: the invocation subject IS

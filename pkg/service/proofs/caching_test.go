@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/fil-forge/libforge/commands/access"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/client"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/ipfs/go-cid"
@@ -43,8 +44,8 @@ func TestCachingProofsService(t *testing.T) {
 	// service self-issues the invocation (subject == issuer), which the
 	// validator accepts without any delegation chain.
 	srv := server.NewHTTP(webService)
-	srv.Handle(access.Grant.Command, bindexec.NewHandler(
-		func(req *bindexec.Request[*access.GrantArguments], res *bindexec.Response[*access.GrantOK]) error {
+	srv.Handle(access.Grant.Command, binding.NewHandler(
+		func(req *binding.Request[*access.GrantArguments], res *binding.Response[*access.GrantOK]) error {
 			args := req.Task().Arguments()
 			require.NotEmpty(t, args.Attenuations)
 			cmd := args.Attenuations[0].Command
@@ -73,19 +74,19 @@ func TestCachingProofsService(t *testing.T) {
 
 	proofsService := proofs.NewCachingProofService()
 
-	command := ucan.Command("/test/test")
-	dlg, err := proofsService.RequestAccess(t.Context(), alice, webService.DID(), command, nil, proofs.WithClient(httpClient))
+	cmd := command.New("/test/test")
+	dlg, err := proofsService.RequestAccess(t.Context(), alice, webService.DID(), cmd, nil, proofs.WithClient(httpClient))
 	require.NoError(t, err)
-	require.Equal(t, command, dlg.Command())
+	require.Equal(t, cmd, dlg.Command())
 	require.Equal(t, webService.DID().String(), dlg.Subject().String())
 
 	// delegation should be cached on a second call with the same args
-	cacheDlg, err := proofsService.RequestAccess(t.Context(), alice, webService.DID(), command, nil, proofs.WithClient(httpClient))
+	cacheDlg, err := proofsService.RequestAccess(t.Context(), alice, webService.DID(), cmd, nil, proofs.WithClient(httpClient))
 	require.NoError(t, err)
 	require.Equal(t, dlg.Nonce(), cacheDlg.Nonce())
 
-	// same command but different issuer should fetch a fresh delegation
-	otherDlg, err := proofsService.RequestAccess(t.Context(), bob, webService.DID(), command, nil, proofs.WithClient(httpClient))
+	// same cmd but different issuer should fetch a fresh delegation
+	otherDlg, err := proofsService.RequestAccess(t.Context(), bob, webService.DID(), cmd, nil, proofs.WithClient(httpClient))
 	require.NoError(t, err)
 	require.NotEqual(t, dlg.Link(), otherDlg.Link())
 
@@ -94,7 +95,7 @@ func TestCachingProofsService(t *testing.T) {
 		t.Context(),
 		alice,
 		webService.DID(),
-		command,
+		cmd,
 		nil,
 		proofs.WithClient(httpClient),
 		proofs.WithMinimumTTL(time.Hour),

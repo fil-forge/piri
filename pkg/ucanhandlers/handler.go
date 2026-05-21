@@ -5,48 +5,12 @@ import (
 
 	"github.com/fil-forge/libforge/ucan/retrieval"
 	"github.com/fil-forge/ucantone/execution"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/fil-forge/ucantone/validator/bindcom"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 )
-
-// CapabilityHandler pairs a UCAN command with its execution handler.
-// Per-capability providers return one; NewRPC / NewRetrieval register
-// them all against the server.
-type CapabilityHandler struct {
-	Command ucan.Command
-	Handler execution.HandlerFunc
-}
-
-// TypedHandler ties the capability's bound argument type to the handler's
-// argument type at compile time. Per-capability factories use this rather
-// than constructing a raw CapabilityHandler{} literal so that
-//
-//	TypedHandler(access.Grant, func(
-//		req *bindexec.Request[*blob.AllocateArguments],   // wrong type
-//		res *bindexec.Response[*access.GrantOK],
-//	) error { ... })
-//
-// fails to compile rather than failing at runtime with a
-// MalformedArgumentsError. Equivalent to [server.HandleTyped] but
-// produces a CapabilityHandler value for the fx group instead of registering
-// directly on a server.
-func TypedHandler[A interface {
-	bindcom.Arguments
-	bindexec.Arguments
-}, O bindexec.Success](
-	cmd bindcom.Command[A],
-	fn bindexec.HandlerFunc[A, O],
-) CapabilityHandler {
-	return CapabilityHandler{
-		Command: cmd.Command,
-		Handler: bindexec.NewHandler(fn),
-	}
-}
 
 // Group tag strings used by per-capability fx.Provide registrations and
 // by the params structs below. Kept paired so handlers register on the
@@ -105,7 +69,7 @@ type RPCParams struct {
 	fx.In
 
 	ID       principal.Signer
-	Handlers []CapabilityHandler `group:"ucan_rpc_handlers"`
+	Handlers []server.Route      `group:"ucan_rpc_handlers"`
 	Options  []server.HTTPOption `group:"ucan_rpc_options"`
 }
 
@@ -116,7 +80,7 @@ type RetrievalParams struct {
 	fx.In
 
 	ID       principal.Signer
-	Handlers []CapabilityHandler `group:"ucan_retrieval_handlers"`
+	Handlers []server.Route      `group:"ucan_retrieval_handlers"`
 	Options  []server.HTTPOption `group:"ucan_retrieval_options"`
 }
 
@@ -141,7 +105,7 @@ type handleRegistrar interface {
 	Handle(ucan.Command, execution.HandlerFunc)
 }
 
-func register(svr handleRegistrar, handlers []CapabilityHandler) error {
+func register(svr handleRegistrar, handlers []server.Route) error {
 	seen := make(map[ucan.Command]struct{})
 	for _, h := range handlers {
 		// TODO(forrest)[ucan1]: nice to have duplicate detection inside the handler logic of the server.

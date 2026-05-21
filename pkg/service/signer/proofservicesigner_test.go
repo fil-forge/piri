@@ -13,8 +13,8 @@ import (
 	"github.com/fil-forge/libforge/commands/access"
 	libforgesign "github.com/fil-forge/libforge/commands/pdp/sign"
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/client"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/testutil"
@@ -109,8 +109,8 @@ func mockSigningServiceServer(t *testing.T, id principal.Signer) *server.HTTPSer
 
 	*/
 
-	srv.Handle(access.Grant.Command, bindexec.NewHandler(
-		func(req *bindexec.Request[*access.GrantArguments], res *bindexec.Response[*access.GrantOK]) error {
+	srv.Handle(access.Grant.Command, binding.NewHandler(
+		func(req *binding.Request[*access.GrantArguments], res *binding.Response[*access.GrantOK]) error {
 			args := req.Task().Arguments()
 			require.NotEmpty(t, args.Attenuations)
 			cmd := args.Attenuations[0].Command
@@ -132,23 +132,23 @@ func mockSigningServiceServer(t *testing.T, id principal.Signer) *server.HTTPSer
 		},
 	))
 
-	srv.Handle(libforgesign.DataSetCreate.Command, bindexec.NewHandler(
-		func(_ *bindexec.Request[*libforgesign.DataSetCreateArguments], res *bindexec.Response[*libforgesign.DataSetCreateOK]) error {
+	srv.Handle(libforgesign.DataSetCreate.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.DataSetCreateArguments], res *binding.Response[*libforgesign.DataSetCreateOK]) error {
 			return res.SetSuccess(&mock)
 		},
 	))
-	srv.Handle(libforgesign.DataSetDelete.Command, bindexec.NewHandler(
-		func(_ *bindexec.Request[*libforgesign.DataSetDeleteArguments], res *bindexec.Response[*libforgesign.DataSetDeleteOK]) error {
+	srv.Handle(libforgesign.DataSetDelete.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.DataSetDeleteArguments], res *binding.Response[*libforgesign.DataSetDeleteOK]) error {
 			return res.SetSuccess(&mock)
 		},
 	))
-	srv.Handle(libforgesign.PiecesAdd.Command, bindexec.NewHandler(
-		func(_ *bindexec.Request[*libforgesign.PiecesAddArguments], res *bindexec.Response[*libforgesign.PiecesAddOK]) error {
+	srv.Handle(libforgesign.PiecesAdd.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.PiecesAddArguments], res *binding.Response[*libforgesign.PiecesAddOK]) error {
 			return res.SetSuccess(&mock)
 		},
 	))
-	srv.Handle(libforgesign.PiecesRemoveSchedule.Command, bindexec.NewHandler(
-		func(_ *bindexec.Request[*libforgesign.PiecesRemoveScheduleArguments], res *bindexec.Response[*libforgesign.PiecesRemoveScheduleOK]) error {
+	srv.Handle(libforgesign.PiecesRemoveSchedule.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.PiecesRemoveScheduleArguments], res *binding.Response[*libforgesign.PiecesRemoveScheduleOK]) error {
 			return res.SetSuccess(&mock)
 		},
 	))

@@ -5,19 +5,19 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/server"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 
 	piecepkg "github.com/fil-forge/piri/pkg/pdp/piece"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 var log = logging.Logger("storage/ucan")
@@ -44,10 +44,10 @@ var _ PieceResolver = (pdptypes.PieceAPI)(nil)
 // receipt — a hard invariant violation.
 const PieceMismatchErrorName = "PieceMismatch"
 
-func NewPDPInfoHandler(deps PDPInfoDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
+	return server.NewRoute(
 		pdp.Info,
-		func(req *bindexec.Request[*pdp.InfoArguments], rsp *bindexec.Response[*pdp.InfoOK]) error {
+		func(req *binding.Request[*pdp.InfoArguments], rsp *binding.Response[*pdp.InfoOK]) error {
 			args := req.Task().Arguments()
 			ctx := req.Context()
 

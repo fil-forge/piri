@@ -12,6 +12,7 @@ import (
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 )
@@ -37,7 +38,7 @@ func (s *RPCSuite) TestAccessGrant_UnknownAbility() {
 		invocation.WithAudience(grantee.DID()),
 	))(t)
 
-	rcpt := s.sendGrant(t, grantee, "unknown/ability", cause)
+	rcpt := s.sendGrant(t, grantee, command.New("/unknown/ability"), cause)
 	assertReceiptFailure(t, rcpt, access.UnknownAbilityErrorName)
 }
 
@@ -61,9 +62,7 @@ func (s *RPCSuite) TestAccessGrant_UnknownCauseEnvelope() {
 		invocation.WithAudience(grantee.DID()),
 	))(t)
 
-	proof := testutil.Must(delegation.Delegate(
-		s.ServiceID, grantee.DID(), service, access.GrantCommand,
-	))(t)
+	proof := testutil.Must(access.Grant.Delegate(s.ServiceID, grantee.DID(), service))(t)
 
 	orphanCID := orphan.Link()
 	inv := testutil.Must(access.Grant.Invoke(
@@ -78,7 +77,7 @@ func (s *RPCSuite) TestAccessGrant_UnknownCauseEnvelope() {
 	))(t)
 
 	resp := testutil.Must(s.RPCClient(t).Execute(execution.NewRequest(
-		t.Context(), inv, execution.WithProofs(proof),
+		t.Context(), inv, execution.WithDelegations(proof),
 	)))(t)
 	assertReceiptFailure(t, resp.Receipt(), access.UnknownCauseErrorName)
 }

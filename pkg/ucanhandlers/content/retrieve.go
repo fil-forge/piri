@@ -4,16 +4,16 @@ import (
 	stderrors "errors"
 
 	"github.com/fil-forge/libforge/commands/content"
+	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/server"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 	"github.com/fil-forge/piri/pkg/ucanhandlers/blob"
 )
 
@@ -31,10 +31,10 @@ type RetrieveDeps struct {
 	Pieces      types.PieceReaderAPI
 }
 
-func NewRetrieveHandler(deps RetrieveDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewRetrieveHandler(deps RetrieveDeps) server.Route {
+	return server.NewRoute(
 		content.Retrieve,
-		func(req *bindexec.Request[*content.RetrieveArguments], rsp *bindexec.Response[*content.RetrieveOK]) error {
+		func(req *binding.Request[*content.RetrieveArguments], rsp *binding.Response[*content.RetrieveOK]) error {
 			args := req.Task().Arguments()
 			ctx := req.Context()
 

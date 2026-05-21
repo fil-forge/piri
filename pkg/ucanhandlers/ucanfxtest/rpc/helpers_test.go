@@ -9,7 +9,6 @@ import (
 	"github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
@@ -35,7 +34,7 @@ func (s *RPCSuite) sendInvocationWithProofs(
 	t.Helper()
 	reqOpts := []execution.RequestOption{}
 	if len(proofs) > 0 {
-		reqOpts = append(reqOpts, execution.WithProofs(proofs...))
+		reqOpts = append(reqOpts, execution.WithDelegations(proofs...))
 	}
 	resp, err := s.RPCClient(t).Execute(execution.NewRequest(t.Context(), inv, reqOpts...))
 	require.NoError(t, err)
@@ -117,12 +116,7 @@ func (s *RPCSuite) sendGrantWithProofs(
 
 	service := s.ServiceID.DID()
 
-	grantProof, err := delegation.Delegate(
-		s.ServiceID,
-		grantee.DID(),
-		service,
-		ucan.Command(access.GrantCommand),
-	)
+	grantProof, err := access.Grant.Delegate(s.ServiceID, grantee.DID(), service)
 	require.NoError(t, err)
 
 	var causePtr *cid.Cid
@@ -144,7 +138,7 @@ func (s *RPCSuite) sendGrantWithProofs(
 	require.NoError(t, err)
 
 	proofs := append([]ucan.Delegation{grantProof}, extraProofs...)
-	reqOpts := []execution.RequestOption{execution.WithProofs(proofs...)}
+	reqOpts := []execution.RequestOption{execution.WithDelegations(proofs...)}
 	if cause != nil {
 		reqOpts = append(reqOpts, execution.WithInvocations(cause))
 	}

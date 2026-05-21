@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan/delegation/policy"
 	"github.com/fil-forge/ucantone/validator"
 	"github.com/ipfs/go-cid"
@@ -18,14 +20,12 @@ import (
 	"github.com/fil-forge/libforge/commands/blob/replica"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/execution/bindexec"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // validity is the time a granted delegation is valid for.
@@ -40,10 +40,10 @@ type GrantDeps struct {
 	Resolvers validator.VerifierResolverMap
 }
 
-func NewGrantHandler(deps GrantDeps) ucanhandlers.CapabilityHandler {
-	return ucanhandlers.TypedHandler(
+func NewGrantHandler(deps GrantDeps) server.Route {
+	return server.NewRoute(
 		access.Grant,
-		func(req *bindexec.Request[*access.GrantArguments], rsp *bindexec.Response[*access.GrantOK]) error {
+		func(req *binding.Request[*access.GrantArguments], rsp *binding.Response[*access.GrantOK]) error {
 			args := req.Task().Arguments()
 
 			if len(args.Attenuations) == 0 {
