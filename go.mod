@@ -18,7 +18,7 @@ require (
 	github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773
 	github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab
 	github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7
-	github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465
+	github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357
 	github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4

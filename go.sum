@@ -559,6 +559,8 @@ github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7 h1:wrYpHTAOPMLm
 github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7/go.mod h1:mw0OzGZhVtcXwE4/KhgEV5kIQSTY0ly9HyZZtlqm7yA=
 github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465 h1:ouSnGzEqZEhFCql4XRxSxChE52TQLDod479XCL++0Lo=
 github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465/go.mod h1:fILVyxuy9jTwyq85KJxfXsKdOzROTZf80fiHfXgxxsQ=
+github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357 h1:sTK8Yc/kds7MkG0cpK5DGDtDCtU1ZwgQWc4OzRf3ZP4=
+github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357/go.mod h1:fgg5hE/BlnFlR5qXsT0POv6GWVu7cj526s7v2+mdJXo=
 github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684 h1:kWJLKVltJXPXO7tKS1z0GhzA+c59gwhediGyByEXE0o=
 github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684/go.mod h1:XAVqsZwYoZ9vncjZoRUAJ+mL/ApLMFn9HHX7ipohVdY=
 github.com/filecoin-project/filecoin-ffi v1.34.0 h1:OvcsvsFUCwzLOGT949dsJEqSLyGx4d8TPPRrmrzlQbk=
