@@ -3,7 +3,7 @@ package publisher
 import (
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/ucantone/principal"
 	"go.uber.org/fx"
 

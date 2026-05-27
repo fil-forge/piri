@@ -15,7 +15,7 @@ import (
 	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/principal"
 
-	piecepkg "github.com/fil-forge/piri/pkg/pdp/piece"
+	libpiece "github.com/fil-forge/libforge/piece"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -113,7 +113,7 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 
 		// Sanity check: the receipt's piece CID should match what we
 		// resolved from the blob multihash.
-		commpCid := piecepkg.MultihashToCommpCID(resolvedCommp)
+		commpCid := libpiece.MultihashToCommpCID(resolvedCommp)
 		if !acc.Piece.Equals(commpCid) {
 			log.Errorw("piece CID mismatch",
 				"expected", commpCid, "got", acc.Piece,

@@ -7,7 +7,7 @@ import (
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
-	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
@@ -194,27 +194,30 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 	// --- both spaces have independent records keyed on (digest, space) ---
 
 	for _, sp := range []struct {
-		signer ucan.Signer
-		site   cid.Cid
-		cause  cid.Cid
+		space did.DID
+		site  cid.Cid
+		cause cid.Cid
 	}{
-		{spaceA, acceptOKA.Site, acceptA.Task().Link()},
-		{spaceB, acceptOKB.Site, acceptB.Task().Link()},
+		{spaceA.DID(), acceptOKA.Site, acceptA.Task().Link()},
+		{spaceB.DID(), acceptOKB.Site, acceptB.Task().Link()},
 	} {
-		alloc, err := s.Allocations.Get(t.Context(), digest, sp.signer.DID())
-		require.NoError(t, err, "allocation persisted under space=%s", sp.signer.DID())
-		require.Equal(t, sp.signer.DID(), alloc.Space)
+		alloc, err := s.Allocations.Get(t.Context(), digest, sp.space)
+		require.NoError(t, err, "allocation persisted under space=%s", sp.space)
+		require.Equal(t, sp.space, alloc.Space)
 		require.Equal(t, digest, alloc.Blob.Digest)
 
-		acc, err := s.Acceptances.Get(t.Context(), digest, sp.signer.DID())
-		require.NoError(t, err, "acceptance persisted under space=%s", sp.signer.DID())
-		require.Equal(t, sp.signer.DID(), acc.Space)
+		acc, err := s.Acceptances.Get(t.Context(), digest, sp.space)
+		require.NoError(t, err, "acceptance persisted under space=%s", sp.space)
+		require.Equal(t, sp.space, acc.Space)
 		require.Equal(t, sp.cause, acc.Cause)
 
 		claim, err := s.ClaimStore.Get(t.Context(), sp.site)
 		require.NoError(t, err, "location claim persisted under Site CID")
-		require.Equal(t, sp.signer.DID(), claim.Subject(),
-			"location claim is scoped to this space")
+
+		var lcArgs assert.LocationArguments
+		require.NoError(t, lcArgs.UnmarshalCBOR(bytes.NewReader(claim.ArgumentsBytes())))
+		require.Equal(t, digest, lcArgs.Content, "claim references the accepted blob digest")
+		require.Equal(t, sp.space, lcArgs.Space, "location claim is scoped to this space")
 	}
 
 	// The two acceptances issued distinct location commitments.

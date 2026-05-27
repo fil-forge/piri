@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	cbg "github.com/whyrusleeping/cbor-gen"
 )
 

@@ -3,7 +3,7 @@ package aggregator
 import (
 	"context"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/piri/internal/ipldstore"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/ipfs/go-datastore"

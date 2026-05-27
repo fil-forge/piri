@@ -12,11 +12,11 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/fil-forge/piri/lib/verifyread"
-	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/presets"
 
 	"github.com/multiformats/go-multihash"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
@@ -63,7 +63,7 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 				Create(&models.PDPPieceMHToCommp{
 					Mhash: upload.CheckHash,
 					Size:  upload.CheckSize,
-					Commp: piece.MultihashToCommpCID(upload.CheckHash).String(),
+					Commp: libpiece.MultihashToCommpCID(upload.CheckHash).String(),
 				}).Error; err != nil {
 				return types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
 			}
@@ -80,7 +80,7 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 				Create(&models.PDPPieceMHToCommp{
 					Mhash: upload.CheckHash,
 					Size:  upload.CheckSize,
-					Commp: piece.MultihashToCommpCID(pieceCID.Hash()).String(),
+					Commp: libpiece.MultihashToCommpCID(pieceCID.Hash()).String(),
 				}).Error; err != nil {
 				return types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
 			}

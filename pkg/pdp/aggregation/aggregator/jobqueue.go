@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
@@ -24,7 +25,6 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
-	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 var log = logging.Logger("aggregation/aggregator")
@@ -64,7 +64,7 @@ func New(lc fx.Lifecycle, params AggregatorParams) (*Aggregator, error) {
 	return a, nil
 }
 
-func (a *Aggregator) EnqueueAggregation(ctx context.Context, p piri_piece.Piece) error {
+func (a *Aggregator) EnqueueAggregation(ctx context.Context, p libpiece.Piece) error {
 	log.Infow("enqueuing piece for aggregation", "piece", p.CID())
 	return a.queue.Enqueue(ctx, a.handler.Name(), types.AggregatorJob{Piece: p.CID()})
 }
@@ -140,7 +140,7 @@ type Handler struct {
 }
 
 func (p *Handler) Handle(ctx context.Context, job types.AggregatorJob) (retErr error) {
-	piece, err := piri_piece.FromCID(job.Piece)
+	piece, err := libpiece.FromCID(job.Piece)
 	if err != nil {
 		return fmt.Errorf("decoding piece from cid %s: %w", job.Piece, err)
 	}
@@ -195,7 +195,7 @@ const MinAggregateSize = 128 << 20
 // The in-memory aggregation logic operates on piri_piece.Piece (which carries
 // PaddedSize() and other methods); only the Buffer's serialized form uses
 // cid.Cid. The function converts at the boundary.
-func AggregatePiece(buffer types.Buffer, newPiece piri_piece.Piece) (types.Buffer, *types.Aggregate, error) {
+func AggregatePiece(buffer types.Buffer, newPiece libpiece.Piece) (types.Buffer, *types.Aggregate, error) {
 	log.Infow("aggregating piece",
 		"link", newPiece.CID().String(),
 		"padded size", newPiece.PaddedSize(),
@@ -203,7 +203,7 @@ func AggregatePiece(buffer types.Buffer, newPiece piri_piece.Piece) (types.Buffe
 	)
 	// if the piece is aggregatable on its own it should submit immediately
 	if newPiece.PaddedSize() > MinAggregateSize {
-		aggregate, err := NewAggregate([]piri_piece.Piece{newPiece})
+		aggregate, err := NewAggregate([]libpiece.Piece{newPiece})
 		if err == nil {
 			log.Infow("aggregate create", "root", aggregate.Root)
 		}
@@ -234,7 +234,7 @@ func AggregatePiece(buffer types.Buffer, newPiece piri_piece.Piece) (types.Buffe
 	}, nil, nil
 }
 
-func AggregatePieces(buffer types.Buffer, pieces []piri_piece.Piece) (types.Buffer, []types.Aggregate, error) {
+func AggregatePieces(buffer types.Buffer, pieces []libpiece.Piece) (types.Buffer, []types.Aggregate, error) {
 	var aggregates []types.Aggregate
 	for _, p := range pieces {
 		var aggregate *types.Aggregate
@@ -252,8 +252,8 @@ func AggregatePieces(buffer types.Buffer, pieces []piri_piece.Piece) (types.Buff
 
 // InsertOrderedByDescendingSize adds a piece to a list of pieces sorted
 // largest to smallest, maintaining sort order.
-func InsertOrderedByDescendingSize(sortedPieces []piri_piece.Piece, newPiece piri_piece.Piece) []piri_piece.Piece {
-	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target piri_piece.Piece) int {
+func InsertOrderedByDescendingSize(sortedPieces []libpiece.Piece, newPiece libpiece.Piece) []libpiece.Piece {
+	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target libpiece.Piece) int {
 		// flip ordering comparing size cause we're going in reverse order
 		return cmp.Compare(target.PaddedSize(), test.PaddedSize())
 	})
@@ -261,14 +261,14 @@ func InsertOrderedByDescendingSize(sortedPieces []piri_piece.Piece, newPiece pir
 }
 
 // decodePieces rehydrates a buffer's persisted CID slice into the
-// piri_piece.Piece form aggregation operates on internally.
-func decodePieces(cids []cid.Cid) ([]piri_piece.Piece, error) {
+// [libpiece.Piece] form aggregation operates on internally.
+func decodePieces(cids []cid.Cid) ([]libpiece.Piece, error) {
 	if len(cids) == 0 {
 		return nil, nil
 	}
-	out := make([]piri_piece.Piece, len(cids))
+	out := make([]libpiece.Piece, len(cids))
 	for i, c := range cids {
-		p, err := piri_piece.FromCID(c)
+		p, err := libpiece.FromCID(c)
 		if err != nil {
 			return nil, fmt.Errorf("decoding piece %s: %w", c, err)
 		}
@@ -277,7 +277,7 @@ func decodePieces(cids []cid.Cid) ([]piri_piece.Piece, error) {
 	return out, nil
 }
 
-func encodePieces(pieces []piri_piece.Piece) []cid.Cid {
+func encodePieces(pieces []libpiece.Piece) []cid.Cid {
 	if len(pieces) == 0 {
 		return nil
 	}

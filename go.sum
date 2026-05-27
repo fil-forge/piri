@@ -298,8 +298,8 @@ github.com/ajstarks/svgo v0.0.0-20180226025133-644b8db467af/go.mod h1:K08gAheRH3
 github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b/go.mod h1:1KcenG0jGWcpt8ov532z81sp/kMMUG485J2InIOyADM=
 github.com/akavel/rsrc v0.8.0 h1:zjWn7ukO9Kc5Q62DOJCcxGpXC18RawVtYAGdz2aLlfw=
 github.com/akavel/rsrc v0.8.0/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
-github.com/alanshaw/dag-json-gen v0.0.5 h1:jUOqsTrfZ7ddkBqAsx/xbCeJtpe70jrFL2Z+i4qQB1U=
-github.com/alanshaw/dag-json-gen v0.0.5/go.mod h1:rXxWw0SItP9QjxpRMpkju66h0KumF7TPCtvHdOKS5lY=
+github.com/alanshaw/dag-json-gen v0.0.6 h1:MiscvWVOhs6/ux7OUdPz2nDRA7GwklZyaAy4XWexpr0=
+github.com/alanshaw/dag-json-gen v0.0.6/go.mod h1:rXxWw0SItP9QjxpRMpkju66h0KumF7TPCtvHdOKS5lY=
 github.com/alecthomas/assert/v2 v2.2.2/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/assert/v2 v2.3.0/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/participle/v2 v2.0.0/go.mod h1:rAKZdJldHu8084ojcWevWAL8KmEU+AT+Olodb+WoN2Y=
@@ -551,14 +551,10 @@ github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0 h1:HAfXUPvtPjK9UAzofbDSzW0mSXsbubMtIFCEh0SJ2ow=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0/go.mod h1:3NRV/7wc4/0uzzrGdI7NoN/yeF1UvqKRwMyjBqGc5s0=
-github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773 h1:MUBpVnBX9Eql6rBV/f6xKDz/Wm0zICsrcIWWGNH5XeM=
-github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773/go.mod h1:zE7vPrAYZpoamvIFOtcZvfrWXRi6jyvS5O4o04+X1HE=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab h1:2J2cDThqTKP6/0k3SfdlSxfyPa3aLqjTYnmvbEcryfg=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab/go.mod h1:lZF3UXZ2hGLKYmXdquG50JqI9pRlUrV6lubGtgOYfwc=
-github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7 h1:wrYpHTAOPMLm+wafuZhpBnf15g8MqGcp4jtZUxaLLGc=
-github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7/go.mod h1:mw0OzGZhVtcXwE4/KhgEV5kIQSTY0ly9HyZZtlqm7yA=
-github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465 h1:ouSnGzEqZEhFCql4XRxSxChE52TQLDod479XCL++0Lo=
-github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465/go.mod h1:fILVyxuy9jTwyq85KJxfXsKdOzROTZf80fiHfXgxxsQ=
+github.com/fil-forge/libforge v0.0.0-20260527084616-1c83212df033 h1:Orw344bJoiOnYYXVkt6sH573hYBl/hpyuNri6CeArNY=
+github.com/fil-forge/libforge v0.0.0-20260527084616-1c83212df033/go.mod h1:1ytnrneNEeJcskEbsRDtNZY/Jvgo2Yw5szIUI/9EWPk=
 github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357 h1:sTK8Yc/kds7MkG0cpK5DGDtDCtU1ZwgQWc4OzRf3ZP4=
 github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357/go.mod h1:fgg5hE/BlnFlR5qXsT0POv6GWVu7cj526s7v2+mdJXo=
 github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684 h1:kWJLKVltJXPXO7tKS1z0GhzA+c59gwhediGyByEXE0o=
@@ -1721,8 +1717,6 @@ github.com/tklauser/numcpus v0.10.0 h1:18njr6LDBk1zuna922MgdjQuJFjrdppsZG60sHGfj
 github.com/tklauser/numcpus v0.10.0/go.mod h1:BiTKazU708GQTYF4mB+cmlpT2Is1gLk7XVuEeem8LsQ=
 github.com/triplewz/poseidon v0.0.2 h1:s5QMVYnUfqvgM1eIqp7O9hHjZLVrKnkhx0E7EQTf9Nk=
 github.com/triplewz/poseidon v0.0.2/go.mod h1:fmoxtMcbtMUjlSJmpuS3Wk/oKSvdJpIp9YWRbsOu3T0=
-github.com/ucan-wg/go-ucan v0.0.0-20240916120445-37f52863156c h1:A1pMNIlHPnJ6KROqNc6SKg7QlSiQA6umiEoy89Os4cM=
-github.com/ucan-wg/go-ucan v0.0.0-20240916120445-37f52863156c/go.mod h1:IiRc1OKWUk7FziOTWmOo7iwbcEMr7ch0lgs3UrF13pU=
 github.com/urfave/cli v1.22.10 h1:p8Fspmz3iTctJstry1PYS3HVdllxnEzTEsgIgtxTrCk=
 github.com/urfave/cli v1.22.10/go.mod h1:Gos4lmkARVdJ6EkW0WaNv/tZAAMe9V7XWyB60NtXRu0=
 github.com/urfave/cli/v2 v2.27.7 h1:bH59vdhbjLv3LAvIu6gd0usJHgoTTPhCFib8qqOwXYU=

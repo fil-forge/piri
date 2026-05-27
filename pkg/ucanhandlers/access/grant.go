@@ -12,6 +12,7 @@ import (
 	"github.com/fil-forge/ucantone/validator"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
+	"go.opentelemetry.io/otel/codes"
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/libforge/commands/access"
@@ -41,7 +42,16 @@ type GrantDeps struct {
 }
 
 func NewGrantHandler(deps GrantDeps) server.Route {
-	return access.Grant.Route(func(req *binding.Request[*access.GrantArguments], rsp *binding.Response[*access.GrantOK]) error {
+	return access.Grant.Route(func(req *binding.Request[*access.GrantArguments], rsp *binding.Response[*access.GrantOK]) (err error) {
+		ctx, span := tracer.Start(req.Context(), "access.grant")
+		defer func() {
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+			}
+			span.End()
+		}()
+
 		args := req.Task().Arguments()
 
 		if len(args.Attenuations) == 0 {
@@ -79,7 +89,7 @@ func NewGrantHandler(deps GrantDeps) server.Route {
 		grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))
 		grantedLinks := make([]cid.Cid, 0, len(args.Attenuations))
 		for _, att := range args.Attenuations {
-			dlg, err := grantUcan1Capability(req.Context(), deps, validateOpts, audience, att.Command, cause)
+			dlg, err := grantUcan1Capability(ctx, deps, validateOpts, audience, att.Command, cause)
 			if err != nil {
 				return rsp.SetFailure(err)
 			}

@@ -1,15 +1,12 @@
 package identity
 
 import (
-	"bytes"
-	crypto_ed25519 "crypto/ed25519"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"os"
 
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
+	"github.com/fil-forge/libforge/identity"
+	"github.com/fil-forge/ucantone/principal/ed25519"
 	"github.com/spf13/cobra"
 )
 
@@ -60,28 +57,14 @@ func doGenerate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
-	privateKey := crypto_ed25519.PrivateKey(signer.Raw())
-
-	// Marshal and encode the private key
-	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	pem, err := identity.EncodeEd25519SignerToPEM(signer)
 	if err != nil {
-		return fmt.Errorf("marshaling ed25519 private key: %w", err)
+		return fmt.Errorf("encoding ed25519 private key to PEM: %w", err)
 	}
-
-	privateKeyBlock := &pem.Block{
-		Type:  "PRIVATE KEY",
-		Bytes: privateKeyBytes,
-	}
-
-	buffer := new(bytes.Buffer)
-	if err := pem.Encode(buffer, privateKeyBlock); err != nil {
-		return fmt.Errorf("encoding ed25519 private key: %w", err)
-	}
-
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
 	cmd.PrintErrf("# %s\n", signer.DID())
-	cmd.Print(buffer.String())
+	cmd.Print(string(pem))
 	return nil
 }
 
@@ -95,23 +78,7 @@ func doParse(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("reading pem file: %w", err)
 	}
-
-	blk, _ := pem.Decode(pemData)
-	if blk == nil {
-		return fmt.Errorf("no PEM block found")
-	}
-
-	sk, err := x509.ParsePKCS8PrivateKey(blk.Bytes)
-	if err != nil {
-		return fmt.Errorf("parsing PKCS#8 private key: %w", err)
-	}
-
-	ed25519SK, ok := sk.(crypto_ed25519.PrivateKey)
-	if !ok {
-		return fmt.Errorf("PKCS#8 private key does not implement ed25519")
-	}
-
-	key, err := ed25519.FromRaw(ed25519SK)
+	key, err := identity.DecodeEd25519SignerFromPEM(pemData)
 	if err != nil {
 		return fmt.Errorf("decoding ed25519 private key: %w", err)
 	}

@@ -10,8 +10,8 @@ import (
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-data-segment/merkletree"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
-	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 // This code is adapted from
@@ -35,7 +35,7 @@ func (s stackFrame) isLeaf() bool {
 
 // NewAggregate generates an aggregate for a list of pieces that combine in size, and are sorted
 // largest to smallest. It returns the aggregate piece link and proof trees for all pieces
-func NewAggregate(pieces []piri_piece.Piece) (types.Aggregate, error) {
+func NewAggregate(pieces []libpiece.Piece) (types.Aggregate, error) {
 
 	if len(pieces) == 0 {
 		return types.Aggregate{}, errors.New("no pieces provided")
@@ -125,7 +125,7 @@ func NewAggregate(pieces []piri_piece.Piece) (types.Aggregate, error) {
 	actualDataSize -= pieces[len(pieces)-1].Padding()
 
 	// Use actual data size, not padded tree size
-	aggregateLink, err := piri_piece.FromCommitmentAndSize(stack[0].commP, piri_piece.MaxDataSize(actualDataSize))
+	aggregateLink, err := libpiece.FromCommitmentAndSize(stack[0].commP, libpiece.MaxDataSize(actualDataSize))
 	if err != nil {
 		return types.Aggregate{}, fmt.Errorf("error building aggregate link: %w", err)
 	}

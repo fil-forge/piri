@@ -39,7 +39,7 @@ func TestRoundtrip(t *testing.T) {
 				Digest: testutil.RandomDigest(t),
 				Size:   rand.Uint64N(1000000),
 			},
-			PDPAccept: &promise.AwaitOK{Task: testutil.RandomCID(t)},
+			PDPAccept:  &promise.AwaitOK{Task: testutil.RandomCID(t)},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
 		}

@@ -12,8 +12,8 @@ import (
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/stretchr/testify/require"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
-	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 func TestAggregate(t *testing.T) {
@@ -31,11 +31,11 @@ func TestAggregate(t *testing.T) {
 
 	// Aggregate fields are cid.Cid; convert back to Piece to use
 	// DataCommitment() and friends.
-	rootPiece, err := piri_piece.FromCID(agg.Root)
+	rootPiece, err := libpiece.FromCID(agg.Root)
 	require.NoError(t, err)
 	rootNode := (*merkletree.Node)(rootPiece.DataCommitment())
 	for _, aggPiece := range agg.Pieces {
-		piecePL, err := piri_piece.FromCID(aggPiece.Link)
+		piecePL, err := libpiece.FromCID(aggPiece.Link)
 		require.NoError(t, err)
 		subTree := (*merkletree.Node)(piecePL.DataCommitment())
 		require.NoError(t, aggPiece.InclusionProof.ValidateSubtree(subTree, rootNode))
@@ -43,11 +43,11 @@ func TestAggregate(t *testing.T) {
 }
 
 // this generates a random series of pieces decaying in size that should add up to a size between 2^(height-1) and 2^(height)
-func generatePieces(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]piri_piece.Piece, error) {
+func generatePieces(height uint8, oddsShrink float64, oddsReduction float64, smallestSize uint8) ([]libpiece.Piece, error) {
 	size := 0
 	targetSize := 1 << (height - 1)
 	currentHeight := height
-	var pieces []piri_piece.Piece
+	var pieces []libpiece.Piece
 	for size <= targetSize {
 		for {
 			if currentHeight <= smallestSize {
@@ -76,7 +76,7 @@ func generatePieces(height uint8, oddsShrink float64, oddsReduction float64, sma
 		if actualSize != uint64(paddedSize) {
 			return nil, errors.New("calculated wrong")
 		}
-		p, err := piri_piece.FromCommitmentAndSize(commP, uint64(blobSize))
+		p, err := libpiece.FromCommitmentAndSize(commP, uint64(blobSize))
 		if err != nil {
 			return nil, err
 		}

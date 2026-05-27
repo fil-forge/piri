@@ -9,9 +9,9 @@ import (
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/stretchr/testify/require"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
-	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 )
 
 // Human-friendly byte sizes
@@ -22,7 +22,7 @@ const (
 // randomPiece produces a piri Piece for the given unpadded size by
 // hashing random bytes through go-fil-commp-hashhash — the same recipe
 // libstoracha's testutil.RandomPiece used.
-func randomPiece(t *testing.T, unpaddedSize int64) piri_piece.Piece {
+func randomPiece(t *testing.T, unpaddedSize int64) libpiece.Piece {
 	t.Helper()
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	dataReader := io.LimitReader(r, unpaddedSize)
@@ -35,7 +35,7 @@ func randomPiece(t *testing.T, unpaddedSize int64) piri_piece.Piece {
 	commP, _, err := calc.Digest()
 	require.NoError(t, err, "failed to compute commP")
 
-	p, err := piri_piece.FromCommitmentAndSize(commP, uint64(unpaddedSize))
+	p, err := libpiece.FromCommitmentAndSize(commP, uint64(unpaddedSize))
 	require.NoError(t, err, "failed building piece from commP")
 	return p
 }
@@ -199,7 +199,7 @@ func TestAggregatePieces(t *testing.T) {
 				buf        types.Buffer
 				aggregates []types.Aggregate
 				err        error
-				pieces     []piri_piece.Piece
+				pieces     []libpiece.Piece
 			)
 
 			// Build the input pieces

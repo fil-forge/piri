@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
+	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
@@ -54,7 +54,7 @@ var _ AllocationStore = (*Store)(nil)
 // New creates an AllocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New[allocation.Allocation](backend, allocation.Codec{}),
+		store:   genericstore.New(backend, allocation.Codec{}),
 		encoder: encoder,
 	}
 }

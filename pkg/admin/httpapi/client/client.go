@@ -9,12 +9,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/golang-jwt/jwt/v4"
 
-	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/admin/httpapi"
 	"github.com/fil-forge/piri/pkg/config"
 )
@@ -83,7 +84,12 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 		return nil, fmt.Errorf("parsing admin api endpoint: %w", err)
 	}
 
-	id, err := lib.SignerFromEd25519PEMFile(cfg.Identity.KeyFile)
+	pem, err := os.ReadFile(cfg.Identity.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading identity key file: %w", err)
+	}
+
+	id, err := identity.DecodeEd25519SignerFromPEM(pem)
 	if err != nil {
 		return nil, fmt.Errorf("loading identity key file: %w", err)
 	}

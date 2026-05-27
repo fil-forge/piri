@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
@@ -19,7 +20,6 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
-	piri_piece "github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -94,7 +94,7 @@ func (h *ComperTaskHandler) Handle(ctx context.Context, job aggtypes.CommpJob) e
 	}
 	span.AddEvent("parked piece")
 
-	p, err := piri_piece.FromCID(res.PieceCID)
+	p, err := libpiece.FromCID(res.PieceCID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to convert piece")
