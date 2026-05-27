@@ -37,7 +37,13 @@ var Module = fx.Module("pdp-service",
 			fx.As(new(types.API)), // also provide the server as the interface(s) it implements
 			fx.As(new(types.ProofSetAPI)),
 			fx.As(new(types.PieceAPI)),
-			fx.As(new(types.PieceReaderAPI)),
+			// PieceReaderAPI is intentionally NOT exposed via PDPService:
+			// PDPService.Params.Reader already consumes PieceReaderAPI from
+			// NewStoreReader. Listing it here too creates a self-dependency
+			// cycle (PDPService provides AND consumes PieceReaderAPI) and
+			// double-registers the type. Consumers receive StoreReader
+			// directly; PDPService's Read/Has methods are still callable on
+			// concrete *PDPService receivers.
 			fx.As(new(types.PieceWriterAPI)),
 			fx.As(new(types.PieceCommPAPI)),
 		),

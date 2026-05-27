@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"time"
@@ -13,6 +14,19 @@ import (
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
+
+// decodeProof base64-decodes a TOML-stored proof string into the raw CBOR
+// bytes ready for `delegation.Decode`. The encoder side lives in
+// cmd/cli/setup/register.go's extractDelegationFromContainer; both ends MUST
+// agree on the encoding. Falls back to treating the string as raw bytes if it
+// fails to base64-decode — covers older configs written before the encoding
+// was introduced.
+func decodeProof(s string) []byte {
+	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return b
+	}
+	return []byte(s)
+}
 
 type ServicesConfig struct {
 	Indexer       IndexingServiceConfig      `mapstructure:"indexer" validate:"required" toml:"indexer,omitempty"`
@@ -90,7 +104,7 @@ func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error)
 	}
 	// Parse indexing service proofs if provided
 	if s.Proof != "" {
-		dlg, err := delegation.Decode([]byte(s.Proof))
+		dlg, err := delegation.Decode(decodeProof(s.Proof))
 		if err != nil {
 			return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service proof: %w", err)
 		}
@@ -162,7 +176,7 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 
 	// Parse egress tracker service proofs if provided
 	if c.Proof != "" {
-		dlg, err := delegation.Decode([]byte(c.Proof))
+		dlg, err := delegation.Decode(decodeProof(c.Proof))
 		if err != nil {
 			return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service proof: %w", err)
 		}

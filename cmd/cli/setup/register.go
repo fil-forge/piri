@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -769,14 +772,99 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 
 // registerWithDelegator handles registration with the delegator service.
 //
-// TODO(forrest)[ucan1]: this flow depends on generating a delegation proof for
-// the upload service, which was removed along with the `delegate` command
-// during the UCAN 1.0 migration. Reimplement proof generation using
-// container.Encode(container.Base64Gzip, ...) and confirm the wire format the
-// delegator service expects, then restore the IsRegistered/Register/RequestProofs
-// flow. See #13.
+// UCAN 1.0: the new /registrar/register-node handler no longer accepts a
+// delegation proof — the node just identifies itself with operator DID,
+// owner address, proof set ID, email, and public URL. Indexer and
+// egress-tracker proofs are minted by the delegator on demand via
+// /registrar/request-proofs once the node is registered.
+//
+// The delegator returns those proofs as a gzipped ucantone container
+// (`container.RawGzip`) per delegator/internal/handlers/handlers.go. We
+// unwrap the container, pull out the single delegation, and re-encode
+// to plain CBOR so the downstream config consumer (services.go's
+// `delegation.Decode([]byte(s.Proof))`) can read it without changes.
 func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64) (string, string, error) {
-	panic("not implemented: delegator proof generation pending reimplementation")
+	c, err := delgclient.New(flags.delegatorURL)
+	if err != nil {
+		return "", "", fmt.Errorf("creating delegator client: %w", err)
+	}
+
+	operatorDID := cfg.Identity.Signer.DID().String()
+
+	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: operatorDID})
+	if err != nil {
+		return "", "", fmt.Errorf("checking registration status: %w", err)
+	}
+
+	if !registered {
+		if err := c.Register(ctx, &delgclient.RegisterRequest{
+			Operator:      operatorDID,
+			OwnerAddress:  ownerAddress.String(),
+			ProofSetID:    proofSetID,
+			OperatorEmail: flags.operatorEmail,
+			PublicURL:     flags.publicURL.String(),
+		}); err != nil {
+			return "", "", fmt.Errorf("registering with delegator: %w", err)
+		}
+		cmd.PrintErrln("✅ Successfully registered with delegator service")
+	} else {
+		cmd.PrintErrln("✅ Node already registered with delegator service")
+	}
+
+	cmd.PrintErrln("📥 Requesting proofs from delegator service...")
+	res, err := c.RequestProofs(ctx, operatorDID)
+	if err != nil {
+		return "", "", fmt.Errorf("requesting delegator proof: %w", err)
+	}
+	if res == nil || len(res.Proofs.Indexer) == 0 || len(res.Proofs.EgressTracker) == 0 {
+		return "", "", fmt.Errorf("missing proofs from delegator")
+	}
+
+	indexerProof, err := extractDelegationFromContainer(res.Proofs.Indexer)
+	if err != nil {
+		return "", "", fmt.Errorf("extracting indexer delegation: %w", err)
+	}
+	egressTrackerProof, err := extractDelegationFromContainer(res.Proofs.EgressTracker)
+	if err != nil {
+		return "", "", fmt.Errorf("extracting egress tracker delegation: %w", err)
+	}
+
+	cmd.PrintErrln("✅ Received proofs from delegator")
+
+	return indexerProof, egressTrackerProof, nil
+}
+
+// extractDelegationFromContainer decodes a gzipped ucantone container and
+// returns the *leaf* delegation's CBOR bytes (the last entry — delegator →
+// storage node), encoded as plain CBOR.
+//
+// TODO(ucan1, chain): the container actually carries a chain — the root proof
+// (e.g. indexing → delegator) followed by the leaf (delegator → storage
+// node). See delegator/internal/services/registrar/delegator.go
+// generateIndexerDelegation. Piri needs the whole chain to invoke /claim/cache
+// successfully, but the downstream consumer (pkg/config/services.go) is still
+// typed as `ucan.Delegation` (singular). Returning the leaf only is enough
+// to make registration unblock; once services.go is migrated to accept a
+// container or []ucan.Delegation, return the encoded container instead.
+func extractDelegationFromContainer(b []byte) (string, error) {
+	ct, err := container.Decode(b)
+	if err != nil {
+		return "", fmt.Errorf("decoding container: %w", err)
+	}
+	dlgs := ct.Delegations()
+	if len(dlgs) == 0 {
+		return "", fmt.Errorf("no delegations in container")
+	}
+	leaf := dlgs[len(dlgs)-1]
+	encoded, err := delegation.Encode(leaf)
+	if err != nil {
+		return "", fmt.Errorf("encoding delegation: %w", err)
+	}
+	// CBOR is raw binary, not UTF-8 — putting it directly into a TOML string
+	// triggers a parse error on read ("invalid character U+..."). Base64 keeps
+	// the proof TOML-safe. The consumer (pkg/config/services.go) base64-decodes
+	// before calling delegation.Decode.
+	return base64.StdEncoding.EncodeToString(encoded), nil
 }
 
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {

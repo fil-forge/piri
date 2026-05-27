@@ -1,10 +1,14 @@
 package ucanfx
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/fil-forge/libforge/didresolver"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal/verifier"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/validator"
 	"go.uber.org/fx"
 

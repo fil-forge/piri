@@ -12,14 +12,14 @@ require (
 	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/fil-forge/delegator v0.0.0-20260507185724-e05a758b98b8
+	github.com/fil-forge/delegator v0.0.0-20260526203620-bd1a34ac0f0c
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
 	github.com/fil-forge/go-libstoracha v0.0.0-20260507180245-218ac18ff773
 	github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab
-	github.com/fil-forge/libforge v0.0.0-20260521215559-0f7fa19c9ebc
+	github.com/fil-forge/libforge v0.0.0-20260526232406-7e965d8594c7
 	github.com/fil-forge/piri-signing-service v0.0.0-20260521221213-aa7ae9845465
-	github.com/fil-forge/ucantone v0.0.0-20260521210642-84d8c533075b
+	github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
@@ -71,16 +71,16 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/whyrusleeping/cbor-gen v0.3.1
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.63.0
-	go.opentelemetry.io/otel v1.40.0
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.37.0
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.40.0
-	go.opentelemetry.io/otel/metric v1.40.0
-	go.opentelemetry.io/otel/sdk v1.40.0
-	go.opentelemetry.io/otel/sdk/metric v1.40.0
-	go.opentelemetry.io/otel/trace v1.40.0
+	go.opentelemetry.io/otel/metric v1.43.0
+	go.opentelemetry.io/otel/sdk v1.43.0
+	go.opentelemetry.io/otel/sdk/metric v1.43.0
+	go.opentelemetry.io/otel/trace v1.43.0
 	go.uber.org/fx v1.24.0
 	go.uber.org/multierr v1.11.0
-	go.uber.org/zap v1.27.1
+	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.50.0
 	golang.org/x/mod v0.34.0
 	golang.org/x/sync v0.20.0

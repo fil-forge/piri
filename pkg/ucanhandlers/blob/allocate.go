@@ -71,46 +71,44 @@ var (
 )
 
 func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
-	return server.NewRoute(
-		blob.Allocate,
-		func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
-			args := req.Task().Arguments()
+	return blob.Allocate.Route(func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
+		args := req.Task().Arguments()
 
-			// /blob/allocate is space-scoped: the invocation subject IS
-			// the space being allocated into. Authorization is enforced
-			// by the validator's proof chain, not by an issuer-equals-
-			// service check.
+		// /blob/allocate is space-scoped: the invocation subject IS
+		// the space being allocated into. Authorization is enforced
+		// by the validator's proof chain, not by an issuer-equals-
+		// service check.
 
-			// TODO(forrest)[ucan1]: reconcile with blob.MaxBlobSize
-			// to ensure it matches the constraints of piri, namely the aggregation pipeline to adding roots
-			if args.Blob.Size > maxUploadSize {
-				return rsp.SetFailure(errors.New(
-					BlobSizeLimitExceededErrorName,
-					"blob size %d exceeds maximum %d", args.Blob.Size, maxUploadSize,
-				))
+		// TODO(forrest)[ucan1]: reconcile with blob.MaxBlobSize
+		// to ensure it matches the constraints of piri, namely the aggregation pipeline to adding roots
+		if args.Blob.Size > maxUploadSize {
+			return rsp.SetFailure(errors.New(
+				BlobSizeLimitExceededErrorName,
+				"blob size %d exceeds maximum %d", args.Blob.Size, maxUploadSize,
+			))
+		}
+
+		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
+			Space: req.Task().Subject(),
+			Blob:  args.Blob,
+			Cause: args.Cause,
+		})
+		if err != nil {
+			return err
+		}
+
+		ok := &blob.AllocateOK{Size: resp.Size}
+		// returning an address is optional, when not returned it means the data is already allocated
+		// and not upload is required. Rather just call Accept.
+		if resp.Address != nil {
+			ok.Address = &blob.BlobAddress{
+				URL:     resp.Address.URL,
+				Headers: resp.Address.Headers,
+				Expires: resp.Address.Expires,
 			}
-
-			resp, err := Allocate(req.Context(), deps, &AllocateRequest{
-				Space: req.Task().Subject(),
-				Blob:  args.Blob,
-				Cause: args.Cause,
-			})
-			if err != nil {
-				return err
-			}
-
-			ok := &blob.AllocateOK{Size: resp.Size}
-			// returning an address is optional, when not returned it means the data is already allocated
-			// and not upload is required. Rather just call Accept.
-			if resp.Address != nil {
-				ok.Address = &blob.BlobAddress{
-					URL:     resp.Address.URL,
-					Headers: resp.Address.Headers,
-					Expires: resp.Address.Expires,
-				}
-			}
-			return rsp.SetSuccess(ok)
-		},
+		}
+		return rsp.SetSuccess(ok)
+	},
 	)
 }
 

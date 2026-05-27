@@ -41,61 +41,59 @@ type GrantDeps struct {
 }
 
 func NewGrantHandler(deps GrantDeps) server.Route {
-	return server.NewRoute(
-		access.Grant,
-		func(req *binding.Request[*access.GrantArguments], rsp *binding.Response[*access.GrantOK]) error {
-			args := req.Task().Arguments()
+	return access.Grant.Route(func(req *binding.Request[*access.GrantArguments], rsp *binding.Response[*access.GrantOK]) error {
+		args := req.Task().Arguments()
 
-			if len(args.Attenuations) == 0 {
-				return rsp.SetFailure(access.ErrMissingCapability)
-			}
+		if len(args.Attenuations) == 0 {
+			return rsp.SetFailure(access.ErrMissingCapability)
+		}
 
-			// Resolve the optional cause invocation from the request
-			// container. UCAN 1.0 carries the cause CID in the args and
-			// the envelope alongside in the container.
-			var cause ucan.Invocation
-			if args.Cause != nil {
-				for _, inv := range req.Metadata().Invocations() {
-					if inv.Link() == *args.Cause {
-						cause = inv
-						break
-					}
-				}
-				if cause == nil {
-					return rsp.SetFailure(access.ErrUnknownCause)
+		// Resolve the optional cause invocation from the request
+		// container. UCAN 1.0 carries the cause CID in the args and
+		// the envelope alongside in the container.
+		var cause ucan.Invocation
+		if args.Cause != nil {
+			for _, inv := range req.Metadata().Invocations() {
+				if inv.Link() == *args.Cause {
+					cause = inv
+					break
 				}
 			}
-
-			audience := req.Invocation().Issuer()
-
-			// Build the validator options once per request. The proof
-			// resolver looks up delegation envelopes shipped alongside
-			// the cause in the request container; the verifier resolver
-			// reuses the same map the rpc server uses so did:web
-			// identities (e.g. the upload service) resolve correctly.
-			validateOpts := []validator.Option{
-				validator.WithProofResolver(proofResolverFromMetadata(req.Metadata())),
-				validator.WithDIDVerifierResolvers(deps.Resolvers),
+			if cause == nil {
+				return rsp.SetFailure(access.ErrUnknownCause)
 			}
+		}
 
-			grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))
-			grantedLinks := make([]cid.Cid, 0, len(args.Attenuations))
-			for _, att := range args.Attenuations {
-				dlg, err := grantUcan1Capability(req.Context(), deps, validateOpts, audience, att.Command, cause)
-				if err != nil {
-					return rsp.SetFailure(err)
-				}
-				grantedDlgs = append(grantedDlgs, dlg)
-				grantedLinks = append(grantedLinks, dlg.Link())
-			}
+		audience := req.Invocation().Issuer()
 
-			// Attach signed delegation envelopes via response metadata so
-			// the caller can recover them from the receipt container.
-			if err := rsp.SetMetadata(container.New(container.WithDelegations(grantedDlgs...))); err != nil {
-				return err
+		// Build the validator options once per request. The proof
+		// resolver looks up delegation envelopes shipped alongside
+		// the cause in the request container; the verifier resolver
+		// reuses the same map the rpc server uses so did:web
+		// identities (e.g. the upload service) resolve correctly.
+		validateOpts := []validator.Option{
+			validator.WithProofResolver(proofResolverFromMetadata(req.Metadata())),
+			validator.WithDIDVerifierResolvers(deps.Resolvers),
+		}
+
+		grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))
+		grantedLinks := make([]cid.Cid, 0, len(args.Attenuations))
+		for _, att := range args.Attenuations {
+			dlg, err := grantUcan1Capability(req.Context(), deps, validateOpts, audience, att.Command, cause)
+			if err != nil {
+				return rsp.SetFailure(err)
 			}
-			return rsp.SetSuccess(&access.GrantOK{Delegations: grantedLinks})
-		},
+			grantedDlgs = append(grantedDlgs, dlg)
+			grantedLinks = append(grantedLinks, dlg.Link())
+		}
+
+		// Attach signed delegation envelopes via response metadata so
+		// the caller can recover them from the receipt container.
+		if err := rsp.SetMetadata(container.New(container.WithDelegations(grantedDlgs...))); err != nil {
+			return err
+		}
+		return rsp.SetSuccess(&access.GrantOK{Delegations: grantedLinks})
+	},
 	)
 }
 

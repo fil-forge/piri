@@ -32,37 +32,35 @@ type RetrieveDeps struct {
 }
 
 func NewRetrieveHandler(deps RetrieveDeps) server.Route {
-	return server.NewRoute(
-		content.Retrieve,
-		func(req *binding.Request[*content.RetrieveArguments], rsp *binding.Response[*content.RetrieveOK]) error {
-			args := req.Task().Arguments()
-			ctx := req.Context()
+	return content.Retrieve.Route(func(req *binding.Request[*content.RetrieveArguments], rsp *binding.Response[*content.RetrieveOK]) error {
+		args := req.Task().Arguments()
+		ctx := req.Context()
 
-			// space/content/retrieve is space-scoped: the invocation
-			// subject is the space, and the blob must have an allocation
-			// in that space before we'll stream it.
-			space := req.Task().Subject()
-			if _, err := deps.Allocations.Get(ctx, args.Blob.Digest, space); err != nil {
-				if stderrors.Is(err, store.ErrNotFound) {
-					return rsp.SetFailure(errors.New(
-						NotAllocatedErrorName,
-						"no allocation for blob %s in space %s",
-						args.Blob.Digest.B58String(), space,
-					))
-				}
-				return err
+		// space/content/retrieve is space-scoped: the invocation
+		// subject is the space, and the blob must have an allocation
+		// in that space before we'll stream it.
+		space := req.Task().Subject()
+		if _, err := deps.Allocations.Get(ctx, args.Blob.Digest, space); err != nil {
+			if stderrors.Is(err, store.ErrNotFound) {
+				return rsp.SetFailure(errors.New(
+					NotAllocatedErrorName,
+					"no allocation for blob %s in space %s",
+					args.Blob.Digest.B58String(), space,
+				))
 			}
+			return err
+		}
 
-			byteRange := contentRangeToBlobstoreRange(args.Range)
-			container, derr := blob.Retrieve(ctx, deps.Pieces, args.Blob.Digest, byteRange)
-			if err := rsp.SetMetadata(container); err != nil {
-				return err
-			}
-			if derr != nil {
-				return rsp.SetFailure(derr)
-			}
-			return rsp.SetSuccess(&content.RetrieveOK{})
-		},
+		byteRange := contentRangeToBlobstoreRange(args.Range)
+		container, derr := blob.Retrieve(ctx, deps.Pieces, args.Blob.Digest, byteRange)
+		if err := rsp.SetMetadata(container); err != nil {
+			return err
+		}
+		if derr != nil {
+			return rsp.SetFailure(derr)
+		}
+		return rsp.SetSuccess(&content.RetrieveOK{})
+	},
 	)
 }
 

@@ -50,21 +50,19 @@ type BlobRetrieveDeps struct {
 }
 
 func NewBlobRetrieveHandler(deps BlobRetrieveDeps) server.Route {
-	return server.NewRoute(
-		blob.Retrieve,
-		func(req *binding.Request[*blob.RetrieveArguments], rsp *binding.Response[*blob.RetrieveOK]) error {
-			args := req.Task().Arguments()
+	return blob.Retrieve.Route(func(req *binding.Request[*blob.RetrieveArguments], rsp *binding.Response[*blob.RetrieveOK]) error {
+		args := req.Task().Arguments()
 
-			// /blob/retrieve is service-level: no space scoping, no byte range.
-			container, derr := Retrieve(req.Context(), deps.Pieces, args.Blob.Digest, nil)
-			if err := rsp.SetMetadata(container); err != nil {
-				return err
-			}
-			if derr != nil {
-				return rsp.SetFailure(derr)
-			}
-			return rsp.SetSuccess(&blob.RetrieveOK{})
-		},
+		// /blob/retrieve is service-level: no space scoping, no byte range.
+		container, derr := Retrieve(req.Context(), deps.Pieces, args.Blob.Digest, nil)
+		if err := rsp.SetMetadata(container); err != nil {
+			return err
+		}
+		if derr != nil {
+			return rsp.SetFailure(derr)
+		}
+		return rsp.SetSuccess(&blob.RetrieveOK{})
+	},
 	)
 }
 

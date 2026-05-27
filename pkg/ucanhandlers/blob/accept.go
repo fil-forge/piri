@@ -75,46 +75,44 @@ var (
 )
 
 func NewAcceptHandler(deps AcceptDeps) server.Route {
-	return server.NewRoute(
-		blob.Accept,
-		func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
-			args := req.Task().Arguments()
+	return blob.Accept.Route(func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
+		args := req.Task().Arguments()
 
-			// /blob/accept is performed by the upload service, so the only
-			// authorization required here is that the invocation issuer is
-			// the upload service.
-			// TODO(forrest)[ucan1]: confirm how this relates to the proof
-			// chain originating from guppy — is that chain validated
-			// elsewhere, and does it make this issuer check redundant or
-			// complementary?
-			if iss := req.Invocation().Issuer(); iss != deps.Upload.DID {
-				return rsp.SetFailure(errors.New(
-					InvalidCauseErrorName,
-					"issuer is %s not the upload service %s", iss, deps.Upload.DID,
-				))
-			}
+		// /blob/accept is performed by the upload service, so the only
+		// authorization required here is that the invocation issuer is
+		// the upload service.
+		// TODO(forrest)[ucan1]: confirm how this relates to the proof
+		// chain originating from guppy — is that chain validated
+		// elsewhere, and does it make this issuer check redundant or
+		// complementary?
+		if iss := req.Invocation().Issuer(); iss != deps.Upload.DID {
+			return rsp.SetFailure(errors.New(
+				InvalidCauseErrorName,
+				"issuer is %s not the upload service %s", iss, deps.Upload.DID,
+			))
+		}
 
-			resp, err := Accept(req.Context(), deps, &AcceptRequest{
-				Space: req.Task().Subject(),
-				Blob: blob.Blob{
-					Digest: args.Blob.Digest,
-					Size:   args.Blob.Size,
-				},
-				Put:   args.Put,
-				Cause: req.Invocation().Task().Link(),
-			})
-			if err != nil {
-				return err
-			}
+		resp, err := Accept(req.Context(), deps, &AcceptRequest{
+			Space: req.Task().Subject(),
+			Blob: blob.Blob{
+				Digest: args.Blob.Digest,
+				Size:   args.Blob.Size,
+			},
+			Put:   args.Put,
+			Cause: req.Invocation().Task().Link(),
+		})
+		if err != nil {
+			return err
+		}
 
-			if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
-				return fmt.Errorf("setting metadata on response: %w", err)
-			}
-			return rsp.SetSuccess(&blob.AcceptOK{
-				Site: resp.Claim.Link(),
-				PDP:  promise.AwaitOK{Task: resp.PDP.Task().Link()},
-			})
-		},
+		if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
+			return fmt.Errorf("setting metadata on response: %w", err)
+		}
+		return rsp.SetSuccess(&blob.AcceptOK{
+			Site: resp.Claim.Link(),
+			PDP:  promise.AwaitOK{Task: resp.PDP.Task().Link()},
+		})
+	},
 	)
 }
 

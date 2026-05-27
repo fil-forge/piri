@@ -45,96 +45,94 @@ var _ PieceResolver = (pdptypes.PieceAPI)(nil)
 const PieceMismatchErrorName = "PieceMismatch"
 
 func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
-	return server.NewRoute(
-		pdp.Info,
-		func(req *binding.Request[*pdp.InfoArguments], rsp *binding.Response[*pdp.InfoOK]) error {
-			args := req.Task().Arguments()
-			ctx := req.Context()
+	return pdp.Info.Route(func(req *binding.Request[*pdp.InfoArguments], rsp *binding.Response[*pdp.InfoOK]) error {
+		args := req.Task().Arguments()
+		ctx := req.Context()
 
-			// No subject check — the legacy /pdp/info handler is open by
-			// design (any holder of the delegation can ask whether a blob
-			// is aggregated yet).
+		// No subject check — the legacy /pdp/info handler is open by
+		// design (any holder of the delegation can ask whether a blob
+		// is aggregated yet).
 
-			// Try to resolve the blob multihash to its commp.
-			resolvedCommp, found, err := deps.Pieces.ResolveToPiece(ctx, args.Blob)
+		// Try to resolve the blob multihash to its commp.
+		resolvedCommp, found, err := deps.Pieces.ResolveToPiece(ctx, args.Blob)
+		if err != nil {
+			log.Errorw("failed to resolve PDP api", "error", err)
+			return fmt.Errorf("failed to resolve PDP API: %w", err)
+		}
+		if !found {
+			// commp not computed yet — compute on demand
+			commpResp, err := deps.Pieces.CalculateCommP(ctx, args.Blob)
 			if err != nil {
-				log.Errorw("failed to resolve PDP api", "error", err)
-				return fmt.Errorf("failed to resolve PDP API: %w", err)
+				log.Errorw("failed to compute commp", "digest", args.Blob.String(), "error", err)
+				return fmt.Errorf("failed to compute commp: %w", err)
 			}
-			if !found {
-				// commp not computed yet — compute on demand
-				commpResp, err := deps.Pieces.CalculateCommP(ctx, args.Blob)
-				if err != nil {
-					log.Errorw("failed to compute commp", "digest", args.Blob.String(), "error", err)
-					return fmt.Errorf("failed to compute commp: %w", err)
-				}
-				return rsp.SetSuccess(&pdp.InfoOK{
-					Piece:      commpResp.PieceCID,
-					Aggregates: []pdp.InfoAcceptedAggregate{},
-				})
-			}
-
-			// commp resolved — fetch the /pdp/accept receipt to learn the
-			// aggregate and inclusion proof. We rebuild the /pdp/accept
-			// invocation deterministically; its Link() is the key the
-			// receipt store indexed under.
-			pdpAcceptInv, err := pdp.Accept.Invoke(
-				deps.ID, deps.ID.DID(),
-				&pdp.AcceptArguments{Blob: args.Blob},
-			)
-			if err != nil {
-				log.Errorw("building /pdp/accept invocation", "error", err)
-				return fmt.Errorf("building /pdp/accept invocation: %w", err)
-			}
-
-			// The receipt is indexed under the /pdp/accept task link, and
-			// rcpt.Out().Unpack() yields ok/err CBOR bytes decoded via
-			// pdp.AcceptOK{}.UnmarshalCBOR.
-			// TODO(forrest)[ucan1]: revisit how this lookup composes once the
-			// receipt/acceptance stores are fully migrated — see #11.
-			rcpt, err := deps.Receipts.GetByRan(ctx, pdpAcceptInv.Task().Link())
-			if err != nil {
-				// An error looking up the receipt is unexpected (internal),
-				// not a named result the client should interpret — return it.
-				log.Errorw("looking up /pdp/accept receipt", "error", err)
-				return err
-			}
-			okBytes, errBytes := rcpt.Out().Unpack()
-			if errBytes != nil {
-				// /pdp/accept itself failed — propagate.
-				return rsp.SetFailure(errors.New(
-					"PDPAcceptFailed",
-					"upstream /pdp/accept receipt is a failure",
-				))
-			}
-			var acc pdp.AcceptOK
-			if err := acc.UnmarshalCBOR(bytes.NewReader(okBytes)); err != nil {
-				log.Errorw("decoding /pdp/accept ok", "error", err)
-				return fmt.Errorf("decoding /pdp/accept ok: %w", err)
-			}
-
-			// Sanity check: the receipt's piece CID should match what we
-			// resolved from the blob multihash.
-			commpCid := piecepkg.MultihashToCommpCID(resolvedCommp)
-			if !acc.Piece.Equals(commpCid) {
-				log.Errorw("piece CID mismatch",
-					"expected", commpCid, "got", acc.Piece,
-				)
-				return rsp.SetFailure(errors.New(
-					PieceMismatchErrorName,
-					"resolved piece %s != receipt piece %s", commpCid, acc.Piece,
-				))
-			}
-
 			return rsp.SetSuccess(&pdp.InfoOK{
-				Piece: acc.Piece,
-				Aggregates: []pdp.InfoAcceptedAggregate{
-					{
-						Aggregate:      acc.Aggregate,
-						InclusionProof: acc.InclusionProof,
-					},
-				},
+				Piece:      commpResp.PieceCID,
+				Aggregates: []pdp.InfoAcceptedAggregate{},
 			})
-		},
+		}
+
+		// commp resolved — fetch the /pdp/accept receipt to learn the
+		// aggregate and inclusion proof. We rebuild the /pdp/accept
+		// invocation deterministically; its Link() is the key the
+		// receipt store indexed under.
+		pdpAcceptInv, err := pdp.Accept.Invoke(
+			deps.ID, deps.ID.DID(),
+			&pdp.AcceptArguments{Blob: args.Blob},
+		)
+		if err != nil {
+			log.Errorw("building /pdp/accept invocation", "error", err)
+			return fmt.Errorf("building /pdp/accept invocation: %w", err)
+		}
+
+		// The receipt is indexed under the /pdp/accept task link, and
+		// rcpt.Out().Unpack() yields ok/err CBOR bytes decoded via
+		// pdp.AcceptOK{}.UnmarshalCBOR.
+		// TODO(forrest)[ucan1]: revisit how this lookup composes once the
+		// receipt/acceptance stores are fully migrated — see #11.
+		rcpt, err := deps.Receipts.GetByRan(ctx, pdpAcceptInv.Task().Link())
+		if err != nil {
+			// An error looking up the receipt is unexpected (internal),
+			// not a named result the client should interpret — return it.
+			log.Errorw("looking up /pdp/accept receipt", "error", err)
+			return err
+		}
+		okBytes, errBytes := rcpt.Out().Unpack()
+		if errBytes != nil {
+			// /pdp/accept itself failed — propagate.
+			return rsp.SetFailure(errors.New(
+				"PDPAcceptFailed",
+				"upstream /pdp/accept receipt is a failure",
+			))
+		}
+		var acc pdp.AcceptOK
+		if err := acc.UnmarshalCBOR(bytes.NewReader(okBytes)); err != nil {
+			log.Errorw("decoding /pdp/accept ok", "error", err)
+			return fmt.Errorf("decoding /pdp/accept ok: %w", err)
+		}
+
+		// Sanity check: the receipt's piece CID should match what we
+		// resolved from the blob multihash.
+		commpCid := piecepkg.MultihashToCommpCID(resolvedCommp)
+		if !acc.Piece.Equals(commpCid) {
+			log.Errorw("piece CID mismatch",
+				"expected", commpCid, "got", acc.Piece,
+			)
+			return rsp.SetFailure(errors.New(
+				PieceMismatchErrorName,
+				"resolved piece %s != receipt piece %s", commpCid, acc.Piece,
+			))
+		}
+
+		return rsp.SetSuccess(&pdp.InfoOK{
+			Piece: acc.Piece,
+			Aggregates: []pdp.InfoAcceptedAggregate{
+				{
+					Aggregate:      acc.Aggregate,
+					InclusionProof: acc.InclusionProof,
+				},
+			},
+		})
+	},
 	)
 }
