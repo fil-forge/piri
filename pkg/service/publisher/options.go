@@ -16,7 +16,7 @@ type options struct {
 	announceAddr          multiaddr.Multiaddr
 	announceURLs          []url.URL
 	indexingService       app.IndexingServiceConfig
-	indexingServiceProofs ucan.Delegation
+	indexingServiceProofs []ucan.Delegation
 }
 
 type Option func(*options) error
@@ -54,11 +54,14 @@ func WithIndexingService(conn app.IndexingServiceConfig) Option {
 	}
 }
 
-// WithIndexingServiceProof configures proofs for UCAN invocations to the
-// indexing service.
-func WithIndexingServiceProof(proof ucan.Delegation) Option {
+// WithIndexingServiceProof configures the proof chain (root → leaf) for UCAN
+// invocations to the indexing service. Every delegation in the chain is
+// attached to each /claim/cache invocation; passing only the leaf yields
+// "delegation issuer is X not Y" failures inside the indexer's validator
+// because the chain back to the original authority is broken.
+func WithIndexingServiceProof(proofs []ucan.Delegation) Option {
 	return func(opts *options) error {
-		opts.indexingServiceProofs = proof
+		opts.indexingServiceProofs = proofs
 		return nil
 	}
 }

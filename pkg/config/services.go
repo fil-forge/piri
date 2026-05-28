@@ -8,24 +8,96 @@ import (
 
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/ipni/go-libipni/maurl"
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
 
-// decodeProof base64-decodes a TOML-stored proof string into the raw CBOR
-// bytes ready for `delegation.Decode`. The encoder side lives in
-// cmd/cli/setup/register.go's extractDelegationFromContainer; both ends MUST
-// agree on the encoding. Falls back to treating the string as raw bytes if it
-// fails to base64-decode — covers older configs written before the encoding
-// was introduced.
-func decodeProof(s string) []byte {
-	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
-		return b
+// decodeProofChain base64-decodes a TOML-stored proof string into the
+// delegation chain it encodes. The encoder side lives in
+// cmd/cli/setup/register.go's encodeProofChain; both ends MUST agree on the
+// encoding. The chain is logically ordered root → leaf (e.g.
+// indexing-service → delegator → operator). All links must travel together
+// when the operator invokes against the indexing/egress-tracker services —
+// single-delegation storage was insufficient and produced "delegation issuer
+// is did:web:indexer not did:web:delegator" errors in piri's publisher when
+// only the leaf or only the root made it through.
+//
+// TODO(forrest)[ucan1]: remove orderProofChain once
+// https://github.com/fil-forge/ucantone/issues/29 lands. The ucan-wg/container
+// spec sorts tokens bytewise on encode for deterministic output (see
+// ucantone/ucan/container/container.go encodeTokens), so ct.Delegations()
+// returns them in bytewise order, not in chain order. The ucan-wg/invocation
+// spec requires the invocation's `prf` field to be "an array of CIDs ...
+// starting from the root Delegation ... in strict sequence where the aud of
+// the previous Delegation matches the iss of the next Delegation" — so
+// downstream consumers (publisher.go's CacheClaim) cannot just forward
+// ct.Delegations() into WithProofs. We reorder here to bridge between the
+// transport-layer container and the invocation-layer ordering requirement.
+func decodeProofChain(s string) ([]ucan.Delegation, error) {
+	raw, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("base64-decoding proof: %w", err)
 	}
-	return []byte(s)
+	ct, err := container.Decode(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decoding proof container: %w", err)
+	}
+	return orderProofChain(ct.Delegations())
+}
+
+// orderProofChain returns dlgs reordered root → leaf so that for each
+// adjacent pair (a, b), a.Audience() == b.Issuer(). The root is the
+// delegation whose issuer is not the audience of any other delegation in the
+// set; from there we walk forward following audience → issuer until the set
+// is exhausted. Errors if the chain is disconnected, branched, or cyclic.
+func orderProofChain(dlgs []ucan.Delegation) ([]ucan.Delegation, error) {
+	if len(dlgs) <= 1 {
+		return dlgs, nil
+	}
+
+	byIssuer := make(map[did.DID]ucan.Delegation, len(dlgs))
+	audiences := make(map[did.DID]struct{}, len(dlgs))
+	for _, d := range dlgs {
+		if _, dup := byIssuer[d.Issuer()]; dup {
+			return nil, fmt.Errorf("proof chain has two delegations with the same issuer %s (branched chain)", d.Issuer())
+		}
+		byIssuer[d.Issuer()] = d
+		audiences[d.Audience()] = struct{}{}
+	}
+
+	var root ucan.Delegation
+	for _, d := range dlgs {
+		if _, isAudience := audiences[d.Issuer()]; isAudience {
+			continue
+		}
+		if root != nil {
+			return nil, fmt.Errorf("proof chain has multiple roots (issuers %s and %s have no incoming edge)", root.Issuer(), d.Issuer())
+		}
+		root = d
+	}
+	if root == nil {
+		return nil, fmt.Errorf("proof chain has no root (cycle)")
+	}
+
+	ordered := make([]ucan.Delegation, 0, len(dlgs))
+	cur := root
+	for cur != nil {
+		ordered = append(ordered, cur)
+		next, ok := byIssuer[cur.Audience()]
+		if !ok {
+			break
+		}
+		cur = next
+	}
+
+	if len(ordered) != len(dlgs) {
+		return nil, fmt.Errorf("proof chain is disconnected: %d delegations supplied but only %d form a contiguous chain", len(dlgs), len(ordered))
+	}
+	return ordered, nil
 }
 
 type ServicesConfig struct {
@@ -102,13 +174,16 @@ func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error)
 		DID:    sdid,
 		Client: c,
 	}
-	// Parse indexing service proofs if provided
+	// Parse indexing service proof chain if provided
 	if s.Proof != "" {
-		dlg, err := delegation.Decode(decodeProof(s.Proof))
+		chain, err := decodeProofChain(s.Proof)
 		if err != nil {
 			return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service proof: %w", err)
 		}
-		out.Proofs = dlg
+		if len(chain) == 0 {
+			return app.IndexingServiceConfig{}, fmt.Errorf("indexing service proof container is empty")
+		}
+		out.Proofs = chain
 	} else {
 		// TODO(forrest): in the event a node is run without an indexing service proof, it will
 		// almost always fail to index...obviously.
@@ -174,13 +249,16 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 		CleanupCheckInterval: 1 * time.Hour,
 	}
 
-	// Parse egress tracker service proofs if provided
+	// Parse egress tracker service proof chain if provided
 	if c.Proof != "" {
-		dlg, err := delegation.Decode(decodeProof(c.Proof))
+		chain, err := decodeProofChain(c.Proof)
 		if err != nil {
 			return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service proof: %w", err)
 		}
-		out.Proofs = dlg
+		if len(chain) == 0 {
+			return app.EgressTrackerServiceConfig{}, fmt.Errorf("egress tracker service proof container is empty")
+		}
+		out.Proofs = chain
 	} else {
 		log.Warn("no egress tracker service proof provided, egress tracking is disabled")
 	}

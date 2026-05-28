@@ -13,6 +13,7 @@ import (
 	errdm "github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	ipnimeta "github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -52,7 +53,7 @@ type PublisherService struct {
 	asyncPublisher        ipnipub.AsyncPublisher
 	provider              peer.AddrInfo
 	indexingService       app.IndexingServiceConfig
-	indexingServiceProofs ucan.Delegation
+	indexingServiceProofs []ucan.Delegation
 }
 
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
@@ -135,7 +136,7 @@ func CacheClaim(
 	ctx context.Context,
 	id principal.Signer,
 	indexingService app.IndexingServiceConfig,
-	invocationProofs ucan.Delegation,
+	invocationProofs []ucan.Delegation,
 	clm ucan.Invocation,
 	providerAddresses []multiaddr.Multiaddr,
 ) error {
@@ -145,10 +146,22 @@ func CacheClaim(
 		log.Warnf("Cannot cache claim - indexing service is not configured")
 		return nil
 	}
+	if len(invocationProofs) == 0 {
+		return fmt.Errorf("no proofs configured for indexing service invocation")
+	}
 
 	providers := make([][]byte, len(providerAddresses))
 	for i, p := range providerAddresses {
 		providers[i] = p.Bytes()
+	}
+
+	// The proof chain runs root → leaf. The invocation's WithProofs links must
+	// reference the leaf delegation (which directly authorizes this operator);
+	// every other link in the chain (e.g. indexing-service → delegator) is
+	// supplied as a supporting delegation so the validator can walk it back.
+	proofLinks := make([]cid.Cid, len(invocationProofs))
+	for i, d := range invocationProofs {
+		proofLinks[i] = d.Link()
 	}
 
 	inv, err := claim.Cache.Invoke(
@@ -158,14 +171,14 @@ func CacheClaim(
 			Claim:    clm.Link(),
 			Provider: claim.Provider{Addresses: providers},
 		},
-		invocation.WithProofs(invocationProofs.Link()),
+		invocation.WithProofs(proofLinks...),
 	)
 	if err != nil {
 		return fmt.Errorf("creating invocation: %w", err)
 	}
 
 	res, err := indexingService.Client.Execute(execution.NewRequest(ctx, inv,
-		execution.WithDelegations(invocationProofs),
+		execution.WithDelegations(invocationProofs...),
 		execution.WithInvocations(clm),
 	))
 	if err != nil {

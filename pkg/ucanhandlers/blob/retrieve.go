@@ -105,21 +105,21 @@ func Retrieve(
 		switch {
 		case stderrors.Is(err, store.ErrNotFound):
 			log.Debugw("blob not found", "digest", digest.B58String())
-			return errorResponse(
+			return ErrorResponse(
 				http.StatusNotFound,
 				NotFoundErrorName,
 				fmt.Sprintf("blob not found: %s", digest.B58String()),
 			)
 		case stderrors.As(err, &rangeErr):
 			log.Debugw("range not satisfiable", "digest", digest.B58String(), "range", rangeErr.Error())
-			return errorResponse(
+			return ErrorResponse(
 				http.StatusRequestedRangeNotSatisfiable,
 				RangeNotSatisfiableErrorName,
 				rangeErr.Error(),
 			)
 		default:
 			log.Errorw("reading piece", "error", err, "digest", digest.B58String())
-			return errorResponse(
+			return ErrorResponse(
 				http.StatusInternalServerError,
 				InternalServerErrorName,
 				err.Error(),
@@ -163,11 +163,16 @@ func Retrieve(
 	}, nil
 }
 
-// errorResponse builds the (container, error) pair for a domain failure.
+// ErrorResponse builds the (container, error) pair for a domain failure.
 // The container carries the HTTP shape (status + name header + message
 // body); the returned error is the typed UCAN failure suitable for
 // rsp.SetFailure so the receipt outcome mirrors the HTTP status.
-func errorResponse(status int, errorName, message string) (*retrieval.HTTPHeaderResponseContainer, error) {
+//
+// Always call rsp.SetMetadata(container) AND rsp.SetFailure(err) — setting
+// only the failure leaves the HTTP response a misleading 200 OK with an
+// empty body, and callers that inspect HTTP status (rather than the
+// receipt) will mis-classify the failure as success-with-empty-body.
+func ErrorResponse(status int, errorName, message string) (*retrieval.HTTPHeaderResponseContainer, error) {
 	headers := http.Header{}
 	headers.Set(ErrorNameHeader, errorName)
 	headers.Set("Content-Type", "text/plain; charset=utf-8")

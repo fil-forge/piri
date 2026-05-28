@@ -18,17 +18,21 @@ type ExternalServicesConfig struct {
 }
 
 // IndexingServiceConfig contains indexing service connection and proof(s) for
-// using the service
+// using the service. Proofs is an ordered chain (root → leaf) — the delegator
+// returns a chain (indexing-service → delegator → operator) and every link
+// must be attached to invocations to satisfy the indexer's validator.
 type IndexingServiceConfig struct {
 	DID    did.DID
 	Client execution.Executor
-	Proofs ucan.Delegation
+	Proofs []ucan.Delegation
 }
 
 type EgressTrackerServiceConfig struct {
-	DID                  did.DID
-	Client               execution.Executor
-	Proofs               ucan.Delegation
+	DID    did.DID
+	Client execution.Executor
+	// Proofs is an ordered chain (root → leaf), same shape as
+	// IndexingServiceConfig.Proofs.
+	Proofs               []ucan.Delegation
 	ReceiptsEndpoint     *url.URL
 	MaxBatchSizeBytes    int64
 	CleanupCheckInterval time.Duration

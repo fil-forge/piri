@@ -18,7 +18,6 @@ import (
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan/container"
-	"github.com/fil-forge/ucantone/ucan/delegation"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -820,13 +819,13 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		return "", "", fmt.Errorf("missing proofs from delegator")
 	}
 
-	indexerProof, err := extractDelegationFromContainer(res.Proofs.Indexer)
+	indexerProof, err := encodeProofChain(res.Proofs.Indexer)
 	if err != nil {
-		return "", "", fmt.Errorf("extracting indexer delegation: %w", err)
+		return "", "", fmt.Errorf("encoding indexer proof chain: %w", err)
 	}
-	egressTrackerProof, err := extractDelegationFromContainer(res.Proofs.EgressTracker)
+	egressTrackerProof, err := encodeProofChain(res.Proofs.EgressTracker)
 	if err != nil {
-		return "", "", fmt.Errorf("extracting egress tracker delegation: %w", err)
+		return "", "", fmt.Errorf("encoding egress tracker proof chain: %w", err)
 	}
 
 	cmd.PrintErrln("✅ Received proofs from delegator")
@@ -834,37 +833,28 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 	return indexerProof, egressTrackerProof, nil
 }
 
-// extractDelegationFromContainer decodes a gzipped ucantone container and
-// returns the *leaf* delegation's CBOR bytes (the last entry — delegator →
-// storage node), encoded as plain CBOR.
+// encodeProofChain takes the gzipped ucantone container returned by the
+// delegator (which carries a chain: root proof e.g. indexing → delegator, then
+// leaf delegator → storage node) and re-encodes the whole container as a
+// base64 string suitable for TOML storage. Piri needs every link in the chain
+// when invoking /claim/cache (or /space/egress/track) so that the indexing /
+// egress-tracker service can validate the operator's authority back through
+// the delegator. The consumer (pkg/config/services.go's decodeProofChain)
+// base64-decodes and runs container.Decode to recover the chain.
 //
-// TODO(ucan1, chain): the container actually carries a chain — the root proof
-// (e.g. indexing → delegator) followed by the leaf (delegator → storage
-// node). See delegator/internal/services/registrar/delegator.go
-// generateIndexerDelegation. Piri needs the whole chain to invoke /claim/cache
-// successfully, but the downstream consumer (pkg/config/services.go) is still
-// typed as `ucan.Delegation` (singular). Returning the leaf only is enough
-// to make registration unblock; once services.go is migrated to accept a
-// container or []ucan.Delegation, return the encoded container instead.
-func extractDelegationFromContainer(b []byte) (string, error) {
-	ct, err := container.Decode(b)
+// Raw CBOR bytes are not UTF-8 safe and break TOML round-trip with
+// "invalid character U+..." — base64 keeps the payload TOML-safe.
+func encodeProofChain(wire []byte) (string, error) {
+	// Sanity check: ensure the wire bytes are decodable so we fail at init
+	// time rather than at first invocation.
+	ct, err := container.Decode(wire)
 	if err != nil {
 		return "", fmt.Errorf("decoding container: %w", err)
 	}
-	dlgs := ct.Delegations()
-	if len(dlgs) == 0 {
+	if len(ct.Delegations()) == 0 {
 		return "", fmt.Errorf("no delegations in container")
 	}
-	leaf := dlgs[len(dlgs)-1]
-	encoded, err := delegation.Encode(leaf)
-	if err != nil {
-		return "", fmt.Errorf("encoding delegation: %w", err)
-	}
-	// CBOR is raw binary, not UTF-8 — putting it directly into a TOML string
-	// triggers a parse error on read ("invalid character U+..."). Base64 keeps
-	// the proof TOML-safe. The consumer (pkg/config/services.go) base64-decodes
-	// before calling delegation.Decode.
-	return base64.StdEncoding.EncodeToString(encoded), nil
+	return base64.StdEncoding.EncodeToString(wire), nil
 }
 
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {

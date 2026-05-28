@@ -114,6 +114,7 @@ func initConfig() {
 }
 
 func initLogging() {
+	logLevel = "info"
 	if logLevel != "" {
 		ll, err := logging.LevelFromString(logLevel)
 		cobra.CheckErr(err)
