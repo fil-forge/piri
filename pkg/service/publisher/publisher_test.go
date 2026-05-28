@@ -141,7 +141,7 @@ func TestPublisherService(t *testing.T) {
 				DID:    testutil.Bob.DID(),
 				Client: httpClient,
 			}),
-			WithIndexingServiceProof(proof),
+			WithIndexingServiceProof([]ucan.Delegation{proof}),
 		)
 		require.NoError(t, err)
 
