@@ -20,7 +20,6 @@ import (
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
@@ -40,7 +39,11 @@ const journalRotationPeriod = time.Hour * 12
 type Service struct {
 	id                   principal.Signer
 	egressTrackerDID     did.DID
-	egressTrackerProofs  ucan.Delegation
+	// egressTrackerProofs is the ordered chain (root → leaf) issued by the
+	// delegator for the egress-tracker service. Every link must accompany
+	// each /space/egress/track invocation for the egress-tracker validator
+	// to walk the chain back to the originating authority.
+	egressTrackerProofs  []ucan.Delegation
 	egressTrackerConn    client.Connection
 	batchEndpoint        *url.URL
 	journal              retrievaljournal.Journal
@@ -56,7 +59,7 @@ type Service struct {
 func New(
 	id principal.Signer,
 	egressTrackerConn client.Connection,
-	egressTrackerProofs delegation.Delegation,
+	egressTrackerProofs []ucan.Delegation,
 	batchEndpoint *url.URL,
 	journal retrievaljournal.Journal,
 	consolidationStore consolidationstore.Store,
@@ -123,6 +126,13 @@ func (s *Service) enqueueEgressTrackTask(ctx context.Context, batchCID cid.Cid) 
 }
 
 func (s *Service) egressTrack(ctx context.Context, batchCID cid.Cid) error {
+	if len(s.egressTrackerProofs) == 0 {
+		return fmt.Errorf("no proofs configured for egress tracker invocation")
+	}
+	proofLinks := make([]cid.Cid, len(s.egressTrackerProofs))
+	for i, d := range s.egressTrackerProofs {
+		proofLinks[i] = d.Link()
+	}
 	trackInv, err := egress.Track.Invoke(
 		s.id,
 		s.egressTrackerDID,
@@ -130,7 +140,7 @@ func (s *Service) egressTrack(ctx context.Context, batchCID cid.Cid) error {
 			Receipts: batchCID,
 			Endpoint: capabilities.CborURL(*s.batchEndpoint),
 		},
-		invocation.WithProofs(s.egressTrackerProofs.Link()),
+		invocation.WithProofs(proofLinks...),
 		invocation.WithNoExpiration(),
 	)
 	if err != nil {

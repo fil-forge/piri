@@ -73,17 +73,23 @@ var Module = fx.Module("ucan",
 			}, nil
 		},
 
-		// Server-wide options. Stamp every receipt with a server-side
-		// issuance timestamp on both transports.
+		// Server-wide options. Both transports need the DID verifier
+		// resolvers so they can validate UCANs signed by did:web identities
+		// (e.g. did:web:indexer, did:web:upload). Without the retrieval
+		// server option below, the retrieval dispatcher rejects every
+		// invocation from a did:web issuer with "unsupported DID method:
+		// web". The resulting failure receipt has no HTTP metadata, so
+		// retrieval/server.go's RoundTrip falls through to the codec
+		// default — 200 OK with empty body and the failure receipt
+		// hidden in the X-UCAN-Container header — which downstream
+		// clients (the indexer's blobindexlookup) mis-read as
+		// success-with-empty-body and then choke on CAR decode EOF.
 		ucanhandlers.ProvideRPCOption(func(resolver validator.VerifierResolverMap) server.HTTPOption {
 			return server.WithValidationOptions(validator.WithDIDVerifierResolvers(resolver))
 		}),
-		// An example of how options may be provided to the retrieval server
-		/*
-			ucanhandlers.ProvideRetrievalOption(func() server.HTTPOption {
-				return server.WithReceiptTimestamps(true)
-			}),
-		*/
+		ucanhandlers.ProvideRetrievalOption(func(resolver validator.VerifierResolverMap) server.HTTPOption {
+			return server.WithValidationOptions(validator.WithDIDVerifierResolvers(resolver))
+		}),
 	),
 
 	access.Module,

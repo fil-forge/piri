@@ -12,12 +12,12 @@ require (
 	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/fil-forge/delegator v0.0.0-20260526203620-bd1a34ac0f0c
+	github.com/fil-forge/delegator v0.0.0-20260527145843-e103ee9f563f
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
-	github.com/fil-forge/libforge v0.0.0-20260527084616-1c83212df033
+	github.com/fil-forge/libforge v0.0.0-20260527182359-ebb22552c348
 	github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357
-	github.com/fil-forge/ucantone v0.0.0-20260522152152-eda937bc2684
+	github.com/fil-forge/ucantone v0.0.0-20260527115858-517b03bc3c72
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
