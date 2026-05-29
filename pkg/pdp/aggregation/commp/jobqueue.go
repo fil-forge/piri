@@ -6,22 +6,20 @@ import (
 	"fmt"
 	"runtime"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
-	"github.com/ipld/go-ipld-prime/schema"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -36,20 +34,17 @@ const (
 	TaskName  = "compute_commp"
 )
 
-func NewQueue(params CommpQueueParams) (jobqueue.Service[multihash.Multihash], error) {
+func NewQueue(params CommpQueueParams) (jobqueue.Service[aggtypes.CommpJob], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 
-	var commpQueue, err = jobqueue.New[multihash.Multihash](
+	commpQueue, err := jobqueue.New[aggtypes.CommpJob](
 		TaskName,
 		params.DB,
-		&serializer.IPLDCBOR[multihash.Multihash]{
-			Typ:  &schema.TypeBytes{},
-			Opts: captypes.Converters,
-		},
+		serializer.CBOR[aggtypes.CommpJob]{},
 		jobqueue.WithLogger(log.With("queue", QueueName)),
 		// TODO(forrest) make these configuration parameters.
 		jobqueue.WithMaxRetries(50),
@@ -63,7 +58,7 @@ func NewQueue(params CommpQueueParams) (jobqueue.Service[multihash.Multihash], e
 	return commpQueue, nil
 }
 
-func NewHandler(api types.PieceAPI, a *aggregator.Aggregator) jobqueue.TaskHandler[multihash.Multihash] {
+func NewHandler(api types.PieceAPI, a *aggregator.Aggregator) jobqueue.TaskHandler[aggtypes.CommpJob] {
 	return &ComperTaskHandler{api: api, aggregator: a}
 }
 
@@ -72,7 +67,9 @@ type ComperTaskHandler struct {
 	aggregator *aggregator.Aggregator
 }
 
-func (h *ComperTaskHandler) Handle(ctx context.Context, blob multihash.Multihash) error {
+func (h *ComperTaskHandler) Handle(ctx context.Context, job aggtypes.CommpJob) error {
+	blob := multihash.Multihash(job.Digest)
+
 	ctx, span := traceutil.StartSpan(ctx, tracer, "commp.Handle", trace.WithAttributes(attribute.Stringer("blob.digest", blob)))
 	defer span.End()
 
@@ -97,7 +94,7 @@ func (h *ComperTaskHandler) Handle(ctx context.Context, blob multihash.Multihash
 	}
 	span.AddEvent("parked piece")
 
-	p, err := piece.FromLink(cidlink.Link{Cid: res.PieceCID})
+	p, err := libpiece.FromCID(res.PieceCID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "failed to convert piece")

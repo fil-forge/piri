@@ -9,8 +9,7 @@ import (
 	"slices"
 	"time"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/piece/piece"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
 	"go.opentelemetry.io/otel/attribute"
@@ -18,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/fx"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/jobqueue"
 	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
@@ -31,13 +31,13 @@ var log = logging.Logger("aggregation/aggregator")
 
 type AggregatorParams struct {
 	fx.In
-	Queue   jobqueue.Service[piece.PieceLink]
-	Handler jobqueue.TaskHandler[piece.PieceLink]
+	Queue   jobqueue.Service[types.AggregatorJob]
+	Handler jobqueue.TaskHandler[types.AggregatorJob]
 }
 
 type Aggregator struct {
-	queue   jobqueue.Service[piece.PieceLink]
-	handler jobqueue.TaskHandler[piece.PieceLink]
+	queue   jobqueue.Service[types.AggregatorJob]
+	handler jobqueue.TaskHandler[types.AggregatorJob]
 }
 
 func New(lc fx.Lifecycle, params AggregatorParams) (*Aggregator, error) {
@@ -64,9 +64,9 @@ func New(lc fx.Lifecycle, params AggregatorParams) (*Aggregator, error) {
 	return a, nil
 }
 
-func (a *Aggregator) EnqueueAggregation(ctx context.Context, piece piece.PieceLink) error {
-	log.Infow("enqueuing piece for aggregation", "piece", piece.Link())
-	return a.queue.Enqueue(ctx, a.handler.Name(), piece)
+func (a *Aggregator) EnqueueAggregation(ctx context.Context, p libpiece.Piece) error {
+	log.Infow("enqueuing piece for aggregation", "piece", p.CID())
+	return a.queue.Enqueue(ctx, a.handler.Name(), types.AggregatorJob{Piece: p.CID()})
 }
 
 const (
@@ -80,7 +80,7 @@ type QueueParams struct {
 	StorageConfig app.StorageConfig
 }
 
-func NewQueue(params QueueParams) (jobqueue.Service[piece.PieceLink], error) {
+func NewQueue(params QueueParams) (jobqueue.Service[types.AggregatorJob], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
@@ -95,13 +95,10 @@ func NewQueue(params QueueParams) (jobqueue.Service[piece.PieceLink], error) {
 	dedupEnabled := true
 	// Allow jobs in dead letter queue (failed) to run again.
 	blockDLQRetries := false
-	linkQueue, err := jobqueue.New[piece.PieceLink](
+	linkQueue, err := jobqueue.New[types.AggregatorJob](
 		QueueName,
 		params.DB,
-		&serializer.IPLDCBOR[piece.PieceLink]{
-			Typ:  types.PieceLinkType(),
-			Opts: captypes.Converters,
-		},
+		serializer.CBOR[types.AggregatorJob]{},
 		jobqueue.WithLogger(log.With("queue", QueueName)),
 		jobqueue.WithMaxRetries(50),
 		// one worker to keep things serial
@@ -128,7 +125,7 @@ type HandlerParams struct {
 	Manager   *manager.Manager
 }
 
-func NewHandler(params HandlerParams) jobqueue.TaskHandler[piece.PieceLink] {
+func NewHandler(params HandlerParams) jobqueue.TaskHandler[types.AggregatorJob] {
 	return &Handler{
 		workspace: newInProgressWorkspace(params.Datastore),
 		store:     params.Store,
@@ -142,8 +139,13 @@ type Handler struct {
 	manager   *manager.Manager
 }
 
-func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr error) {
-	ctx, span := traceutil.StartSpan(ctx, tracer, "aggregator.Handle", trace.WithAttributes(attribute.String("piece", piece.Link().String())))
+func (p *Handler) Handle(ctx context.Context, job types.AggregatorJob) (retErr error) {
+	piece, err := libpiece.FromCID(job.Piece)
+	if err != nil {
+		return fmt.Errorf("decoding piece from cid %s: %w", job.Piece, err)
+	}
+
+	ctx, span := traceutil.StartSpan(ctx, tracer, "aggregator.Handle", trace.WithAttributes(attribute.String("piece", piece.CID().String())))
 	defer func() {
 		if retErr != nil {
 			span.RecordError(retErr)
@@ -152,7 +154,7 @@ func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr err
 		span.End()
 	}()
 
-	log.Infow("aggregating piece", "link", piece.Link())
+	log.Infow("aggregating piece", "link", piece.CID())
 	buffer, err := p.workspace.GetBuffer(ctx)
 	if err != nil {
 		return fmt.Errorf("reading in progress pieces from work space: %w", err)
@@ -165,11 +167,11 @@ func (p *Handler) Handle(ctx context.Context, piece piece.PieceLink) (retErr err
 		return fmt.Errorf("updating work space: %w", err)
 	}
 	if a != nil {
-		span.AddEvent("aggregate created", trace.WithAttributes(attribute.String("aggregate.root", a.Root.Link().String())))
-		if err := p.store.Put(ctx, a.Root.Link(), *a); err != nil {
+		span.AddEvent("aggregate created", trace.WithAttributes(attribute.String("aggregate.root", a.Root.String())))
+		if err := p.store.Put(ctx, a.Root, *a); err != nil {
 			return fmt.Errorf("storing aggregate: %w", err)
 		}
-		if err := p.manager.Submit(ctx, a.Root.Link()); err != nil {
+		if err := p.manager.Submit(ctx, a.Root); err != nil {
 			return fmt.Errorf("submitting aggregate to manager: %w", err)
 		}
 	}
@@ -187,23 +189,33 @@ func (p *Handler) Name() string {
 // If not, we can safely aggregate till >=128MB without going over 256MB
 const MinAggregateSize = 128 << 20
 
-func AggregatePiece(buffer types.Buffer, newPiece piece.PieceLink) (types.Buffer, *types.Aggregate, error) {
+// AggregatePiece appends newPiece to buffer; when the running size reaches the
+// minimum threshold it produces an aggregate and resets the buffer.
+//
+// The in-memory aggregation logic operates on piri_piece.Piece (which carries
+// PaddedSize() and other methods); only the Buffer's serialized form uses
+// cid.Cid. The function converts at the boundary.
+func AggregatePiece(buffer types.Buffer, newPiece libpiece.Piece) (types.Buffer, *types.Aggregate, error) {
 	log.Infow("aggregating piece",
-		"link", newPiece.Link().String(),
+		"link", newPiece.CID().String(),
 		"padded size", newPiece.PaddedSize(),
 		"buffer size", buffer.TotalSize,
 	)
 	// if the piece is aggregatable on its own it should submit immediately
 	if newPiece.PaddedSize() > MinAggregateSize {
-		aggregate, err := NewAggregate([]piece.PieceLink{newPiece})
+		aggregate, err := NewAggregate([]libpiece.Piece{newPiece})
 		if err == nil {
-			log.Infow("aggregate create", "root", aggregate.Root.Link())
+			log.Infow("aggregate create", "root", aggregate.Root)
 		}
 		return buffer, &aggregate, err
 	}
 
+	bufferPieces, err := decodePieces(buffer.ReverseSortedPieces)
+	if err != nil {
+		return buffer, nil, fmt.Errorf("decoding buffered pieces: %w", err)
+	}
 	newSize := buffer.TotalSize + newPiece.PaddedSize()
-	newPieces := InsertOrderedByDescendingSize(buffer.ReverseSortedPieces, newPiece)
+	newPieces := InsertOrderedByDescendingSize(bufferPieces, newPiece)
 
 	// if we have reached the minimum aggregate size, submit and start over
 	if newSize >= MinAggregateSize {
@@ -211,23 +223,23 @@ func AggregatePiece(buffer types.Buffer, newPiece piece.PieceLink) (types.Buffer
 		if err != nil {
 			return buffer, nil, err
 		}
-		log.Infow("aggregate create", "root", aggregate.Root.Link())
+		log.Infow("aggregate create", "root", aggregate.Root)
 		return types.Buffer{}, &aggregate, err
 	}
 
 	// otherwise keep aggregating
 	return types.Buffer{
 		TotalSize:           newSize,
-		ReverseSortedPieces: newPieces,
+		ReverseSortedPieces: encodePieces(newPieces),
 	}, nil, nil
 }
 
-func AggregatePieces(buffer types.Buffer, pieces []piece.PieceLink) (types.Buffer, []types.Aggregate, error) {
+func AggregatePieces(buffer types.Buffer, pieces []libpiece.Piece) (types.Buffer, []types.Aggregate, error) {
 	var aggregates []types.Aggregate
-	for _, piece := range pieces {
+	for _, p := range pieces {
 		var aggregate *types.Aggregate
 		var err error
-		buffer, aggregate, err = AggregatePiece(buffer, piece)
+		buffer, aggregate, err = AggregatePiece(buffer, p)
 		if err != nil {
 			return buffer, aggregates, err
 		}
@@ -238,11 +250,40 @@ func AggregatePieces(buffer types.Buffer, pieces []piece.PieceLink) (types.Buffe
 	return buffer, aggregates, nil
 }
 
-// InsertOrderedByDescendingSize adds a piece to a list of pieces sorted largest to smallest, maintaining sort order
-func InsertOrderedByDescendingSize(sortedPieces []piece.PieceLink, newPiece piece.PieceLink) []piece.PieceLink {
-	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target piece.PieceLink) int {
+// InsertOrderedByDescendingSize adds a piece to a list of pieces sorted
+// largest to smallest, maintaining sort order.
+func InsertOrderedByDescendingSize(sortedPieces []libpiece.Piece, newPiece libpiece.Piece) []libpiece.Piece {
+	pos, _ := slices.BinarySearchFunc(sortedPieces, newPiece, func(test, target libpiece.Piece) int {
 		// flip ordering comparing size cause we're going in reverse order
 		return cmp.Compare(target.PaddedSize(), test.PaddedSize())
 	})
 	return slices.Insert(sortedPieces, pos, newPiece)
+}
+
+// decodePieces rehydrates a buffer's persisted CID slice into the
+// [libpiece.Piece] form aggregation operates on internally.
+func decodePieces(cids []cid.Cid) ([]libpiece.Piece, error) {
+	if len(cids) == 0 {
+		return nil, nil
+	}
+	out := make([]libpiece.Piece, len(cids))
+	for i, c := range cids {
+		p, err := libpiece.FromCID(c)
+		if err != nil {
+			return nil, fmt.Errorf("decoding piece %s: %w", c, err)
+		}
+		out[i] = p
+	}
+	return out, nil
+}
+
+func encodePieces(pieces []libpiece.Piece) []cid.Cid {
+	if len(pieces) == 0 {
+		return nil
+	}
+	out := make([]cid.Cid, len(pieces))
+	for i, p := range pieces {
+		out[i] = p.CID()
+	}
+	return out
 }

@@ -37,7 +37,13 @@ var Module = fx.Module("pdp-service",
 			fx.As(new(types.API)), // also provide the server as the interface(s) it implements
 			fx.As(new(types.ProofSetAPI)),
 			fx.As(new(types.PieceAPI)),
-			fx.As(new(types.PieceReaderAPI)),
+			// PieceReaderAPI is intentionally NOT exposed via PDPService:
+			// PDPService.Params.Reader already consumes PieceReaderAPI from
+			// NewStoreReader. Listing it here too creates a self-dependency
+			// cycle (PDPService provides AND consumes PieceReaderAPI) and
+			// double-registers the type. Consumers receive StoreReader
+			// directly; PDPService's Read/Has methods are still callable on
+			// concrete *PDPService receivers.
 			fx.As(new(types.PieceWriterAPI)),
 			fx.As(new(types.PieceCommPAPI)),
 		),
@@ -101,8 +107,9 @@ func ProvideProofSetIDProvider(cfg app.UCANServiceConfig) (types.ProofSetIDProvi
 }
 
 func ProvideSigningService(cfg app.PDPServiceConfig, proofService proofs.ProofService) (signertypes.SigningService, error) {
-	if cfg.SigningService.Connection != nil {
-		return signer.NewProofServiceSigner(cfg.SigningService.Connection, proofService), nil
+	if cfg.SigningService.Client != nil {
+		sc := cfg.SigningService.Client
+		return signer.NewProofServiceSigner(sc, sc.ServiceDID, sc.HTTP, proofService), nil
 	} else if cfg.SigningService.PrivateKey != nil {
 		s := signingservice.NewSigner(
 			cfg.SigningService.PrivateKey,

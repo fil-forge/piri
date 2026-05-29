@@ -1,7 +1,7 @@
 package root
 
 import (
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 

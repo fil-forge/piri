@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"github.com/raulk/clock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
@@ -22,6 +22,7 @@ import (
 	"github.com/fil-forge/piri/lib/jobqueue/worker"
 	"github.com/fil-forge/piri/pkg/config"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
 
 // mockConfigProvider implements manager.ConfigProvider for testing.
@@ -88,7 +89,7 @@ func (m *mockConfigProvider) SetBatchSize(size uint) {
 
 // mockQueue is a simple implementation of jobqueue.Service for testing
 type mockQueue struct {
-	taskHandler   jobqueue.TaskHandler[[]datamodel.Link]
+	taskHandler   jobqueue.TaskHandler[types.ManagerJob]
 	delay         time.Duration // Simulated processing delay
 	failRate      float32       // Failure rate (0-1) for error injection
 	enqueuedCount atomic.Int64
@@ -96,15 +97,15 @@ type mockQueue struct {
 
 func (mq *mockQueue) Start(ctx context.Context) error { return nil }
 func (mq *mockQueue) Stop(ctx context.Context) error  { return nil }
-func (mq *mockQueue) Register(name string, fn func(context.Context, []datamodel.Link) error, opts ...worker.JobOption[[]datamodel.Link]) error {
+func (mq *mockQueue) Register(name string, fn func(context.Context, types.ManagerJob) error, opts ...worker.JobOption[types.ManagerJob]) error {
 	// registration happens at constructions, kinda gross, ohh weell.
 	return nil
 }
-func (mq *mockQueue) RegisterHandler(h jobqueue.TaskHandler[[]datamodel.Link], opts ...worker.JobOption[[]datamodel.Link]) error {
+func (mq *mockQueue) RegisterHandler(h jobqueue.TaskHandler[types.ManagerJob], opts ...worker.JobOption[types.ManagerJob]) error {
 	// registration happens at constructions, kinda gross, ohh weell.
 	return nil
 }
-func (mq *mockQueue) Enqueue(ctx context.Context, name string, msg []datamodel.Link) error {
+func (mq *mockQueue) Enqueue(ctx context.Context, name string, msg types.ManagerJob) error {
 	mq.enqueuedCount.Add(1)
 
 	// Simulate processing delay if configured
@@ -133,18 +134,18 @@ type fakeTaskHandler struct {
 	called         atomic.Int64
 	totalLinks     atomic.Int64
 	mu             sync.Mutex
-	processedLinks []datamodel.Link // Track all processed links
-	delay          time.Duration    // Simulated processing delay
+	processedLinks []cid.Cid     // Track all processed links
+	delay          time.Duration // Simulated processing delay
 }
 
-func (f *fakeTaskHandler) Handle(ctx context.Context, links []datamodel.Link) error {
+func (f *fakeTaskHandler) Handle(ctx context.Context, job types.ManagerJob) error {
 	f.called.Add(1)
-	f.totalLinks.Add(int64(len(links)))
+	f.totalLinks.Add(int64(len(job.Roots)))
 
 	// Track processed links if needed
 	if f.processedLinks != nil {
 		f.mu.Lock()
-		f.processedLinks = append(f.processedLinks, links...)
+		f.processedLinks = append(f.processedLinks, job.Roots...)
 		f.mu.Unlock()
 	}
 
@@ -193,10 +194,10 @@ func setupTestManager(t *testing.T, cfgProvider *mockConfigProvider, opts ...man
 		fx.Supply(
 			fx.Annotate(
 				queue,
-				fx.As(new(jobqueue.Service[[]datamodel.Link])),
+				fx.As(new(jobqueue.Service[types.ManagerJob])),
 			),
 		),
-		fx.Provide(func() jobqueue.TaskHandler[[]datamodel.Link] {
+		fx.Provide(func() jobqueue.TaskHandler[types.ManagerJob] {
 			return taskHandler
 		}),
 		fx.Provide(func() manager.BufferStore {
@@ -347,7 +348,7 @@ func TestManagerSubmit(t *testing.T) {
 		// 1. Fill current buffer (3 links) to max by adding 7 from new links, submit full batch (10 links)
 		// 2. Submit 1 more full batch (10 links) from remaining 18 links
 		// 3. Buffer the remaining 8 links
-		largeInput := make([]datamodel.Link, 25)
+		largeInput := make([]cid.Cid, 25)
 		for i := 0; i < 25; i++ {
 			largeInput[i] = testutil.RandomCID(t)
 		}

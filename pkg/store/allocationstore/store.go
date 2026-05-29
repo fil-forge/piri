@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
 
@@ -29,7 +30,7 @@ type AllocationStore interface {
 	// GetAnyNonExpired retrieves any allocation for a blob that has not expired.
 	// The now parameter should be the current unix timestamp in seconds.
 	// Returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if no non-expired allocation exists.
-	GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now uint64) (allocation.Allocation, error)
+	GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now ucan.UnixTimestamp) (allocation.Allocation, error)
 	// Exists checks if any allocation exists for a blob (digest).
 	Exists(context.Context, multihash.Multihash) (bool, error)
 	// Put adds or replaces allocation data in the store.
@@ -53,7 +54,7 @@ var _ AllocationStore = (*Store)(nil)
 // New creates an AllocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New[allocation.Allocation](backend, allocation.Codec{}),
+		store:   genericstore.New(backend, allocation.Codec{}),
 		encoder: encoder,
 	}
 }
@@ -74,7 +75,8 @@ func (s *Store) GetAny(ctx context.Context, digest multihash.Multihash) (allocat
 	return alloc, nil
 }
 
-func (s *Store) GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now uint64) (allocation.Allocation, error) {
+func (s *Store) GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now ucan.UnixTimestamp) (allocation.Allocation,
+	error) {
 	alloc, err := s.store.GetAnyMatching(ctx, s.encoder.EncodeKeyPrefix(digest), func(a allocation.Allocation) bool {
 		return a.Expires > now
 	})

@@ -1,5 +1,7 @@
 package egresstracker
 
+/*
+
 import (
 	"errors"
 	"fmt"
@@ -50,3 +52,6 @@ func NewHandler(egressBatches retrievaljournal.Journal) echo.HandlerFunc {
 		return ctx.Stream(http.StatusOK, car.ContentType, batch)
 	}
 }
+
+
+*/

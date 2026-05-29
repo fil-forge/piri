@@ -3,8 +3,8 @@ package publisher
 import (
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
+	"github.com/fil-forge/ucantone/principal"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -41,8 +41,8 @@ func NewFx(
 		publisherStore,
 		pubCfg.PublicMaddr,
 		WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		WithIndexingService(idxCfg.Connection),
-		WithIndexingServiceProof(idxCfg.Proofs...),
+		WithIndexingService(idxCfg),
+		WithIndexingServiceProof(idxCfg.Proofs),
 		WithAnnounceAddress(pubCfg.AnnounceMaddr),
 		WithBlobAddress(pubCfg.BlobMaddr),
 	)

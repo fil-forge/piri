@@ -10,15 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
+	libforgesign "github.com/fil-forge/libforge/commands/pdp/sign"
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
-	"github.com/multiformats/go-multihash"
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -29,8 +25,6 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
-	"github.com/fil-forge/piri/pkg/store/acceptancestore"
-	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 // TODO we need to define non-retryable errors for the add root method, like lack of auth, and lack of dataset else this retries ~50 times
@@ -429,21 +423,18 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		metadata[i] = []eip712.MetadataEntry{}
 	}
 
-	proofs := make([][]ipld.Link, 0, len(request))
-	proofData := make([][]message.AgentMessage, 0, len(request))
+	// TODO(forrest)[ucan1] #9: rebuild proof bundling on top of ucantone receipts +
+	// libforge pdp/sign.PieceProofs. The previous go-ucanto path collected
+	// blob/accept and pdp/accept invocations + receipts into per-piece agent
+	// messages; that requires the receipt/acceptance stores to be migrated
+	// first. Until then we send empty piece proofs and a nil proof
+	// container — the signing service still issues an EIP-712 signature,
+	// just without the attestation chain.
+	pieceProofs := make([]libforgesign.PieceProofs, 0, len(request))
 	for _, req := range request {
-		tasks := make([]ipld.Link, 0, len(req.SubRoots))
-		msgs := make([]message.AgentMessage, 0, len(req.SubRoots))
-		for _, subroot := range req.SubRoots {
-			task, msg, err := getAddPieceProofs(ctx, p.pieceResolver, p.acceptanceStore, p.receiptStore, subroot)
-			if err != nil {
-				return common.Hash{}, fmt.Errorf("getting proofs to add piece %s: %w", subroot, err)
-			}
-			tasks = append(tasks, task)
-			msgs = append(msgs, msg)
-		}
-		proofs = append(proofs, tasks)
-		proofData = append(proofData, msgs)
+		pieceProofs = append(pieceProofs, libforgesign.PieceProofs{
+			Proofs: make([]cid.Cid, 0, len(req.SubRoots)),
+		})
 	}
 
 	// Request a signature for adding pieces from the signing service.
@@ -461,8 +452,9 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		nonce,                       // client-chosen nonce, disjoint from createDataSet clientDataSetId
 		pieceDataBytes,
 		metadata,
-		proofs,
-		proofData,
+		pieceProofs,
+		nil, // proofContainer — see TODO above
+		nil, // proofs (access delegation) — signing-service obtains its own
 	)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to sign AddPieces: %w", err)
@@ -557,72 +549,10 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 	return txHash, nil
 }
 
-// just the bit of the piece resolver API that we need
-type blobResolvable interface {
-	ResolveToBlob(ctx context.Context, piece multihash.Multihash) (multihash.Multihash, bool, error)
-}
-
-func getAddPieceProofs(
-	ctx context.Context,
-	resolver blobResolvable,
-	accStore acceptancestore.AcceptanceStore,
-	rcptStore receiptstore.ReceiptStore,
-	piece cid.Cid,
-) (ipld.Link, message.AgentMessage, error) {
-	blob, ok, err := resolver.ResolveToBlob(ctx, piece.Hash())
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolving piece to blob hash: %w", err)
-	}
-	if !ok {
-		return nil, nil, fmt.Errorf("missing piece to blob mapping: %s", piece)
-	}
-
-	// We can accept the same blob in multiple _spaces_, but we only add a root
-	// for the blob to PDP once. So it doesn't really matter which acceptance
-	// record we retrieve here, but there will only be one anyway, since this will
-	// be the first (and only) time this blob is added to PDP.
-	acc, err := accStore.GetAny(ctx, blob)
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting acceptance: %w", err)
-	}
-	if acc.PDPAccept == nil {
-		return nil, nil, errors.New("missing PDP accept promise")
-	}
-
-	// The `blob/accept` invocation and receipt proves the node was asked to store
-	// the data, or more accurately, it was asked _and_ it confirmed it received
-	// the data.
-	blobAccRcpt, err := rcptStore.GetByRan(ctx, acc.Cause)
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting blob/accept receipt: %w", err)
-	}
-	// expect invocation to be attached to receipt
-	blobAccInv, ok := blobAccRcpt.Ran().Invocation()
-	if !ok {
-		return nil, nil, fmt.Errorf("missing blob/accept invocation: %w", err)
-	}
-
-	// The `pdp/accept` invocation and receipt proves the node calculated a CommP
-	// for the blob and aggregated it into an aggregate piece. Note: It doesn't
-	// prove the equality relationship between the blob hash and the piece CID.
-	pdpAccRcpt, err := rcptStore.GetByRan(ctx, acc.PDPAccept.UcanAwait.Link)
-	if err != nil {
-		return nil, nil, fmt.Errorf("getting pdp/accept receipt: %w", err)
-	}
-	pdpAccInv, ok := pdpAccRcpt.Ran().Invocation()
-	if !ok {
-		return nil, nil, fmt.Errorf("missing pdp/accept invocation: %w", err)
-	}
-
-	// The blob/accept receipt contains the link to the pdp/accept invocation in
-	// effects. Here we combine the blocks of these two related receipts (and
-	// invocations) in an agent message.
-	msg, err := message.Build(
-		[]invocation.Invocation{blobAccInv, pdpAccInv},
-		[]receipt.AnyReceipt{blobAccRcpt, pdpAccRcpt},
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("building agent message: %w", err)
-	}
-	return acc.Cause, msg, nil
-}
+// TODO(phase 5a): the proof-bundling helper that lived here built per-piece
+// agent messages from go-ucanto blob/accept and pdp/accept invocations +
+// receipts. Migrating it depends on the receipt and acceptance stores
+// being moved to ucantone first. The body has been removed; reintroduce a
+// ucantone-shaped equivalent that returns ([]cid.Cid /* blob/accept
+// task links */, ucan.Container /* invocations + pdp/accept receipts */,
+// error) when those stores migrate.

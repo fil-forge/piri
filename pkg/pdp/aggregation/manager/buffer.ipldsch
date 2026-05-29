@@ -1,5 +1,0 @@
-type AggregateLinks [Link]
-
-type Aggregates struct {
-	Roots AggregateLinks
-}

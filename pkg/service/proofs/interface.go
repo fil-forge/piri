@@ -6,30 +6,32 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
 )
 
 // ProofService requests proofs from other UCAN enabled nodes by making
-// `access/grant` invocations.
+// `/access/grant` invocations.
 type ProofService interface {
-	// Request access to be granted from the service for the passed ability.
+	// RequestAccess requests a delegation grant from the service identified
+	// by `audience` for the named `command`. The optional `cause` invocation,
+	// when non-nil, is attached to the access/grant request as supporting
+	// context.
 	RequestAccess(
 		ctx context.Context,
 		issuer ucan.Signer,
-		audience ucan.Principal,
-		ability ucan.Ability,
-		cause invocation.Invocation,
+		audience did.DID,
+		command ucan.Command,
+		cause ucan.Invocation,
 		options ...Option,
-	) (delegation.Delegation, error)
+	) (ucan.Delegation, error)
 }
 
 type requestConfig struct {
 	httpClient *http.Client
 	url        *url.URL
-	conn       client.Connection
+	client     *client.HTTPClient
 	minTTL     *time.Duration
 }
 
@@ -42,19 +44,19 @@ func WithHTTPClient(h *http.Client) Option {
 	}
 }
 
-// WithServiceURL configures the URL of the service to request from. If not set
-// it will be inferred from the service DID, if it is a did:web.
-func WithServiceURL(url *url.URL) Option {
+// WithServiceURL configures the URL of the service to request from. If not
+// set it is inferred from the service DID, if it is a did:web.
+func WithServiceURL(u *url.URL) Option {
 	return func(cfg *requestConfig) {
-		cfg.url = url
+		cfg.url = u
 	}
 }
 
-// WithConnection configures the connection to use for the request. If set, the
-// HTTP client and service URL options are ignored.
-func WithConnection(conn client.Connection) Option {
+// WithClient configures a pre-built ucantone HTTP client to use for the
+// request. If set, the HTTP client and service URL options are ignored.
+func WithClient(c *client.HTTPClient) Option {
 	return func(cfg *requestConfig) {
-		cfg.conn = conn
+		cfg.client = c
 	}
 }
 

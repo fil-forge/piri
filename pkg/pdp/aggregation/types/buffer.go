@@ -1,33 +1,18 @@
 package types
 
 import (
-	_ "embed"
-	"fmt"
-
-	"github.com/fil-forge/go-libstoracha/piece/piece"
-	ipldprime "github.com/ipld/go-ipld-prime"
-	"github.com/ipld/go-ipld-prime/schema"
+	"github.com/ipfs/go-cid"
 )
 
-//go:embed buffer.ipldsch
-var bufferSchema []byte
-
-var bufferTS *schema.TypeSystem
-
-func init() {
-	ts, err := ipldprime.LoadSchemaBytes(bufferSchema)
-	if err != nil {
-		panic(fmt.Errorf("loading buffer schema: %w", err))
-	}
-	bufferTS = ts
-}
-
-func BufferType() schema.Type {
-	return bufferTS.TypeByName("Buffer")
-}
-
-// Buffer tracks in progress work building an aggregation
+// Buffer holds in-progress aggregation state: the running total padded
+// size of all queued pieces, plus the pieces themselves sorted
+// largest-first by padded size. Persisted between aggregator handler
+// runs.
+//
+// ReverseSortedPieces carries the raw piece CIDs; callers convert back
+// to piece.PieceLink via piece.FromLink when they need PaddedSize and
+// related accessors.
 type Buffer struct {
-	TotalSize           uint64
-	ReverseSortedPieces []piece.PieceLink
+	TotalSize           uint64    `cborgen:"totalSize"`
+	ReverseSortedPieces []cid.Cid `cborgen:"reverseSortedPieces"`
 }

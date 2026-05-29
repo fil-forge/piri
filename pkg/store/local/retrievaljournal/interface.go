@@ -5,9 +5,7 @@ import (
 	"io"
 	"iter"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-ucanto/core/receipt"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 )
 
@@ -17,7 +15,7 @@ type Journal interface {
 	// Append appends a space/content/retrieval receipt to the current batch.
 	// If the batch reaches the size limit, it will be rotated. When that happens, Append returns
 	// true and the CID of the rotated batch.
-	Append(ctx context.Context, rcpt receipt.Receipt[content.RetrieveOk, failure.FailureModel]) (batchRotated bool, rotatedBatchCID cid.Cid, err error)
+	Append(ctx context.Context, rcpt ucan.Receipt) (batchRotated bool, rotatedBatchCID cid.Cid, err error)
 
 	// GetBatch returns a batch of receipts by its CID.
 	GetBatch(ctx context.Context, cid cid.Cid) (reader io.ReadCloser, err error)

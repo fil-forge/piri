@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-libstoracha/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/ipfs/go-datastore"
 	"github.com/ipfs/go-datastore/sync"
 	"go.uber.org/fx"
@@ -16,7 +16,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
@@ -63,9 +63,9 @@ func NewAcceptanceStore() acceptancestore.AcceptanceStore {
 	return acceptancestore.NewDatastoreStore(ds)
 }
 
-func NewClaimStore() delegationstore.DelegationStore {
+func NewClaimStore() invocationstore.InvocationStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return delegationstore.NewDatastoreStore(ds)
+	return invocationstore.NewDatastoreStore(ds)
 }
 
 func NewPublisherStore() store.FullStore {

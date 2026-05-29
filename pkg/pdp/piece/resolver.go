@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	libpiece "github.com/fil-forge/libforge/piece"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
@@ -81,7 +82,7 @@ func (r *StoreResolver) ResolveToBlob(ctx context.Context, piece multihash.Multi
 
 	var record models.PDPPieceMHToCommp
 	if err := r.db.WithContext(ctx).
-		Where("commp = ?", MultihashToCommpCID(piece).String()).
+		Where("commp = ?", libpiece.MultihashToCommpCID(piece).String()).
 		First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, false, nil
@@ -127,9 +128,4 @@ func (r *StoreResolver) ResolveToPiece(ctx context.Context, blob multihash.Multi
 	}
 	r.cache.Add(blob.String(), commpCID.Hash())
 	return commpCID.Hash(), true, nil
-
-}
-
-func MultihashToCommpCID(mh multihash.Multihash) cid.Cid {
-	return cid.NewCidV1(cid.Raw, mh)
 }

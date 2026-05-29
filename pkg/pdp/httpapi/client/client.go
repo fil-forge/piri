@@ -9,19 +9,20 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/identity"
+	"github.com/fil-forge/ucantone/principal"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 
-	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config"
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -146,9 +147,13 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing node URL: %w", err)
 	}
-	id, err := lib.SignerFromEd25519PEMFile(cfg.Identity.KeyFile)
+	pem, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("loading identity key file: %w", err)
+		return nil, fmt.Errorf("reading identity key file: %w", err)
+	}
+	id, err := identity.DecodeEd25519SignerFromPEM(pem)
+	if err != nil {
+		return nil, fmt.Errorf("decoding identity key file: %w", err)
 	}
 	return New(endpoint, WithBearerFromSigner(id))
 }
@@ -162,7 +167,9 @@ func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 
 	// Sign the token
-	tokenString, err := token.SignedString(ed25519.PrivateKey(id.Raw()))
+	// ucantone signers expose Raw() as the 32-byte ed25519 seed; JWT
+	// EdDSA needs the full 64-byte key derived from the seed.
+	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(id.Raw()))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}

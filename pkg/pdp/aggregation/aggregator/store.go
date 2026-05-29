@@ -3,8 +3,7 @@ package aggregator
 import (
 	"context"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/piri/internal/ipldstore"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/ipfs/go-datastore"
@@ -42,6 +41,6 @@ const WorkspaceKey = "workspace/"
 func newInProgressWorkspace(ds datastore.Datastore) InProgressWorkspace {
 	ss := store.SimpleStoreFromDatastore(namespace.Wrap(ds, datastore.NewKey(WorkspaceKey)))
 	return &inProgressWorkSpace{
-		ipldstore.IPLDStore[bufferKey, types.Buffer](ss, types.BufferType(), captypes.Converters...),
+		store: ipldstore.CBORStore[bufferKey, types.Buffer](ss),
 	}
 }

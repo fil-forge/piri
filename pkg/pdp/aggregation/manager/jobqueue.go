@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/ipfs/go-cid"
-	"github.com/ipld/go-ipld-prime/datamodel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -34,7 +32,7 @@ func NewAddRootsTaskHandler(
 	proofSet pdptypes.ProofSetIDProvider,
 	store types.Store,
 	accepter *PieceAcceptor,
-) jobqueue.TaskHandler[[]datamodel.Link] {
+) jobqueue.TaskHandler[types.ManagerJob] {
 	return &AddRootsTaskHandler{
 		api:           api,
 		proofSet:      proofSet,
@@ -54,7 +52,7 @@ func (a *AddRootsTaskHandler) Name() string {
 	return HandlerName
 }
 
-func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link) (retErr error) {
+func (a *AddRootsTaskHandler) Handle(ctx context.Context, job types.ManagerJob) (retErr error) {
 	ctx, span := traceutil.StartSpan(ctx, tracer, "manager.Handle")
 	defer func() {
 		if retErr != nil {
@@ -64,6 +62,7 @@ func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link
 		span.End()
 	}()
 
+	links := job.Roots
 	if err := a.pieceAcceptor.AcceptPieces(ctx, links); err != nil {
 		return fmt.Errorf("failed to accept pieces: %w", err)
 	}
@@ -83,22 +82,13 @@ func (a *AddRootsTaskHandler) Handle(ctx context.Context, links []datamodel.Link
 		if err != nil {
 			return fmt.Errorf("reading aggregates: %w", err)
 		}
-		// record its root
-		rootCID, err := cid.Decode(a.Root.Link().String())
-		if err != nil {
-			return fmt.Errorf("failed to decode aggregate root CID: %w", err)
-		}
 		// subroots
 		subRoots := make([]cid.Cid, len(a.Pieces))
 		for j, p := range a.Pieces {
-			pcid, err := cid.Decode(p.Link.Link().String())
-			if err != nil {
-				return fmt.Errorf("failed to decode piece CID: %w", err)
-			}
-			subRoots[j] = pcid
+			subRoots[j] = p.Link
 		}
 		roots[i] = pdptypes.RootAdd{
-			Root:     rootCID,
+			Root:     a.Root,
 			SubRoots: subRoots,
 		}
 		log.Infow("root aggregate added", "root", aggregateLink.String())
@@ -120,20 +110,17 @@ type QueueParams struct {
 	StorageConfig app.StorageConfig
 }
 
-func NewQueue(params QueueParams) (jobqueue.Service[[]datamodel.Link], error) {
+func NewQueue(params QueueParams) (jobqueue.Service[types.ManagerJob], error) {
 	// Determine dialect from storage config
 	d := dialect.SQLite
 	if params.StorageConfig.Database.IsPostgres() {
 		d = dialect.Postgres
 	}
 
-	managerQueue, err := jobqueue.New[[]datamodel.Link](
+	managerQueue, err := jobqueue.New[types.ManagerJob](
 		QueueName,
 		params.DB,
-		&serializer.IPLDCBOR[[]datamodel.Link]{
-			Typ:  bufferTS.TypeByName("AggregateLinks"),
-			Opts: captypes.Converters,
-		},
+		serializer.CBOR[types.ManagerJob]{},
 		jobqueue.WithLogger(log.With("queue", QueueName)),
 		jobqueue.WithMaxRetries(50),
 		// 3 workers means 3 roots can be added in parallel.
@@ -143,7 +130,7 @@ func NewQueue(params QueueParams) (jobqueue.Service[[]datamodel.Link], error) {
 		jobqueue.WithDialect(d),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating piece_link job-queue: %w", err)
+		return nil, fmt.Errorf("creating manager job-queue: %w", err)
 	}
 	// NB: queue lifecycle is handled by manager since it must register with queue before starting it
 	return managerQueue, nil

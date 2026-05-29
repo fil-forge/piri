@@ -1,7 +1,7 @@
 package identity
 
 import (
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/principal"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"

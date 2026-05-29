@@ -44,6 +44,7 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		nonce,
 		p.address, // Use the nodes address as the address receiving payment for storage
 		metadataEntries,
+		nil, // proofs: signing service obtains its own access/grant
 	)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to sign CreateDataSet: %w", err)

@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,12 +15,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob"
-	"github.com/fil-forge/go-libstoracha/capabilities/blob/replica"
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan/container"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -36,7 +34,6 @@ import (
 
 	delgclient "github.com/fil-forge/delegator/client"
 
-	"github.com/fil-forge/piri/cmd/cli/delegate"
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
@@ -165,7 +162,6 @@ type baseConfigValues struct {
 	egressTrackerServiceDID string
 	egressTrackerServiceURL string
 	ipniAnnounceURLs        []string
-	principalMapping        map[string]string
 	// Storage configuration from base-config
 	database config.DatabaseConfig
 	s3Config *config.S3Config
@@ -262,7 +258,6 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		egressTrackerServiceDID: cfg.UCAN.Services.EgressTracker.DID,
 		egressTrackerServiceURL: cfg.UCAN.Services.EgressTracker.URL,
 		ipniAnnounceURLs:        cfg.UCAN.Services.Publisher.IPNIAnnounceURLs,
-		principalMapping:        cfg.UCAN.Services.PrincipalMapping,
 		database:                cfg.Repo.Database,
 		s3Config:                cfg.Repo.S3,
 	}, nil
@@ -369,7 +364,6 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 		egressTrackerServiceDID: egressTrackerDID,
 		egressTrackerServiceURL: egressTrackerURL,
 		ipniAnnounceURLs:        ipniURLs,
-		principalMapping:        preset.Services.PrincipalMapping,
 	}
 
 	return network, baseValues, nil
@@ -775,51 +769,40 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 	}
 }
 
-// registerWithDelegator handles registration with the delegator service
+// registerWithDelegator handles registration with the delegator service.
+//
+// UCAN 1.0: the new /registrar/register-node handler no longer accepts a
+// delegation proof — the node just identifies itself with operator DID,
+// owner address, proof set ID, email, and public URL. Indexer and
+// egress-tracker proofs are minted by the delegator on demand via
+// /registrar/request-proofs once the node is registered.
+//
+// The delegator returns those proofs as a gzipped ucantone container
+// (`container.RawGzip`) per delegator/internal/handlers/handlers.go. We
+// unwrap the container, pull out the single delegation, and re-encode
+// to plain CBOR so the downstream config consumer (services.go's
+// `delegation.Decode([]byte(s.Proof))`) can read it without changes.
 func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64) (string, string, error) {
 	c, err := delgclient.New(flags.delegatorURL)
 	if err != nil {
 		return "", "", fmt.Errorf("creating delegator client: %w", err)
 	}
 
-	// Generate delegation proof for upload service
-	d, err := delegate.MakeDelegation(
-		cfg.Identity.Signer,
-		flags.baseConfig.uploadServiceDID,
-		[]string{
-			blob.AllocateAbility,
-			blob.AcceptAbility,
-			pdp.InfoAbility,
-			replica.AllocateAbility,
-		},
-		delegation.WithNoExpiration(),
-	)
-	if err != nil {
-		return "", "", fmt.Errorf("creating delegation: %w", err)
-	}
+	operatorDID := cfg.Identity.Signer.DID().String()
 
-	nodeProof, err := delegate.FormatDelegation(d.Archive())
-	if err != nil {
-		return "", "", fmt.Errorf("formatting delegation: %w", err)
-	}
-
-	req := &delgclient.RegisterRequest{
-		Operator:      cfg.Identity.Signer.DID().String(),
-		OwnerAddress:  ownerAddress.String(),
-		ProofSetID:    proofSetID,
-		OperatorEmail: flags.operatorEmail,
-		PublicURL:     flags.publicURL.String(),
-		Proof:         nodeProof,
-	}
-
-	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: cfg.Identity.Signer.DID().String()})
+	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: operatorDID})
 	if err != nil {
 		return "", "", fmt.Errorf("checking registration status: %w", err)
 	}
 
 	if !registered {
-		err = c.Register(ctx, req)
-		if err != nil {
+		if err := c.Register(ctx, &delgclient.RegisterRequest{
+			Operator:      operatorDID,
+			OwnerAddress:  ownerAddress.String(),
+			ProofSetID:    proofSetID,
+			OperatorEmail: flags.operatorEmail,
+			PublicURL:     flags.publicURL.String(),
+		}); err != nil {
 			return "", "", fmt.Errorf("registering with delegator: %w", err)
 		}
 		cmd.PrintErrln("✅ Successfully registered with delegator service")
@@ -827,25 +810,56 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		cmd.PrintErrln("✅ Node already registered with delegator service")
 	}
 
-	// Request proofs from delegator
 	cmd.PrintErrln("📥 Requesting proofs from delegator service...")
-	res, err := c.RequestProofs(ctx, cfg.Identity.Signer.DID().String())
+	res, err := c.RequestProofs(ctx, operatorDID)
 	if err != nil {
 		return "", "", fmt.Errorf("requesting delegator proof: %w", err)
 	}
-
-	if res == nil || res.Proofs.Indexer == "" || res.Proofs.EgressTracker == "" {
+	if res == nil || len(res.Proofs.Indexer) == 0 || len(res.Proofs.EgressTracker) == 0 {
 		return "", "", fmt.Errorf("missing proofs from delegator")
+	}
+
+	indexerProof, err := encodeProofChain(res.Proofs.Indexer)
+	if err != nil {
+		return "", "", fmt.Errorf("encoding indexer proof chain: %w", err)
+	}
+	egressTrackerProof, err := encodeProofChain(res.Proofs.EgressTracker)
+	if err != nil {
+		return "", "", fmt.Errorf("encoding egress tracker proof chain: %w", err)
 	}
 
 	cmd.PrintErrln("✅ Received proofs from delegator")
 
-	return res.Proofs.Indexer, res.Proofs.EgressTracker, nil
+	return indexerProof, egressTrackerProof, nil
+}
+
+// encodeProofChain takes the gzipped ucantone container returned by the
+// delegator (which carries a chain: root proof e.g. indexing → delegator, then
+// leaf delegator → storage node) and re-encodes the whole container as a
+// base64 string suitable for TOML storage. Piri needs every link in the chain
+// when invoking /claim/cache (or /space/egress/track) so that the indexing /
+// egress-tracker service can validate the operator's authority back through
+// the delegator. The consumer (pkg/config/services.go's decodeProofChain)
+// base64-decodes and runs container.Decode to recover the chain.
+//
+// Raw CBOR bytes are not UTF-8 safe and break TOML round-trip with
+// "invalid character U+..." — base64 keeps the payload TOML-safe.
+func encodeProofChain(wire []byte) (string, error) {
+	// Sanity check: ensure the wire bytes are decodable so we fail at init
+	// time rather than at first invocation.
+	ct, err := container.Decode(wire)
+	if err != nil {
+		return "", fmt.Errorf("decoding container: %w", err)
+	}
+	if len(ct.Delegations()) == 0 {
+		return "", fmt.Errorf("no delegations in container")
+	}
+	return base64.StdEncoding.EncodeToString(wire), nil
 }
 
 func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {
 	// create a signature by signing our own did with the private key of our did
-	signature := id.Sign(id.DID().Bytes()).Raw()
+	signature := id.Sign([]byte(id.DID().String()))
 
 	c, err := delgclient.New(flags.delegatorURL)
 	if err != nil {
@@ -927,7 +941,6 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 		},
 		UCANService: config.UCANServiceConfig{
 			Services: config.ServicesConfig{
-				ServicePrincipalMapping: flags.baseConfig.principalMapping,
 				Indexer: config.IndexingServiceConfig{
 					DID:   flags.baseConfig.indexingServiceDID,
 					URL:   flags.baseConfig.indexingServiceURL,

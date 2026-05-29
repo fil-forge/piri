@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
+	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 
@@ -19,11 +21,11 @@ func TestDatastoreAllocationStore(t *testing.T) {
 
 		alloc := allocation.Allocation{
 			Space: testutil.RandomDID(t),
-			Blob: allocation.Blob{
+			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
 			},
-			Expires: uint64(time.Now().Unix()),
+			Expires: ucan.UnixTimestamp(time.Now().Unix()),
 			Cause:   testutil.RandomCID(t),
 		}
 
@@ -40,11 +42,11 @@ func TestDatastoreAllocationStore(t *testing.T) {
 
 		alloc := allocation.Allocation{
 			Space: testutil.RandomDID(t),
-			Blob: allocation.Blob{
+			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
 			},
-			Expires: uint64(time.Now().Unix()),
+			Expires: ucan.UnixTimestamp(time.Now().Unix()),
 			Cause:   testutil.RandomCID(t),
 		}
 
@@ -61,11 +63,11 @@ func TestDatastoreAllocationStore(t *testing.T) {
 
 		alloc := allocation.Allocation{
 			Space: testutil.RandomDID(t),
-			Blob: allocation.Blob{
+			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
 			},
-			Expires: uint64(time.Now().Unix()),
+			Expires: ucan.UnixTimestamp(time.Now().Unix()),
 			Cause:   testutil.RandomCID(t),
 		}
 
@@ -84,22 +86,22 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	t.Run("multiple spaces same blob", func(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
-		blob := allocation.Blob{
+		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
 			Size:   uint64(1 + rand.IntN(1000)),
 		}
 
 		alloc0 := allocation.Allocation{
 			Space:   testutil.RandomDID(t),
-			Blob:    blob,
-			Expires: uint64(time.Now().Unix()),
+			Blob:    blb,
+			Expires: ucan.UnixTimestamp(time.Now().Unix()),
 			Cause:   testutil.RandomCID(t),
 		}
 
 		alloc1 := allocation.Allocation{
 			Space:   testutil.RandomDID(t),
-			Blob:    blob,
-			Expires: uint64(time.Now().Unix()),
+			Blob:    blb,
+			Expires: ucan.UnixTimestamp(time.Now().Unix()),
 			Cause:   testutil.RandomCID(t),
 		}
 
@@ -109,21 +111,21 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get specific allocations
-		got0, err := s.Get(t.Context(), blob.Digest, alloc0.Space)
+		got0, err := s.Get(t.Context(), blb.Digest, alloc0.Space)
 		require.NoError(t, err)
 		require.Equal(t, alloc0, got0)
 
-		got1, err := s.Get(t.Context(), blob.Digest, alloc1.Space)
+		got1, err := s.Get(t.Context(), blb.Digest, alloc1.Space)
 		require.NoError(t, err)
 		require.Equal(t, alloc1, got1)
 
 		// GetAny returns one of them
-		gotAny, err := s.GetAny(t.Context(), blob.Digest)
+		gotAny, err := s.GetAny(t.Context(), blb.Digest)
 		require.NoError(t, err)
 		require.True(t, gotAny.Space == alloc0.Space || gotAny.Space == alloc1.Space)
 
 		// Exists returns true
-		exists, err := s.Exists(t.Context(), blob.Digest)
+		exists, err := s.Exists(t.Context(), blb.Digest)
 		require.NoError(t, err)
 		require.True(t, exists)
 	})
@@ -144,17 +146,16 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	t.Run("get any non-expired with mixed allocations", func(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
-		blob := allocation.Blob{
+		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
 			Size:   uint64(1 + rand.IntN(1000)),
 		}
 
-		now := uint64(time.Now().Unix())
-
+		now := ucan.Now()
 		// Expired allocation
 		expiredAlloc := allocation.Allocation{
 			Space:   testutil.RandomDID(t),
-			Blob:    blob,
+			Blob:    blb,
 			Expires: now - 100, // expired 100 seconds ago
 			Cause:   testutil.RandomCID(t),
 		}
@@ -162,7 +163,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		// Valid allocation
 		validAlloc := allocation.Allocation{
 			Space:   testutil.RandomDID(t),
-			Blob:    blob,
+			Blob:    blb,
 			Expires: now + 3600, // expires in 1 hour
 			Cause:   testutil.RandomCID(t),
 		}
@@ -174,7 +175,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		require.NoError(t, err)
 
 		// GetAnyNonExpired should return the valid one
-		got, err := s.GetAnyNonExpired(t.Context(), blob.Digest, now)
+		got, err := s.GetAnyNonExpired(t.Context(), blb.Digest, now)
 		require.NoError(t, err)
 		require.Equal(t, validAlloc, got)
 	})
@@ -182,16 +183,16 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	t.Run("get any non-expired all expired", func(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
-		blob := allocation.Blob{
+		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
 			Size:   uint64(1 + rand.IntN(1000)),
 		}
 
-		now := uint64(time.Now().Unix())
+		now := ucan.Now()
 
 		expiredAlloc := allocation.Allocation{
 			Space:   testutil.RandomDID(t),
-			Blob:    blob,
+			Blob:    blb,
 			Expires: now - 100,
 			Cause:   testutil.RandomCID(t),
 		}
@@ -199,7 +200,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		err := s.Put(t.Context(), expiredAlloc)
 		require.NoError(t, err)
 
-		_, err = s.GetAnyNonExpired(t.Context(), blob.Digest, now)
+		_, err = s.GetAnyNonExpired(t.Context(), blb.Digest, now)
 		require.ErrorIs(t, err, store.ErrNotFound)
 	})
 
@@ -207,7 +208,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
 		digest := testutil.RandomMultihash(t)
-		now := uint64(time.Now().Unix())
+		now := ucan.Now()
 
 		_, err := s.GetAnyNonExpired(t.Context(), digest, now)
 		require.ErrorIs(t, err, store.ErrNotFound)

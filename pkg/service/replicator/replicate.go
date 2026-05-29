@@ -1,5 +1,8 @@
 package replicator
 
+// TODO(forrest)[ucan1]: will do this later maybe
+/*
+
 import (
 	"context"
 
@@ -30,3 +33,5 @@ func (r *Service) RegisterTransferTask(queue *jobqueue.JobQueue[*replicahandler.
 		return replicahandler.SendFailureReceipt(ctx, r.deps, msg, err)
 	}))
 }
+
+*/

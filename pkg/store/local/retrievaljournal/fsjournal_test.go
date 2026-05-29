@@ -11,30 +11,24 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/ran"
-	"github.com/fil-forge/go-ucanto/core/result"
-	ufailure "github.com/fil-forge/go-ucanto/core/result/failure"
+	"github.com/fil-forge/libforge/commands/content"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 )
 
-func createTestReceipt(t *testing.T) receipt.Receipt[content.RetrieveOk, failure.FailureModel] {
+func createTestReceipt(t *testing.T) ucan.Receipt {
 	client := testutil.Alice
 	node := testutil.Service
-	space := testutil.RandomDID(t)
 	inv, err := content.Retrieve.Invoke(
 		client,
-		node,
-		space.String(),
-		content.RetrieveCaveats{
-			Blob: content.BlobDigest{
+		node.DID(),
+		&content.RetrieveArguments{
+			Blob: content.Blob{
 				Digest: testutil.RandomMultihash(t),
 			},
 			Range: content.Range{
@@ -45,19 +39,10 @@ func createTestReceipt(t *testing.T) receipt.Receipt[content.RetrieveOk, failure
 	)
 	require.NoError(t, err)
 
-	ran := ran.FromInvocation(inv)
-	ok := result.Ok[content.RetrieveOk, ufailure.IPLDBuilderFailure](content.RetrieveOk{})
-	rcpt, err := receipt.Issue(
-		node,
-		ok,
-		ran,
-	)
+	rcpt, err := receipt.IssueOK(node, inv.Link(), &content.RetrieveOK{})
 	require.NoError(t, err)
 
-	retrieveRcpt, err := receipt.Rebind[content.RetrieveOk, failure.FailureModel](rcpt, content.RetrieveOkType(), failure.FailureType(), captypes.Converters...)
-	require.NoError(t, err)
-
-	return retrieveRcpt
+	return rcpt
 }
 
 func TestAppend(t *testing.T) {
@@ -97,7 +82,7 @@ func TestAppend(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create a few test receipts
-		var rcpts []receipt.Receipt[content.RetrieveOk, failure.FailureModel]
+		var rcpts []ucan.Receipt
 		for range 10 {
 			rcpts = append(rcpts, createTestReceipt(t))
 		}
@@ -109,10 +94,7 @@ func TestAppend(t *testing.T) {
 			batchRotated, _, err := journal.Append(t.Context(), rcpt)
 			require.NoError(t, err)
 
-			archive := rcpt.Archive()
-			archBytes, err := io.ReadAll(archive)
-			require.NoError(t, err)
-			currentBatchSize += len(archBytes) + 39 // 39 bytes is the overhead per block in the CAR file
+			currentBatchSize += len(rcpt.Bytes()) + 39 // 39 bytes is the overhead per block in the CAR file
 
 			if int64(currentBatchSize) >= journal.maxBatchSize {
 				// Check that batches are flushed when they reach the max size

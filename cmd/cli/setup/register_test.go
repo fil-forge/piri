@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
@@ -75,7 +75,6 @@ func TestGenerateConfig(t *testing.T) {
 				egressTrackerServiceDID: "did:key:etracker",
 				egressTrackerServiceURL: "https://etracker.example.com",
 				ipniAnnounceURLs:        []string{"https://ipni.example.com"},
-				principalMapping:        map[string]string{"key": "value"},
 			},
 		}
 	}

@@ -5,10 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
-	"github.com/ipld/go-ipld-prime/codec/dagjson"
+	"github.com/fil-forge/ucantone/testutil"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 )
 
 func TestRoundtrip(t *testing.T) {
@@ -16,18 +17,17 @@ func TestRoundtrip(t *testing.T) {
 		a := acceptance.Acceptance{
 			Space: testutil.RandomDID(t),
 			Blob: acceptance.Blob{
-				Digest: testutil.RandomMultihash(t),
+				Digest: testutil.RandomDigest(t),
 				Size:   rand.Uint64N(1000000),
 			},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
 		}
 
-		buf, err := acceptance.Encode(a, dagjson.Encode)
+		buf, err := acceptance.Encode(a)
 		require.NoError(t, err)
-		t.Log(string(buf))
 
-		a2, err := acceptance.Decode(buf, dagjson.Decode)
+		a2, err := acceptance.Decode(buf)
 		require.NoError(t, err)
 		require.Equal(t, a, a2)
 	})
@@ -36,24 +36,18 @@ func TestRoundtrip(t *testing.T) {
 		a := acceptance.Acceptance{
 			Space: testutil.RandomDID(t),
 			Blob: acceptance.Blob{
-				Digest: testutil.RandomMultihash(t),
+				Digest: testutil.RandomDigest(t),
 				Size:   rand.Uint64N(1000000),
 			},
-			PDPAccept: &acceptance.Promise{
-				UcanAwait: acceptance.Await{
-					Selector: ".out.ok",
-					Link:     testutil.RandomCID(t),
-				},
-			},
+			PDPAccept:  &promise.AwaitOK{Task: testutil.RandomCID(t)},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
 		}
 
-		buf, err := acceptance.Encode(a, dagjson.Encode)
+		buf, err := acceptance.Encode(a)
 		require.NoError(t, err)
-		t.Log(string(buf))
 
-		a2, err := acceptance.Decode(buf, dagjson.Decode)
+		a2, err := acceptance.Decode(buf)
 		require.NoError(t, err)
 		require.Equal(t, a, a2)
 	})

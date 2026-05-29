@@ -1,5 +1,8 @@
 package egresstracker
 
+// TODO(forrest)[ucan1]: do this later
+
+/*
 import (
 	"context"
 	"errors"
@@ -7,20 +10,21 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/capabilities/space/egress"
 	captypes "github.com/fil-forge/go-libstoracha/capabilities/types"
 	"github.com/fil-forge/go-libstoracha/failure"
 	"github.com/fil-forge/go-ucanto/client"
 	"github.com/fil-forge/go-ucanto/core/dag/blockstore"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/commands/space/egress"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+
+	"github.com/fil-forge/ucantone/ucan/receipt"
 
 	"github.com/fil-forge/piri/pkg/client/receipts"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
@@ -35,7 +39,11 @@ const journalRotationPeriod = time.Hour * 12
 type Service struct {
 	id                   principal.Signer
 	egressTrackerDID     did.DID
-	egressTrackerProofs  delegation.Proofs
+	// egressTrackerProofs is the ordered chain (root → leaf) issued by the
+	// delegator for the egress-tracker service. Every link must accompany
+	// each /space/egress/track invocation for the egress-tracker validator
+	// to walk the chain back to the originating authority.
+	egressTrackerProofs  []ucan.Delegation
 	egressTrackerConn    client.Connection
 	batchEndpoint        *url.URL
 	journal              retrievaljournal.Journal
@@ -51,7 +59,7 @@ type Service struct {
 func New(
 	id principal.Signer,
 	egressTrackerConn client.Connection,
-	egressTrackerProofs delegation.Proofs,
+	egressTrackerProofs []ucan.Delegation,
 	batchEndpoint *url.URL,
 	journal retrievaljournal.Journal,
 	consolidationStore consolidationstore.Store,
@@ -98,7 +106,7 @@ func New(
 	return svc, nil
 }
 
-func (s *Service) AddReceipt(ctx context.Context, rcpt receipt.Receipt[content.RetrieveOk, failure.FailureModel]) error {
+func (s *Service) AddReceipt(ctx context.Context, rcpt *receipt.Receipt) error {
 	batchRotated, rotatedBatchCID, err := s.journal.Append(ctx, rcpt)
 	if err != nil {
 		return fmt.Errorf("adding receipt to store: %w", err)
@@ -118,16 +126,22 @@ func (s *Service) enqueueEgressTrackTask(ctx context.Context, batchCID cid.Cid) 
 }
 
 func (s *Service) egressTrack(ctx context.Context, batchCID cid.Cid) error {
+	if len(s.egressTrackerProofs) == 0 {
+		return fmt.Errorf("no proofs configured for egress tracker invocation")
+	}
+	proofLinks := make([]cid.Cid, len(s.egressTrackerProofs))
+	for i, d := range s.egressTrackerProofs {
+		proofLinks[i] = d.Link()
+	}
 	trackInv, err := egress.Track.Invoke(
 		s.id,
 		s.egressTrackerDID,
-		s.egressTrackerDID.String(),
-		egress.TrackCaveats{
-			Receipts: cidlink.Link{Cid: batchCID},
-			Endpoint: s.batchEndpoint,
+		&egress.TrackArguments{
+			Receipts: batchCID,
+			Endpoint: capabilities.CborURL(*s.batchEndpoint),
 		},
-		delegation.WithProof(s.egressTrackerProofs...),
-		delegation.WithNoExpiration(),
+		invocation.WithProofs(proofLinks...),
+		invocation.WithNoExpiration(),
 	)
 	if err != nil {
 		return fmt.Errorf("creating invocation: %w", err)
@@ -316,8 +330,14 @@ func (s *Service) checkAndRemoveConsolidatedBatch(ctx context.Context, batchCID 
 	return nil
 }
 
-func (s *Service) validateConsolidateReceipt(receipt receipt.AnyReceipt, trackInv invocation.Invocation) error {
+func (s *Service) validateConsolidateReceipt(receipt *receipt.Receipt, trackInv invocation.Invocation) error {
 	// TODO: Validate the receipt. This will include checking the receipt matches the original track invocation
 	// and confirming that the consolidated amount of bytes matches our records.
+
+	// TODO(forrest)[ucan1]: surprised this never got done... lets panic to force the point -_-
+	panic("JFC COMPLETE ME!!!!")
 	return nil
 }
+
+
+*/

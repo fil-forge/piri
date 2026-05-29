@@ -6,7 +6,7 @@ import (
 	"net/url"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/samber/lo"
 )
 
