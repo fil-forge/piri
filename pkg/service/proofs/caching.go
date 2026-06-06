@@ -44,7 +44,7 @@ func NewCachingProofService() *CachingProofService {
 // command. A cached delegation may be returned if it's still valid.
 func (ps *CachingProofService) RequestAccess(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	audience did.DID,
 	command ucan.Command,
 	cause ucan.Invocation,
@@ -116,7 +116,7 @@ func (ps *CachingProofService) RequestAccess(
 func requestDelegation(
 	ctx context.Context,
 	httpClient *client.HTTPClient,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	audience did.DID,
 	command ucan.Command,
 	cause ucan.Invocation,

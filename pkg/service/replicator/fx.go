@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/fil-forge/ucantone/principal"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 
@@ -84,7 +83,7 @@ func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.Job
 type Params struct {
 	fx.In
 
-	ID          principal.Signer
+	ID          ucan.Signer
 	Upload      app.UploadServiceConfig
 	Pieces      pdptypes.PieceAPI
 	Commp       commp.Calculator

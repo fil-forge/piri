@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/multikey"
 	utestutil "github.com/fil-forge/ucantone/testutil"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
@@ -30,7 +30,7 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 	// Start with sensible defaults for testing
 	cfg := app.AppConfig{
 		Identity: app.IdentityConfig{
-			Signer: utestutil.RandomSigner(t), // per-test random signer
+			Issuer: utestutil.RandomMultikeyIssuer(t), // per-test random signer
 		},
 		Server: app.ServerConfig{
 			Host:      "localhost",
@@ -64,10 +64,10 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 	return cfg
 }
 
-// WithSigner sets the identity signer
-func WithSigner(signer principal.Signer) TestConfigOption {
+// WithIssuer sets the identity signer
+func WithIssuer(issuer multikey.Issuer) TestConfigOption {
 	return func(_ *testing.T, cfg *app.AppConfig) {
-		cfg.Identity.Signer = signer
+		cfg.Identity.Issuer = issuer
 	}
 }
 

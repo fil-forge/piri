@@ -18,7 +18,6 @@ import (
 	"github.com/fil-forge/libforge/commands"
 	"github.com/fil-forge/libforge/commands/space/egress"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
@@ -37,7 +36,7 @@ const journalRotationPeriod = time.Hour * 12
 // Service stores receipts from `space/content/retrieve` invocations, batches them and sends
 // them to an egress tracking service via `space/egress/track` invocations.
 type Service struct {
-	id                   principal.Signer
+	id                   ucan.Signer
 	egressTrackerDID     did.DID
 	// egressTrackerProofs is the ordered chain (root → leaf) issued by the
 	// delegator for the egress-tracker service. Every link must accompany
@@ -57,7 +56,7 @@ type Service struct {
 }
 
 func New(
-	id principal.Signer,
+	id ucan.Signer,
 	egressTrackerConn client.Connection,
 	egressTrackerProofs []ucan.Delegation,
 	batchEndpoint *url.URL,

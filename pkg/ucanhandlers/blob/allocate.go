@@ -79,7 +79,7 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 		// allocated into travels in the arguments. Authorization that the upload
 		// service may invoke /blob/allocate is enforced by the validator's proof
 		// chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.Signer.DID()); err != nil {
+		if err := ucanhandlers.RequireSubject(req, deps.ID.Issuer.DID()); err != nil {
 			return rsp.SetFailure(err)
 		}
 

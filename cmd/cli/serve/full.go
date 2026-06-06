@@ -333,7 +333,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 
 	if err := initTelemetry(
 		cmd.Context(),
-		appCfg.Identity.Signer.DID().String(),
+		appCfg.Identity.Issuer.DID().String(),
 		userCfg.Network,
 		appCfg.Storage.DataDir,
 		appCfg.Telemetry,
@@ -384,7 +384,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					// Print server startup information
-					cliutil.PrintHero(cmd.OutOrStdout(), appCfg.Identity.Signer.DID())
+					cliutil.PrintHero(cmd.OutOrStdout(), appCfg.Identity.Issuer.DID())
 					cmd.Println("Piri Running on: " + appCfg.Server.Host + ":" + strconv.Itoa(int(appCfg.Server.Port)))
 					cmd.Println("Piri Public Endpoint: " + appCfg.Server.PublicURL.String())
 
@@ -393,7 +393,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 						"com/fil-forge/piri/cli/serve"),
 						ctx,
 						"full",
-						attribute.String("did", appCfg.Identity.Signer.DID().String()),
+						attribute.String("did", appCfg.Identity.Issuer.DID().String()),
 						attribute.String("owner_address", appCfg.PDPService.OwnerAddress.String()),
 						attribute.String("public_url", appCfg.Server.PublicURL.String()),
 						attribute.Int64("proof_set", int64(appCfg.UCANService.ProofSetID)),

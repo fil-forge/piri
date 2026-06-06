@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
-	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/libforge/identity"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -29,7 +29,7 @@ var Module = fx.Module("publisher",
 func NewFx(
 	pubCfg app.PublisherServiceConfig,
 	idxCfg app.IndexingServiceConfig,
-	id principal.Signer,
+	id identity.Identity,
 	publisherStore store.PublisherStore,
 ) (*PublisherService, error) {
 	if pubCfg.PublicMaddr.String() == "" {

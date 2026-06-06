@@ -19,9 +19,9 @@ import (
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/blob/replica"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
@@ -36,9 +36,9 @@ const validity = time.Hour
 // UCAN method.
 type GrantDeps struct {
 	fxlib.In
-	ID        principal.Signer
-	Upload    app.UploadServiceConfig
-	Resolvers validator.VerifierResolverMap
+	ID       identity.Identity
+	Upload   app.UploadServiceConfig
+	Resolver did.Resolver
 }
 
 func NewGrantHandler(deps GrantDeps) server.Route {
@@ -83,7 +83,7 @@ func NewGrantHandler(deps GrantDeps) server.Route {
 		// identities (e.g. the upload service) resolve correctly.
 		validateOpts := []validator.Option{
 			validator.WithProofResolver(proofResolverFromMetadata(req.Metadata())),
-			validator.WithDIDVerifierResolvers(deps.Resolvers),
+			validator.WithDIDResolver(deps.Resolver),
 		}
 
 		grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))

@@ -14,7 +14,6 @@ import (
 	"github.com/fil-forge/libforge/commands/blob/replica"
 	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/binding"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -42,7 +41,7 @@ const (
 type ReplicaAllocateDeps struct {
 	fxlib.In
 	blob2.AllocateDeps
-	ID         principal.Signer
+	ID         ucan.Signer
 	Replicator replicator.Replicator
 }
 

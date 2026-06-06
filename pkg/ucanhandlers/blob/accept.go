@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan/container"
@@ -20,7 +21,6 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
@@ -42,7 +42,7 @@ const InternalErrorName = "InternalError"
 // AcceptDeps is the dependency set populated by fx for the Accept handler.
 type AcceptDeps struct {
 	fx.In
-	ID          principal.Signer
+	ID          identity.Identity
 	Acceptances AcceptanceStore
 	Pieces      PieceReader
 	Commp       commp.Calculator

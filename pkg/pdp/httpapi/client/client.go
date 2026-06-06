@@ -3,7 +3,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +15,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/libforge/identity"
-	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
@@ -95,7 +94,7 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-func WithBearerFromSigner(id principal.Signer) Option {
+func WithBearerFromSigner(id multikey.Signer) Option {
 	return func(c *Client) error {
 		authHeader, err := createAuthBearerTokenFromID(id)
 		if err != nil {
@@ -151,14 +150,14 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading identity key file: %w", err)
 	}
-	id, err := identity.DecodeEd25519SignerFromPEM(pem)
+	id, err := identity.DecodeSignerFromPEM(pem)
 	if err != nil {
 		return nil, fmt.Errorf("decoding identity key file: %w", err)
 	}
 	return New(endpoint, WithBearerFromSigner(id))
 }
 
-func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
+func createAuthBearerTokenFromID(id multikey.Signer) (string, error) {
 	claims := jwt.MapClaims{
 		"service_name": "storacha",
 	}
@@ -169,7 +168,7 @@ func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
 	// Sign the token
 	// ucantone signers expose Raw() as the 32-byte ed25519 seed; JWT
 	// EdDSA needs the full 64-byte key derived from the seed.
-	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(id.Raw()))
+	tokenString, err := token.SignedString(id.PrivateKey())
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}

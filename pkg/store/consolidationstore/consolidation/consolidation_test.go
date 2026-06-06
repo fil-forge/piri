@@ -55,7 +55,7 @@ func TestConsolidation(t *testing.T) {
 func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 	t.Helper()
 
-	signer := testutil.RandomSigner(t)
+	signer := testutil.RandomIssuer(t)
 	audience := testutil.RandomDID(t)
 
 	inv, err := egress.Track.Invoke(

@@ -6,6 +6,7 @@ import (
 
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
@@ -35,7 +36,7 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 	pub := &stubPublisher{}
 	pieces := pdpfake.NewPieces()
 	return AcceptDeps{
-		ID:          testutil.Alice,
+		ID:          identity.Identity{Issuer: testutil.WebService},
 		Acceptances: accepts,
 		Pieces:      pieces,
 		Commp:       pdpfake.NewCommp(),

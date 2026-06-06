@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
@@ -92,7 +91,7 @@ func ProvideReceiptsClient(cfg app.EgressTrackerServiceConfig) *receipts.Client 
 
 func NewEgressTrackerService(
 	lc fx.Lifecycle,
-	id principal.Signer,
+	id ucan.Signer,
 	journal retrievaljournal.Journal,
 	consolidationStore consolidationstore.Store,
 	queue EgressTrackerQueue,

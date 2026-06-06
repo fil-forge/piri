@@ -45,7 +45,7 @@ func NewProofServiceSigner(
 	}
 }
 
-func (s *proofServiceSigner) grant(ctx context.Context, issuer ucan.Signer, cmd ucan.Command) (ucan.Delegation, error) {
+func (s *proofServiceSigner) grant(ctx context.Context, issuer ucan.Issuer, cmd ucan.Command) (ucan.Delegation, error) {
 	d, err := s.proofService.RequestAccess(
 		ctx,
 		issuer,
@@ -62,7 +62,7 @@ func (s *proofServiceSigner) grant(ctx context.Context, issuer ucan.Signer, cmd 
 
 func (s *proofServiceSigner) SignCreateDataSet(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	payee common.Address,
 	metadata []eip712.MetadataEntry,
@@ -80,7 +80,7 @@ func (s *proofServiceSigner) SignCreateDataSet(
 
 func (s *proofServiceSigner) SignAddPieces(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	nonce *big.Int,
 	pieceData [][]byte,
@@ -101,7 +101,7 @@ func (s *proofServiceSigner) SignAddPieces(
 
 func (s *proofServiceSigner) SignSchedulePieceRemovals(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	pieceIds []*big.Int,
 	proofsIn []ucan.Delegation,
@@ -118,7 +118,7 @@ func (s *proofServiceSigner) SignSchedulePieceRemovals(
 
 func (s *proofServiceSigner) SignDeleteDataSet(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	proofsIn []ucan.Delegation,
 	options ...invocation.Option,

@@ -1,17 +1,14 @@
 package retrieval_test
 
 import (
-	"context"
 	"net/url"
 	"testing"
 
-	"github.com/fil-forge/libforge/didresolver"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/principal"
-	"github.com/fil-forge/ucantone/principal/verifier"
-	"github.com/fil-forge/ucantone/ucan"
-	"github.com/fil-forge/ucantone/validator"
+	"github.com/fil-forge/ucantone/did/key"
+	"github.com/fil-forge/ucantone/did/resolver"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/fx"
 
@@ -34,7 +31,7 @@ type RetrievalSuite struct {
 	Allocations allocationstore.AllocationStore
 	Pieces      *pdpfake.Pieces
 
-	UploadServiceIdentity principal.Signer
+	UploadServiceIdentity identity.Identity
 	UploadServiceURL      *url.URL
 }
 
@@ -44,37 +41,27 @@ func TestRetrievalSuite(t *testing.T) {
 
 func (s *RetrievalSuite) SetupSuite() {
 	s.ServiceID = testutil.Alice
-	s.UploadServiceIdentity = testutil.WebService
+	s.UploadServiceIdentity = identity.Identity{Issuer: testutil.WebService}
 	s.UploadServiceURL = testutil.TestURL
 
 	s.ConfigOptions = []piritestutil.TestConfigOption{
 		piritestutil.WithUploadServiceConfig(s.UploadServiceIdentity.DID(), s.UploadServiceURL),
 	}
 
-	// Map resolver handles did:web → did:key indirection for the upload
-	// service identity (testutil.WebService wraps testutil.Service).
-	webResolver, err := didresolver.NewMapResolver(map[string]string{
-		s.UploadServiceIdentity.DID().String(): testutil.Service.DID().String(),
-	})
+	// We support resolving exactly one "did:web": the upload service
+	uploadServiceDoc, err := identity.Identity{Issuer: s.UploadServiceIdentity}.DIDDocument()
 	s.Require().NoError(err)
 
 	s.ExtraOptions = []fx.Option{
-		// did:key resolves in-process (the DID itself encodes the public
-		// key); did:web goes through the static map for WebService.
-		fx.Decorate(func(validator.VerifierResolverMap) validator.VerifierResolverMap {
-			return validator.VerifierResolverMap{
-				"key": resolveDIDKey,
-				"web": webResolver.Resolve,
+		fx.Decorate(func(did.Resolver) did.Resolver {
+			return resolver.ByMethod{
+				"key": key.Resolver,
+				"web": resolver.WellKnown{
+					s.UploadServiceIdentity.DID(): uploadServiceDoc,
+				},
 			}
 		}),
 		fx.Populate(&s.Allocations, &s.Pieces),
 	}
 	s.BaseSuite.SetupSuite()
-}
-
-// resolveDIDKey decodes a did:key DID into a Verifier in process. The DID
-// itself encodes the public key bytes, so no network or static map is
-// needed — works for any test signer the suite mints.
-func resolveDIDKey(_ context.Context, d did.DID) (ucan.Verifier, error) {
-	return verifier.FromDIDKey(d)
 }

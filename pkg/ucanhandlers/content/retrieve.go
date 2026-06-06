@@ -8,7 +8,6 @@ import (
 
 	"github.com/fil-forge/libforge/commands/content"
 	"github.com/fil-forge/ucantone/binding"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	logging "github.com/ipfs/go-log/v2"
 	fxlib "go.uber.org/fx"
@@ -31,7 +30,6 @@ const NotAllocatedErrorName = "NotAllocated"
 type RetrieveDeps struct {
 	fxlib.In
 
-	ID          principal.Signer
 	Allocations allocationstore.AllocationStore
 	Pieces      types.PieceReaderAPI
 }

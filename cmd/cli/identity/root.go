@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/fil-forge/libforge/identity"
-	"github.com/fil-forge/ucantone/principal/ed25519"
+	"github.com/fil-forge/ucantone/multikey/ed25519"
 	"github.com/spf13/cobra"
 )
 
@@ -53,11 +53,11 @@ func init() {
 }
 
 func doGenerate(cmd *cobra.Command, _ []string) error {
-	signer, err := ed25519.Generate()
+	signer, err := ed25519.GenerateIssuer()
 	if err != nil {
 		return fmt.Errorf("generate key: %w", err)
 	}
-	pem, err := identity.EncodeEd25519SignerToPEM(signer)
+	pem, err := identity.EncodeSignerToPEM(signer)
 	if err != nil {
 		return fmt.Errorf("encoding ed25519 private key to PEM: %w", err)
 	}
@@ -78,11 +78,11 @@ func doParse(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("reading pem file: %w", err)
 	}
-	key, err := identity.DecodeEd25519SignerFromPEM(pemData)
+	key, err := identity.DecodeSignerFromPEM(pemData)
 	if err != nil {
 		return fmt.Errorf("decoding ed25519 private key: %w", err)
 	}
-	cmd.Printf("# %s\n", key.DID().String())
+	cmd.Printf("# %s\n", key.KeyDID().String())
 	return nil
 }
 
