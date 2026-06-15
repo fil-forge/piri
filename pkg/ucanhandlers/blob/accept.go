@@ -20,19 +20,18 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
 
-	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // InternalErrorName is the stable receipt-failure name for invariant
@@ -40,16 +39,10 @@ import (
 // to be a cidlink wasn't).
 const InternalErrorName = "InternalError"
 
-// InvalidCauseErrorName is the stable receipt-failure name for a
-// /blob/accept invocation issued by a principal other than the upload
-// service.
-const InvalidCauseErrorName = "InvalidCause"
-
 // AcceptDeps is the dependency set populated by fx for the Accept handler.
 type AcceptDeps struct {
 	fx.In
 	ID          principal.Signer
-	Upload      app.UploadServiceConfig
 	Acceptances AcceptanceStore
 	Pieces      PieceReader
 	Commp       commp.Calculator
@@ -78,22 +71,15 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 	return blob.Accept.Route(func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
 		args := req.Task().Arguments()
 
-		// /blob/accept is performed by the upload service, so the only
-		// authorization required here is that the invocation issuer is
-		// the upload service.
-		// TODO(forrest)[ucan1]: confirm how this relates to the proof
-		// chain originating from guppy — is that chain validated
-		// elsewhere, and does it make this issuer check redundant or
-		// complementary?
-		if iss := req.Invocation().Issuer(); iss != deps.Upload.DID {
-			return rsp.SetFailure(errors.New(
-				InvalidCauseErrorName,
-				"issuer is %s not the upload service %s", iss, deps.Upload.DID,
-			))
+		// The invocation subject must be this storage node — the proofs are
+		// rooted at the provider, so authorization that the upload service may
+		// invoke `/blob/accept` is enforced by the validator's proof chain.
+		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
+			return rsp.SetFailure(err)
 		}
 
 		resp, err := Accept(req.Context(), deps, &AcceptRequest{
-			Space: req.Task().Subject(),
+			Space: args.Space,
 			Blob: blob.Blob{
 				Digest: args.Blob.Digest,
 				Size:   args.Blob.Size,

@@ -28,6 +28,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
+	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 var log = logging.Logger("storage/handlers/blob")
@@ -74,10 +75,13 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 	return blob.Allocate.Route(func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
 		args := req.Task().Arguments()
 
-		// /blob/allocate is space-scoped: the invocation subject IS
-		// the space being allocated into. Authorization is enforced
-		// by the validator's proof chain, not by an issuer-equals-
-		// service check.
+		// The invocation subject must be this storage provider; the space being
+		// allocated into travels in the arguments. Authorization that the upload
+		// service may invoke /blob/allocate is enforced by the validator's proof
+		// chain (rooted at the provider).
+		if err := ucanhandlers.RequireSubject(req, deps.ID.Signer.DID()); err != nil {
+			return rsp.SetFailure(err)
+		}
 
 		// TODO(forrest)[ucan1]: reconcile with blob.MaxBlobSize
 		// to ensure it matches the constraints of piri, namely the aggregation pipeline to adding roots
@@ -89,7 +93,7 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 		}
 
 		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
-			Space: req.Task().Subject(),
+			Space: args.Space,
 			Blob:  args.Blob,
 			Cause: args.Cause,
 		})

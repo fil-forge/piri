@@ -8,23 +8,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// /blob/allocate is service-scoped: the invocation must be signed by the
-// service (which is also the subject) per the RequireSubject check in
-// pkg/ucanhandlers/blob/allocate.go:79. AllocateArguments has no Space
-// field — the handler reads space from the invocation subject. So
-// allocations are effectively keyed under the service DID until the
-// handler grows multi-space support.
+// /blob/allocate is now provider-scoped: the invocation subject is the storage
+// provider (here s.ServiceID, the node's own identity) and the space being
+// allocated into travels in AllocateArguments.Space. Authorization is enforced
+// by the validator's proof chain (rooted at the provider); in this test the
+// provider self-issues, so no proof is needed. Allocations are keyed on
+// (digest, space).
 
 func (s *RPCSuite) TestBlobAllocate_Basic() {
 	t := s.T()
 	digest := testutil.RandomMultihash(t)
 	size := uint64(123)
 	cause := testutil.RandomCID(t)
+	space := testutil.RandomDID(t)
 
 	inv := testutil.Must(blob.Allocate.Invoke(
 		s.ServiceID,
 		s.ServiceID.DID(),
 		&blob.AllocateArguments{
+			Space: space,
 			Blob:  blob.Blob{Digest: digest, Size: size},
 			Cause: cause,
 		},
@@ -37,11 +39,11 @@ func (s *RPCSuite) TestBlobAllocate_Basic() {
 	require.Equal(t, size, ok.Size, "size to upload should match request")
 	require.NotNil(t, ok.Address, "address required when blob not yet stored")
 
-	stored, err := s.Allocations.Get(t.Context(), digest, s.ServiceID.DID())
+	stored, err := s.Allocations.Get(t.Context(), digest, space)
 	require.NoError(t, err, "allocation persisted in store")
 	require.Equal(t, digest, stored.Blob.Digest)
 	require.Equal(t, size, stored.Blob.Size)
-	require.Equal(t, s.ServiceID.DID(), stored.Space)
+	require.Equal(t, space, stored.Space)
 	require.Equal(t, cause, stored.Cause, "cause records the args.Cause CID the client supplied")
 }
 
@@ -54,12 +56,14 @@ func (s *RPCSuite) TestBlobAllocate_RepeatSameBlob() {
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	size := uint64(len(data))
 	cause := testutil.RandomCID(t)
+	space := testutil.RandomDID(t)
 
 	allocate := func() *blob.AllocateOK {
 		inv := testutil.Must(blob.Allocate.Invoke(
 			s.ServiceID,
 			s.ServiceID.DID(),
 			&blob.AllocateArguments{
+				Space: space,
 				Blob:  blob.Blob{Digest: digest, Size: size},
 				Cause: cause,
 			},

@@ -15,7 +15,7 @@ require (
 	github.com/fil-forge/delegator v0.0.0-20260527145843-e103ee9f563f
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
-	github.com/fil-forge/libforge v0.0.0-20260527182359-ebb22552c348
+	github.com/fil-forge/libforge v0.0.0-20260615094549-c97f4def5564
 	github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357
 	github.com/fil-forge/ucantone v0.0.0-20260527115858-517b03bc3c72
 	github.com/filecoin-project/go-address v1.2.0
