@@ -545,8 +545,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeDY=
 github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
-github.com/fil-forge/delegator v0.0.0-20260527145843-e103ee9f563f h1:ZPyzLZcgT6VIiM/5BGM+JdtB2MaQk3kS+za0pXFrfzo=
-github.com/fil-forge/delegator v0.0.0-20260527145843-e103ee9f563f/go.mod h1:IRZ6E9Vg3Z7UeWMgHUVb94Pn1wELAHKTPTpBigfH+WI=
+github.com/fil-forge/delegator v0.0.0-20260615115955-84e8a58a7898 h1:S6WyTCEi6gxZccw2B4wOqrDgxD+Sbq7BjvqWoV6zTdc=
+github.com/fil-forge/delegator v0.0.0-20260615115955-84e8a58a7898/go.mod h1:Mkd7wcTvxuWzfVwgRIx/xfnwMZM9Hrd7+p6N1dgI0no=
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:h7SZVboCO1iPDtdxPJjs1fj4IVFq/dpDWFevkXtwgps=
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0 h1:HAfXUPvtPjK9UAzofbDSzW0mSXsbubMtIFCEh0SJ2ow=
