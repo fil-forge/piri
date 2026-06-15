@@ -71,9 +71,9 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 	return blob.Accept.Route(func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage node — the proofs are
-		// rooted at the provider, so authorization that the upload service may
-		// invoke `/blob/accept` is enforced by the validator's proof chain.
+		// The invocation subject must be this storage provider — the proofs are
+		// rooted at the provider, so authorization for the invoker to call
+		// `/blob/accept` is enforced by the validator's proof chain.
 		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
 			return rsp.SetFailure(err)
 		}
