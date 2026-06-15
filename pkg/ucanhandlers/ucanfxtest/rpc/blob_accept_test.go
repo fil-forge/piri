@@ -16,10 +16,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// /blob/accept is performed by the upload service: the handler requires the
-// invocation issuer to be the upload service DID. The invocation subject is the
-// storage provider (authorized by a provider->upload-service delegation) and
-// the space travels in AcceptArguments.Space. The handler:
+// /blob/accept is performed by the upload service: The invocation subject is
+// the storage provider (authorized by a provider->upload-service delegation)
+// and the space travels in AcceptArguments.Space. The handler:
 //   - looks up the blob bytes in the piece store (Has check)
 //   - writes an acceptance record carrying a /pdp/accept promise
 //   - issues a /assert/location claim and persists it in the invocation store
