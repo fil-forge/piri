@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/libforge/commands"
 	"github.com/fil-forge/libforge/commands/space/egress"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"

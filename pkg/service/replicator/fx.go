@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/fil-forge/ucantone/multikey"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 

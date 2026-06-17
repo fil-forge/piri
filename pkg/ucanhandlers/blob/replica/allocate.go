@@ -14,6 +14,7 @@ import (
 	"github.com/fil-forge/libforge/commands/blob/replica"
 	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/invocation"
