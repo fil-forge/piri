@@ -32,7 +32,7 @@ import (
 func (s *RetrievalSuite) TestContentRetrieve_Basic() {
 	t := s.T()
 
-	space := testutil.RandomSigner(t)
+	space := testutil.RandomIssuer(t)
 	data := testutil.RandomBytes(t, 256)
 	digest, err := mh.Sum(data, mh.SHA2_256, -1)
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func (s *RetrievalSuite) TestContentRetrieve_Basic() {
 func (s *RetrievalSuite) TestContentRetrieve_NotAllocated() {
 	t := s.T()
 
-	space := testutil.RandomSigner(t)
+	space := testutil.RandomIssuer(t)
 	digest := testutil.RandomMultihash(t)
 	// intentionally no allocation in s.Allocations and no bytes in s.Pieces
 

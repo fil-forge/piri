@@ -12,8 +12,8 @@ import (
 	fxlib "go.uber.org/fx"
 
 	"github.com/fil-forge/libforge/commands/pdp"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/principal"
 
 	libpiece "github.com/fil-forge/libforge/piece"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
@@ -32,7 +32,7 @@ type PieceResolver interface {
 // PDPInfoDeps is the dependency set for the pdp/info UCAN method.
 type PDPInfoDeps struct {
 	fxlib.In
-	ID       principal.Signer
+	ID       identity.Identity
 	Receipts receiptstore.ReceiptStore
 	Pieces   PieceResolver
 }

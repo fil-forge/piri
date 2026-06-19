@@ -12,12 +12,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/golang-jwt/jwt/v4"
 
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/admin/httpapi"
 	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/ucantone/multikey"
 )
 
 type Client struct {
@@ -39,12 +39,12 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-// WithBearerFromSigner configures the Authorization header using a JWT signed by the provided signer.
-func WithBearerFromSigner(id principal.Signer) Option {
+// WithBearerFromSigner configures the Authorization header using a JWT signed by the provided issuer.
+func WithBearerFromSigner(id multikey.Signer) Option {
 	return func(c *Client) error {
 		authHeader, err := createAuthBearerTokenFromID(id)
 		if err != nil {
-			return fmt.Errorf("creating auth header from signer: %w", err)
+			return fmt.Errorf("creating auth header from issuer: %w", err)
 		}
 		c.authHeader = authHeader
 		return nil
@@ -89,7 +89,7 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 		return nil, fmt.Errorf("reading identity key file: %w", err)
 	}
 
-	id, err := identity.DecodeEd25519SignerFromPEM(pem)
+	id, err := identity.DecodeSignerFromPEM(pem)
 	if err != nil {
 		return nil, fmt.Errorf("loading identity key file: %w", err)
 	}
@@ -327,7 +327,7 @@ func (c *Client) ReloadConfig(ctx context.Context) (*httpapi.ConfigResponse, err
 	return &resp, nil
 }
 
-func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
+func createAuthBearerTokenFromID(id multikey.Signer) (string, error) {
 	claims := jwt.MapClaims{
 		"service_name": "storacha",
 	}

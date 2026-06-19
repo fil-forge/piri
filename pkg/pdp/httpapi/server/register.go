@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"path"
 
@@ -28,12 +27,11 @@ type PDPHandler struct {
 }
 
 func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig) (*PDPHandler, error) {
-	if identity.Signer == nil {
+	if identity.Issuer == nil {
 		return nil, fmt.Errorf("missing identity signer for jwt auth")
 	}
-	publicKey := ed25519.PublicKey(identity.Signer.Verifier().Raw())
 	jwtMiddleware := echojwt.WithConfig(echojwt.Config{
-		SigningKey:    publicKey,
+		SigningKey:    identity.Issuer.PublicKey(),
 		SigningMethod: jwt.SigningMethodEdDSA.Alg(),
 	})
 

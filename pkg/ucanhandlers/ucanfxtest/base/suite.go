@@ -19,7 +19,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/require"
@@ -41,7 +41,7 @@ type BaseSuite struct {
 	App        *fxtest.App
 	Echo       *echo.Echo
 	ServiceURL *url.URL
-	ServiceID  principal.Signer
+	ServiceID  multikey.Issuer
 
 	// ExtraOptions are appended to the fx options before the app is
 	// constructed. Subclasses populate this in their own SetupSuite
@@ -59,11 +59,11 @@ type BaseSuite struct {
 
 func (s *BaseSuite) SetupSuite() {
 	if s.ServiceID == nil {
-		s.ServiceID = testutil.RandomSigner(s.T())
+		s.ServiceID = testutil.RandomMultikeyIssuer(s.T())
 	}
 
 	cfgOpts := append(
-		[]piritestutil.TestConfigOption{piritestutil.WithSigner(s.ServiceID)},
+		[]piritestutil.TestConfigOption{piritestutil.WithIssuer(s.ServiceID)},
 		s.ConfigOptions...,
 	)
 	cfg := piritestutil.NewTestConfig(s.T(), cfgOpts...)

@@ -46,7 +46,7 @@ type EthClient interface {
 
 type PDPService struct {
 	cfg             appconfig.PDPServiceConfig
-	id              ucan.Signer
+	id              ucan.Issuer
 	endpoint        url.URL
 	address         common.Address
 	blobstore       blobstore.Blobstore
@@ -77,7 +77,7 @@ type PDPService struct {
 
 func New(
 	cfg appconfig.PDPServiceConfig,
-	id ucan.Signer,
+	id ucan.Issuer,
 	endpoint url.URL,
 	db *gorm.DB,
 	bs blobstore.Blobstore,

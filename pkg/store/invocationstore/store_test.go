@@ -16,7 +16,7 @@ func TestInvocationStore(t *testing.T) {
 		store := NewDatastoreStore(datastore.NewMapDatastore())
 
 		inv, err := invocation.Invoke(
-			testutil.RandomSigner(t),
+			testutil.RandomIssuer(t),
 			testutil.RandomDID(t),
 			command.New("/whatever"),
 			&commands.Unit{},

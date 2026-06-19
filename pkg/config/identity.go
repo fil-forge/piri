@@ -6,6 +6,7 @@ import (
 
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/ucantone/multikey"
 )
 
 type IdentityConfig struct {
@@ -21,11 +22,11 @@ func (i IdentityConfig) ToAppConfig() (app.IdentityConfig, error) {
 	if err != nil {
 		return app.IdentityConfig{}, fmt.Errorf("reading identity key file: %w", err)
 	}
-	id, err := identity.DecodeEd25519SignerFromPEM(pem)
+	id, err := identity.DecodeSignerFromPEM(pem)
 	if err != nil {
 		return app.IdentityConfig{}, fmt.Errorf("decoding identity key file: %w", err)
 	}
 	return app.IdentityConfig{
-		Signer: id,
+		Issuer: multikey.KeyIssuer(id),
 	}, nil
 }

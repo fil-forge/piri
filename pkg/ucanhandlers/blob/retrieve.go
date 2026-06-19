@@ -12,7 +12,6 @@ import (
 	"github.com/fil-forge/libforge/ucan/retrieval"
 	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/errors"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/multiformats/go-multihash"
@@ -45,7 +44,6 @@ const (
 // blob/retrieve UCAN method.
 type BlobRetrieveDeps struct {
 	fxlib.In
-	ID     principal.Signer
 	Pieces types.PieceReaderAPI
 }
 

@@ -102,11 +102,11 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 	t.Helper()
 
-	signer := testutil.RandomSigner(t)
+	issuer := testutil.RandomIssuer(t)
 	audience := testutil.RandomDID(t)
 
 	inv, err := egress.Track.Invoke(
-		signer,
+		issuer,
 		audience,
 		&egress.TrackArguments{
 			Receipts: testutil.RandomCID(t),

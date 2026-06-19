@@ -19,7 +19,6 @@ import (
 	replicacmds "github.com/fil-forge/libforge/commands/blob/replica"
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
@@ -686,7 +685,7 @@ func walletKeyFromWalletFile(walletPath string) (*wallet.Key, error) {
 	return wallet.NewKey(keystore.KeyInfo{PrivateKey: ki.PrivateKey})
 }
 
-func registerWithContract(ctx context.Context, cmd *cobra.Command, id principal.Signer, pdpSvc *service.PDPService) (uint64, error) {
+func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issuer, pdpSvc *service.PDPService) (uint64, error) {
 	// check if the provider is already registered with the contract
 	status, err := pdpSvc.GetProviderStatus(ctx)
 	if err != nil {
@@ -793,7 +792,7 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		return "", "", fmt.Errorf("creating delegator client: %w", err)
 	}
 
-	operatorDID := cfg.Identity.Signer.DID().String()
+	operatorDID := cfg.Identity.Issuer.DID().String()
 
 	registered, err := c.IsRegistered(ctx, &delgclient.IsRegisteredRequest{DID: operatorDID})
 	if err != nil {
@@ -808,7 +807,7 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		if uploadDID == did.Undef {
 			return "", "", fmt.Errorf("upload service DID is not configured")
 		}
-		self := cfg.Identity.Signer
+		self := cfg.Identity.Issuer
 
 		cmds := []ucan.Command{
 			blob.Allocate.Command,
@@ -891,7 +890,7 @@ func encodeProofChain(wire []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(wire), nil
 }
 
-func requestContractApproval(ctx context.Context, id principal.Signer, flags *initFlags, ownerAddress common.Address) error {
+func requestContractApproval(ctx context.Context, id ucan.Issuer, flags *initFlags, ownerAddress common.Address) error {
 	// create a signature by signing our own did with the private key of our did
 	signature := id.Sign([]byte(id.DID().String()))
 
@@ -1026,12 +1025,12 @@ func doInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	defer fxApp.Stop(ctx)
-	cmd.PrintErrf("✅ Node created with DID: %s\n", cfg.Identity.Signer.DID().String())
+	cmd.PrintErrf("✅ Node created with DID: %s\n", cfg.Identity.Issuer.DID().String())
 	cmd.PrintErrln()
 
 	// Step 3: Register with the smart contract
 	cmd.PrintErrln("[3/7] Registering provider with contract...")
-	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Signer, pdpSvc)
+	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Issuer, pdpSvc)
 	if err != nil {
 		return err
 	}
@@ -1040,7 +1039,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 
 	// Step 4: Request approval to join contract from storacha
 	cmd.PrintErrln("[4/7] Requesting approval to join contract from Storacha...")
-	if err := requestContractApproval(ctx, cfg.Identity.Signer, flags, ownerAddress); err != nil {
+	if err := requestContractApproval(ctx, cfg.Identity.Issuer, flags, ownerAddress); err != nil {
 		return err
 	}
 	cmd.PrintErrln("✅ Node approved to join contract by Storacha")

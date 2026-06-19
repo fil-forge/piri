@@ -78,7 +78,7 @@ func assertReceiptFailure(t *testing.T, rcpt ucan.Receipt, expectedName string) 
 // need to attach a proof chain for the cause invocation.
 func (s *RPCSuite) sendGrant(
 	t *testing.T,
-	grantee ucan.Signer,
+	grantee ucan.Issuer,
 	ability ucan.Command,
 	cause ucan.Invocation,
 ) ucan.Receipt {
@@ -107,7 +107,7 @@ func (s *RPCSuite) sendGrant(
 // exercise the no-cause failure path.
 func (s *RPCSuite) sendGrantWithProofs(
 	t *testing.T,
-	grantee ucan.Signer,
+	grantee ucan.Issuer,
 	ability ucan.Command,
 	cause ucan.Invocation,
 	extraProofs ...ucan.Delegation,

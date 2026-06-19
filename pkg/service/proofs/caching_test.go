@@ -36,9 +36,9 @@ import (
 // The grant handler issues a short-lived delegation per call with a random
 // nonce, so nonce equality across calls is a reliable cache-hit signal.
 func TestCachingProofsService(t *testing.T) {
-	webService := testutil.RandomSigner(t)
-	alice := testutil.RandomSigner(t)
-	bob := testutil.RandomSigner(t)
+	webService := testutil.RandomIssuer(t)
+	alice := testutil.RandomIssuer(t)
+	bob := testutil.RandomIssuer(t)
 
 	// /access/grant is the bootstrap step in the access flow; the proofs
 	// service self-issues the invocation (subject == issuer), which the

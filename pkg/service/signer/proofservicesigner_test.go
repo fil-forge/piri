@@ -15,7 +15,6 @@ import (
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
 	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/client"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/fil-forge/ucantone/ucan"
@@ -29,7 +28,7 @@ import (
 )
 
 func TestProofServiceSigner(t *testing.T) {
-	signerServiceID := testutil.RandomSigner(t)
+	signerServiceID := testutil.RandomIssuer(t)
 	srv := mockSigningServiceServer(t, signerServiceID)
 
 	endpoint, err := url.Parse("http://test")
@@ -41,7 +40,7 @@ func TestProofServiceSigner(t *testing.T) {
 	proofService := proofs.NewCachingProofService()
 	signingService := piriSigner.NewProofServiceSigner(sc, signerServiceID.DID(), httpClient, proofService)
 
-	alice := testutil.RandomSigner(t)
+	alice := testutil.RandomIssuer(t)
 
 	t.Run("pdp/sign/dataset/create", func(t *testing.T) {
 		payee := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
@@ -97,7 +96,7 @@ func TestProofServiceSigner(t *testing.T) {
 	})
 }
 
-func mockSigningServiceServer(t *testing.T, id principal.Signer) *server.HTTPServer {
+func mockSigningServiceServer(t *testing.T, id ucan.Issuer) *server.HTTPServer {
 	mock := mockLibforgeSignature()
 	srv := server.NewHTTP(
 		id,

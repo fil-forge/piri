@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"crypto/ed25519"
 	"fmt"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -31,12 +30,11 @@ type AdminRoutesParams struct {
 }
 
 func NewRoutes(params AdminRoutesParams) (echofx.RouteRegistrar, error) {
-	if params.Identity.Signer == nil {
+	if params.Identity.Issuer == nil {
 		return nil, fmt.Errorf("missing identity signer for jwt auth")
 	}
-	publicKey := ed25519.PublicKey(params.Identity.Signer.Verifier().Raw())
 	jwtMiddleware := echojwt.WithConfig(echojwt.Config{
-		SigningKey:    publicKey,
+		SigningKey:    params.Identity.Issuer.PublicKey(),
 		SigningMethod: jwt.SigningMethodEdDSA.Alg(),
 	})
 

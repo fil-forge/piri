@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/fil-forge/libforge/commands/pdp"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/receipt"
@@ -18,13 +17,13 @@ import (
 )
 
 type PieceAcceptor struct {
-	issuer         principal.Signer
+	issuer         ucan.Issuer
 	aggregateStore ipldstore.KVStore[cid.Cid, types.Aggregate]
 	receiptStore   receiptstore.ReceiptStore
 	resolver       apitypes.PieceResolverAPI
 }
 
-func NewPieceAccepter(issuer principal.Signer, aggregateStore types.Store, receiptStore receiptstore.ReceiptStore, resolver apitypes.PieceResolverAPI) *PieceAcceptor {
+func NewPieceAccepter(issuer ucan.Issuer, aggregateStore types.Store, receiptStore receiptstore.ReceiptStore, resolver apitypes.PieceResolverAPI) *PieceAcceptor {
 	return &PieceAcceptor{
 		issuer:         issuer,
 		aggregateStore: aggregateStore,
@@ -55,7 +54,7 @@ func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []cid.
 	return nil
 }
 
-func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*receipt.Receipt, error) {
+func GenerateReceipts(ctx context.Context, issuer ucan.Issuer, aggregate types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*receipt.Receipt, error) {
 	receipts := make([]*receipt.Receipt, 0, len(aggregate.Pieces))
 	for _, aggregatePiece := range aggregate.Pieces {
 		blob, found, err := resolver.ResolveToBlob(ctx, aggregatePiece.Link.Hash())
@@ -90,7 +89,7 @@ func GenerateReceipts(ctx context.Context, issuer ucan.Signer, aggregate types.A
 	return receipts, nil
 }
 
-func GenerateReceiptsForAggregates(ctx context.Context, issuer ucan.Signer, aggregates []types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*receipt.Receipt, error) {
+func GenerateReceiptsForAggregates(ctx context.Context, issuer ucan.Issuer, aggregates []types.Aggregate, resolver apitypes.PieceResolverAPI) ([]*receipt.Receipt, error) {
 	size := 0
 	for _, aggregate := range aggregates {
 		size += len(aggregate.Pieces)

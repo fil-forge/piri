@@ -12,6 +12,7 @@ import (
 
 	errdm "github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
@@ -27,7 +28,6 @@ import (
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/claim"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 
 	"github.com/fil-forge/piri/lib"
@@ -49,7 +49,7 @@ func (p *threadSafeAsyncPublisher) Publish(ctx context.Context, pi peer.AddrInfo
 var log = logging.Logger("publisher")
 
 type PublisherService struct {
-	id                    principal.Signer
+	id                    ucan.Issuer
 	asyncPublisher        ipnipub.AsyncPublisher
 	provider              peer.AddrInfo
 	indexingService       app.IndexingServiceConfig
@@ -134,7 +134,7 @@ func PublishLocationCommitment(
 
 func CacheClaim(
 	ctx context.Context,
-	id principal.Signer,
+	id ucan.Issuer,
 	indexingService app.IndexingServiceConfig,
 	invocationProofs []ucan.Delegation,
 	clm ucan.Invocation,
@@ -209,7 +209,7 @@ var _ Publisher = (*PublisherService)(nil)
 //
 // Note: publicAddr address must be HTTP(S).
 func New(
-	id principal.Signer,
+	id multikey.Issuer,
 	publisherStore store.PublisherStore,
 	publicAddr multiaddr.Multiaddr,
 	opts ...Option,

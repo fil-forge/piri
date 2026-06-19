@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/fil-forge/ucantone/principal"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/ucantone/ucan"
 )
 
 var log = logging.Logger("server")
@@ -25,7 +25,7 @@ type BuildInfo struct {
 }
 
 // NewHandler displays version info.
-func NewHandler(id principal.Signer) http.Handler {
+func NewHandler(id ucan.Issuer) http.Handler {
 	info := ServerInfo{
 		ID: id.DID().String(),
 		Build: BuildInfo{

@@ -82,7 +82,7 @@ type Params struct {
 func ProvidePDPService(params Params) (*service.PDPService, error) {
 	return service.New(
 		params.Config,
-		params.ID.Signer,
+		params.ID.Issuer,
 		params.ServerConfig.PublicURL,
 		params.DB,
 		params.BlobStore,

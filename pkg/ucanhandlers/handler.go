@@ -3,9 +3,9 @@ package ucanhandlers
 import (
 	"fmt"
 
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/ucan/retrieval"
 	"github.com/fil-forge/ucantone/execution"
-	"github.com/fil-forge/ucantone/principal"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/labstack/echo/v4"
@@ -68,7 +68,7 @@ func ProvideRetrievalOption(ctor any) any {
 type RPCParams struct {
 	fx.In
 
-	ID       principal.Signer
+	ID       identity.Identity
 	Handlers []server.Route      `group:"ucan_rpc_handlers"`
 	Options  []server.HTTPOption `group:"ucan_rpc_options"`
 }
@@ -79,7 +79,7 @@ type RPCParams struct {
 type RetrievalParams struct {
 	fx.In
 
-	ID       principal.Signer
+	ID       identity.Identity
 	Handlers []server.Route      `group:"ucan_retrieval_handlers"`
 	Options  []server.HTTPOption `group:"ucan_retrieval_options"`
 }

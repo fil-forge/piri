@@ -20,7 +20,7 @@ type ProofService interface {
 	// context.
 	RequestAccess(
 		ctx context.Context,
-		issuer ucan.Signer,
+		issuer ucan.Issuer,
 		audience did.DID,
 		command ucan.Command,
 		cause ucan.Invocation,

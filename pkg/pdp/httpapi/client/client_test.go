@@ -1,7 +1,6 @@
 package client
 
 import (
-	"crypto/ed25519"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestCreateAuthBearerTokenFromID(t *testing.T) {
-	signer := testutil.RandomSigner(t)
+	signer := testutil.RandomMultikeyIssuer(t)
 
 	token, err := createAuthBearerTokenFromID(signer)
 	require.NoError(t, err)
@@ -19,7 +18,7 @@ func TestCreateAuthBearerTokenFromID(t *testing.T) {
 
 	parsed, err := jwt.Parse(strings.TrimPrefix(token, "Bearer "), func(token *jwt.Token) (interface{}, error) {
 		require.Equal(t, jwt.SigningMethodEdDSA.Alg(), token.Method.Alg())
-		return ed25519.PublicKey(signer.Verifier().Raw()), nil
+		return signer.PublicKey(), nil
 	})
 	require.NoError(t, err)
 	require.True(t, parsed.Valid)
@@ -30,7 +29,7 @@ func TestCreateAuthBearerTokenFromID(t *testing.T) {
 }
 
 func TestWithBearerFromSignerSetsHeader(t *testing.T) {
-	signer := testutil.RandomSigner(t)
+	signer := testutil.RandomMultikeySigner(t)
 	client := &Client{}
 
 	err := WithBearerFromSigner(signer)(client)
