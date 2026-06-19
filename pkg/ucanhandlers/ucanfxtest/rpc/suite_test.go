@@ -9,7 +9,6 @@ import (
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/key"
 	"github.com/fil-forge/ucantone/did/resolver"
-	"github.com/fil-forge/ucantone/ucan"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/fx"
 
@@ -83,13 +82,3 @@ func (s *RPCSuite) SetupSuite() {
 func TestRPCSuite(t *testing.T) {
 	suite.Run(t, new(RPCSuite))
 }
-
-// didWrappedVerifier overrides the wrapped verifier's DID() with the
-// resolver's input DID, preserving the underlying signature check.
-type didWrappedVerifier struct {
-	did   did.DID
-	inner ucan.Verifier
-}
-
-func (w *didWrappedVerifier) DID() did.DID                { return w.did }
-func (w *didWrappedVerifier) Verify(msg, sig []byte) bool { return w.inner.Verify(msg, sig) }
