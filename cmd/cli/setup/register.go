@@ -15,9 +15,14 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/fil-forge/libforge/commands/blob"
+	replicacmds "github.com/fil-forge/libforge/commands/blob/replica"
+	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/principal"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
@@ -796,12 +801,41 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 	}
 
 	if !registered {
+		// The delegator's register-node handler requires a UCAN container of
+		// proofs: self-delegations granting the upload service authority over
+		// the blob/pdp capabilities on this provider. They never expire.
+		uploadDID := flags.baseConfig.uploadServiceDID
+		if uploadDID == did.Undef {
+			return "", "", fmt.Errorf("upload service DID is not configured")
+		}
+		self := cfg.Identity.Signer
+
+		cmds := []ucan.Command{
+			blob.Allocate.Command,
+			blob.Accept.Command,
+			pdp.Info.Command,
+			replicacmds.Allocate.Command,
+		}
+		dlgs := make([]ucan.Delegation, 0, len(cmds))
+		for _, cmd := range cmds {
+			dlg, err := delegation.Delegate(self, uploadDID, self.DID(), cmd, delegation.WithNoExpiration())
+			if err != nil {
+				return "", "", fmt.Errorf("creating %s delegation: %w", cmd, err)
+			}
+			dlgs = append(dlgs, dlg)
+		}
+		proofsBytes, err := container.Encode(container.Base64Gzip, container.New(container.WithDelegations(dlgs...)))
+		if err != nil {
+			return "", "", fmt.Errorf("encoding provider proofs: %w", err)
+		}
+
 		if err := c.Register(ctx, &delgclient.RegisterRequest{
 			Operator:      operatorDID,
 			OwnerAddress:  ownerAddress.String(),
 			ProofSetID:    proofSetID,
 			OperatorEmail: flags.operatorEmail,
 			PublicURL:     flags.publicURL.String(),
+			Proofs:        string(proofsBytes),
 		}); err != nil {
 			return "", "", fmt.Errorf("registering with delegator: %w", err)
 		}
