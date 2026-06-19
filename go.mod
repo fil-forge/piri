@@ -15,9 +15,9 @@ require (
 	github.com/fil-forge/delegator v0.0.0-20260619085531-c96197bec34c
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
-	github.com/fil-forge/libforge v0.0.0-20260619084920-1753f2265c95
-	github.com/fil-forge/piri-signing-service v0.0.0-20260527011208-918512802357
-	github.com/fil-forge/ucantone v0.0.0-20260527115858-517b03bc3c72
+	github.com/fil-forge/libforge v0.0.0-20260619083649-eb26d871cda1
+	github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54
+	github.com/fil-forge/ucantone v0.0.0-20260619013642-7985ec010b88
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils v0.1.4
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
@@ -303,7 +303,7 @@ require (
 	go.uber.org/mock v0.6.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/exp v0.0.0-20260212183809-81e46e3db34a // indirect
+	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/net v0.52.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0 // indirect
