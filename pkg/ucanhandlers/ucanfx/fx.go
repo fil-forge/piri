@@ -6,6 +6,8 @@ import (
 
 	"go.uber.org/fx"
 
+	"github.com/fil-forge/libforge/attestation"
+	"github.com/fil-forge/libforge/attestation/didmailto"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/key"
 	"github.com/fil-forge/ucantone/did/resolver"
@@ -53,10 +55,33 @@ var Module = fx.Module("ucan",
 				return nil, fmt.Errorf("could not create http resolver: %w", err)
 			}
 
+			// did:mailto identities (the account DIDs at the root of
+			// most proof chains) have no native key material — they are
+			// signed by attestation from a trusted authority, the upload
+			// service. The resolver synthesizes a DID document whose
+			// AuthorityAttestation verification method names that
+			// authority; the matching verifier factory (below) turns it
+			// into an AttestedVerifier. Without the mailto entry,
+			// resolving an account DID fails with "unsupported DID
+			// method: mailto" and every invocation whose proof chain
+			// traces back to a did:mailto account is rejected.
 			return resolver.ByMethod{
-				"key": key.Resolver,
-				"web": resolver.NewCached(httpResolver, 24*time.Hour),
+				"key":    key.Resolver,
+				"web":    resolver.NewCached(httpResolver, 24*time.Hour),
+				"mailto": didmailto.NewResolver(cfg.Services.Upload.DID),
 			}, nil
+		},
+
+		// Verifier factories for the validator. The defaults cover
+		// Multikey (did:key / did:web) verification methods; we add the
+		// AuthorityAttestation factory so the validator can verify
+		// attested signatures from did:mailto principals. The factory
+		// resolves the authority's own DID document (e.g. did:web:upload)
+		// via the same resolver, so it must see the full resolver.
+		func(res did.Resolver) map[string]validator.VerifierFactory {
+			factories := validator.DefaultFactories()
+			factories[attestation.Type] = attestation.NewVerifierFactory(res, factories)
+			return factories
 		},
 
 		// Server-wide options. Both transports need the DID verifier
@@ -70,14 +95,16 @@ var Module = fx.Module("ucan",
 		// hidden in the X-UCAN-Container header — which downstream
 		// clients (the indexer's blobindexlookup) mis-read as
 		// success-with-empty-body and then choke on CAR decode EOF.
-		ucanhandlers.ProvideRPCOption(func(resolver did.Resolver) server.HTTPOption {
+		ucanhandlers.ProvideRPCOption(func(resolver did.Resolver, factories map[string]validator.VerifierFactory) server.HTTPOption {
 			return server.WithValidationOptions(
 				validator.WithDIDResolver(resolver),
+				validator.WithVerifierFactories(factories),
 			)
 		}),
-		ucanhandlers.ProvideRetrievalOption(func(resolver did.Resolver) server.HTTPOption {
+		ucanhandlers.ProvideRetrievalOption(func(resolver did.Resolver, factories map[string]validator.VerifierFactory) server.HTTPOption {
 			return server.WithValidationOptions(
 				validator.WithDIDResolver(resolver),
+				validator.WithVerifierFactories(factories),
 			)
 		}),
 	),

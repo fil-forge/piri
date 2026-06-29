@@ -36,9 +36,10 @@ const validity = time.Hour
 // UCAN method.
 type GrantDeps struct {
 	fxlib.In
-	ID       identity.Identity
-	Upload   app.UploadServiceConfig
-	Resolver did.Resolver
+	ID        identity.Identity
+	Upload    app.UploadServiceConfig
+	Resolver  did.Resolver
+	Factories map[string]validator.VerifierFactory
 }
 
 func NewGrantHandler(deps GrantDeps) server.Route {
@@ -84,6 +85,7 @@ func NewGrantHandler(deps GrantDeps) server.Route {
 		validateOpts := []validator.Option{
 			validator.WithProofResolver(proofResolverFromMetadata(req.Metadata())),
 			validator.WithDIDResolver(deps.Resolver),
+			validator.WithVerifierFactories(deps.Factories),
 		}
 
 		grantedDlgs := make([]ucan.Delegation, 0, len(args.Attenuations))
