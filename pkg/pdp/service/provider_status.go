@@ -81,22 +81,6 @@ func (p *PDPService) GetProviderStatus(ctx context.Context) (types.GetProviderSt
 	return result, nil
 }
 
-// RequireProviderApproved checks if the provider is both registered and approved.
-// Returns a rich contextual error if authorization fails.
-func (p *PDPService) RequireProviderApproved(ctx context.Context) error {
-	regStatus, err := p.GetProviderStatus(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check registration status: %w", err)
-	}
-
-	// If the provider is both registered and approved, authorization succeeds
-	if regStatus.IsRegistered && regStatus.IsApproved {
-		return nil
-	}
-
-	return fmt.Errorf("provider is not approved")
-}
-
 // cachedMaxPieceSizeLog2 returns the verifier max piece size and caches the first successful lookup.
 func (p *PDPService) cachedMaxPieceSizeLog2(ctx context.Context) (*big.Int, error) {
 	p.maxPieceSizeLog2Cache.mu.Lock()

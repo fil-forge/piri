@@ -26,11 +26,6 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		}
 	}()
 
-	// Check if the provider is both registered and approved
-	if err := p.RequireProviderApproved(ctx); err != nil {
-		return common.Hash{}, err
-	}
-
 	nonceBytes := make([]byte, 32)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to generate nonce: %w", err)
