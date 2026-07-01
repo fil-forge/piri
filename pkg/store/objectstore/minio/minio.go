@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"strings"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -30,18 +31,52 @@ func New(endpoint, bucket string, opts minio.Options) (*Store, error) {
 	// allow for 5 seconds to check for existing bucket, and or create one.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	if exists, err := client.BucketExists(ctx, bucket); err != nil {
-		return nil, fmt.Errorf("failed to check if bucket %s exists: %s", bucket, err)
-	} else if !exists {
-		if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
-			return nil, fmt.Errorf("failed to create bucket %s: %s", bucket, err)
-		}
+	if err := ensureBucket(ctx, client, bucket); err != nil {
+		return nil, err
 	}
 
 	return &Store{
 		client: client,
 		bucket: bucket,
 	}, nil
+}
+
+// ensureBucket makes sure the bucket exists, creating it if necessary. A freshly
+// started MinIO server can accept connections before its object layer is ready,
+// answering requests with a transient "server not initialized" error; retry the
+// readiness-sensitive existence check until the server is ready or ctx expires.
+func ensureBucket(ctx context.Context, client *minio.Client, bucket string) error {
+	for {
+		exists, err := client.BucketExists(ctx, bucket)
+		if err != nil {
+			if isServerNotInitialized(err) && ctx.Err() == nil {
+				select {
+				case <-ctx.Done():
+				case <-time.After(200 * time.Millisecond):
+					continue
+				}
+			}
+			return fmt.Errorf("failed to check if bucket %s exists: %s", bucket, err)
+		}
+		if !exists {
+			if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{}); err != nil {
+				return fmt.Errorf("failed to create bucket %s: %s", bucket, err)
+			}
+		}
+		return nil
+	}
+}
+
+// isServerNotInitialized reports whether err is the transient error a MinIO
+// server returns while its object layer is still initializing.
+func isServerNotInitialized(err error) bool {
+	if err == nil {
+		return false
+	}
+	if minio.ToErrorResponse(err).Code == "XMinioServerNotInitialized" {
+		return true
+	}
+	return strings.Contains(err.Error(), "Server not initialized")
 }
 
 func (s *Store) IsOnline() bool {
