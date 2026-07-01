@@ -20,7 +20,6 @@ import (
 	"github.com/fil-forge/piri/pkg/config"
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/app"
-	"github.com/fil-forge/piri/pkg/health"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/telemetry"
 )
@@ -355,29 +354,13 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 
 		fx.StopTimeout(setup.PiriServerShutdownTimeout),
 
-		// Supply server mode for health checks
-		fx.Supply(health.ModeFull),
-
-		// common dependencies of the PDP and UCAN module:
-		//   - identity
-		//   - http server
-		//   - databases & datastores
-		app.CommonModules(appCfg),
-
-		// ucan service dependencies:
-		//  - http handlers
-		//    - ucan specific handlers, blob allocate and accept, replicate, etc.
-		//  - blob, claim, publisher, replicator, and storage services
-		app.UCANModule,
-
-		// pdp service dependencies:
-		//  - lotus, eth, and contract clients
-		//  - piece aggregator
-		//  - task and chain scheduler w/ their related tasks
-		//  - http handlers
-		//    - create proof set, add root, upload piece, etc.
-		//  - address wallet
-		app.PDPModule,
+		// the complete full-server dependency graph:
+		//   - server mode for health checks
+		//   - common dependencies (identity, http server, databases & datastores)
+		//   - ucan service dependencies (http handlers, blob/claim/publisher/etc. services)
+		//   - pdp service dependencies (lotus/eth/contract clients, aggregator,
+		//     schedulers, http handlers, address wallet)
+		app.FullServerModule(appCfg),
 
 		// Post-startup operations: print server info and record telemetry
 		fx.Invoke(func(lc fx.Lifecycle) {
