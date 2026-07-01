@@ -35,7 +35,7 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		fx.Supply(cfg.PDPService.Aggregation.Manager),
 		fx.Supply(cfg.PDPService.Gas),
 
-		identity.Module, // Provides ucan.Signer
+		identity.Module, // Provides identity.Identity, ucan.Issuer and ucan.Signer
 		proofs.Module,   // Provides service for requesting service proofs
 		echo.Module,     // Provides Echo server with route registration
 		database.Module, // Provides SQLite database for job queues
