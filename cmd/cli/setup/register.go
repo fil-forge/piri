@@ -703,7 +703,7 @@ func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issue
 		return 0, fmt.Errorf("registering provider: %w", err)
 	}
 
-	cmd.PrintErrln("⏳ Waiting for registration to be confirmed on-chain...")
+	cmd.PrintErrf("⏳ Waiting for registration to be confirmed on-chain (tx %s)...\n", res.TransactionHash.Hex())
 	feedbackCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
@@ -757,7 +757,7 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 		return 0, fmt.Errorf("creating proof set: %w", err)
 	}
 
-	cmd.PrintErrln("⏳ Waiting for proof set creation to be confirmed on-chain...")
+	cmd.PrintErrf("⏳ Waiting for proof set creation to be confirmed on-chain (tx %s)...\n", tx.Hex())
 	for {
 		time.Sleep(10 * time.Second)
 		status, err := pdpSvc.GetProofSetStatus(ctx, tx)
