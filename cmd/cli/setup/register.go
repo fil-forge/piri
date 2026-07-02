@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -890,32 +889,6 @@ func encodeProofChain(wire []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(wire), nil
 }
 
-func requestContractApproval(ctx context.Context, id ucan.Issuer, flags *initFlags, ownerAddress common.Address) error {
-	// create a signature by signing our own did with the private key of our did
-	signature := id.Sign([]byte(id.DID().String()))
-
-	c, err := delgclient.New(flags.delegatorURL)
-	if err != nil {
-		return fmt.Errorf("creating delegator client: %w", err)
-	}
-
-	// requesting approval requires the message to be published to chain by delegator
-	// before it returns, so we need an extended timeout
-	// TODO a better(?) mechanism might be to poll via a different method
-	c = c.WithHTTPClient(&http.Client{
-		Timeout: 5 * time.Minute,
-	})
-
-	req := &delgclient.RequestApprovalRequest{
-		Operator:     id.DID().String(),
-		OwnerAddress: ownerAddress.String(),
-		Signature:    signature,
-	}
-
-	// request approval from delegator, on success the delegator will approve piri within the smart contract
-	return c.RequestApproval(ctx, req)
-}
-
 // generateConfig generates the final configuration for the user
 func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common.Address, proofSetID uint64, indexerProof string, egressTrackerProof string) (config.FullServerConfig, error) {
 	// Derive egress tracker receipts endpoint from URL if available
@@ -1007,7 +980,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 1: Parse and validate flags
-	cmd.PrintErrln("[1/7] Validating configuration...")
+	cmd.PrintErrln("[1/6] Validating configuration...")
 	flags, err := parseAndValidateFlags(cmd)
 	if err != nil {
 		return err
@@ -1019,7 +992,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	//failures after here are unrelated to arguments and flags supplied.
 	cmd.SilenceUsage = true
 	// Step 2: Create and start node
-	cmd.PrintErrln("[2/7] Creating Piri node...")
+	cmd.PrintErrln("[2/6] Creating Piri node...")
 	fxApp, pdpSvc, cfg, ownerAddress, err := createNode(ctx, flags)
 	if err != nil {
 		return err
@@ -1029,7 +1002,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrln()
 
 	// Step 3: Register with the smart contract
-	cmd.PrintErrln("[3/7] Registering provider with contract...")
+	cmd.PrintErrln("[3/6] Registering provider with contract...")
 	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Issuer, pdpSvc)
 	if err != nil {
 		return err
@@ -1037,32 +1010,24 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrf("✅ Node registered with contract ProviderID: %d\n", providerID)
 	cmd.PrintErrln()
 
-	// Step 4: Request approval to join contract from storacha
-	cmd.PrintErrln("[4/7] Requesting approval to join contract from Storacha...")
-	if err := requestContractApproval(ctx, cfg.Identity.Issuer, flags, ownerAddress); err != nil {
-		return err
-	}
-	cmd.PrintErrln("✅ Node approved to join contract by Storacha")
-	cmd.PrintErrln()
-
-	// Step 5: Create or find proof set (must be approved in step 4 to succeed here)
-	cmd.PrintErrln("[5/7] Setting up proof set...")
+	// Step 4: Create or find proof set
+	cmd.PrintErrln("[4/6] Setting up proof set...")
 	proofSetID, err := setupProofSet(ctx, cmd, pdpSvc)
 	if err != nil {
 		return err
 	}
 	cmd.PrintErrln()
 
-	// Step 6: Register with delegator service
-	cmd.PrintErrln("[6/7] Registering with delegator service...")
+	// Step 5: Register with delegator service
+	cmd.PrintErrln("[5/6] Registering with delegator service...")
 	indexerProof, egressTrackerProof, err := registerWithDelegator(ctx, cmd, cfg, flags, ownerAddress, proofSetID)
 	if err != nil {
 		return err
 	}
 	cmd.PrintErrln()
 
-	// Step 7: Generate configuration
-	cmd.PrintErrln("[7/7] Generating configuration file...")
+	// Step 6: Generate configuration
+	cmd.PrintErrln("[6/6] Generating configuration file...")
 	userConfig, err := generateConfig(cfg, flags, ownerAddress, proofSetID, indexerProof, egressTrackerProof)
 	if err != nil {
 		return err

@@ -26,8 +26,8 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		}
 	}()
 
-	// Check if the provider is both registered and approved
-	if err := p.RequireProviderApproved(ctx); err != nil {
+	// Check if the provider is registered
+	if err := p.RequireProviderRegistered(ctx); err != nil {
 		return common.Hash{}, err
 	}
 
