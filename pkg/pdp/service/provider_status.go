@@ -81,6 +81,21 @@ func (p *PDPService) GetProviderStatus(ctx context.Context) (types.GetProviderSt
 	return result, nil
 }
 
+// RequireProviderRegistered checks if the provider is registered on-chain.
+// Returns a rich contextual error if the check fails.
+func (p *PDPService) RequireProviderRegistered(ctx context.Context) error {
+	regStatus, err := p.GetProviderStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check registration status: %w", err)
+	}
+
+	if regStatus.IsRegistered {
+		return nil
+	}
+
+	return fmt.Errorf("provider is not registered (status: %s)", regStatus.RegistrationStatus)
+}
+
 // cachedMaxPieceSizeLog2 returns the verifier max piece size and caches the first successful lookup.
 func (p *PDPService) cachedMaxPieceSizeLog2(ctx context.Context) (*big.Int, error) {
 	p.maxPieceSizeLog2Cache.mu.Lock()
