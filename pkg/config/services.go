@@ -101,10 +101,10 @@ func orderProofChain(dlgs []ucan.Delegation) ([]ucan.Delegation, error) {
 }
 
 type ServicesConfig struct {
-	Indexer       IndexingServiceConfig      `mapstructure:"indexer" validate:"required" toml:"indexer,omitempty"`
+	Indexer       IndexingServiceConfig      `mapstructure:"indexer" toml:"indexer,omitempty"`
 	EgressTracker EgressTrackerServiceConfig `mapstructure:"etracker" toml:"etracker,omitempty"`
 	Upload        UploadServiceConfig        `mapstructure:"upload" validate:"required" toml:"upload,omitempty"`
-	Publisher     PublisherServiceConfig     `mapstructure:"publisher" validate:"required" toml:"publisher,omitempty"`
+	Publisher     PublisherServiceConfig     `mapstructure:"publisher" toml:"publisher,omitempty"`
 }
 
 func (s ServicesConfig) Validate() error {
@@ -147,9 +147,12 @@ func (s ServicesConfig) ToAppConfig(publicURL url.URL) (app.ExternalServicesConf
 	return out, nil
 }
 
+// IndexingServiceConfig configures the indexing service integration. Like the
+// egress tracker, the integration is optional: leaving DID and URL empty
+// disables it (claims are neither cached with an indexer nor announced).
 type IndexingServiceConfig struct {
-	DID   string `mapstructure:"did" validate:"required" flag:"indexing-service-did" toml:"did,omitempty"`
-	URL   string `mapstructure:"url" validate:"required,url" flag:"indexing-service-url" toml:"url,omitempty"`
+	DID   string `mapstructure:"did" flag:"indexing-service-did" toml:"did,omitempty"`
+	URL   string `mapstructure:"url" validate:"omitempty,url" flag:"indexing-service-url" toml:"url,omitempty"`
 	Proof string `mapstructure:"proof" flag:"indexing-service-proof" toml:"proof,omitempty"`
 }
 
@@ -158,6 +161,16 @@ func (s *IndexingServiceConfig) Validate() error {
 }
 
 func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error) {
+	if s.DID == "" {
+		log.Warn("no indexing service DID provided, indexing is disabled")
+		return app.IndexingServiceConfig{}, nil
+	}
+
+	if s.URL == "" {
+		log.Warn("no indexing service URL provided, indexing is disabled")
+		return app.IndexingServiceConfig{}, nil
+	}
+
 	sdid, err := did.Parse(s.DID)
 	if err != nil {
 		return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service DID: %w", err)
@@ -202,7 +215,7 @@ type EgressTrackerServiceConfig struct {
 	ReceiptsEndpoint string `mapstructure:"receipts_endpoint" flag:"egress-tracker-service-receipts-endpoint" toml:"receipts_endpoint,omitempty"`
 	// According to the spec, batch size should be between 10MiB and 1GiB
 	// (see https://github.com/storacha/specs/blob/main/w3-egress-tracking.md)
-	MaxBatchSizeBytes int64  `mapstructure:"max_batch_size_bytes" validate:"min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
+	MaxBatchSizeBytes int64  `mapstructure:"max_batch_size_bytes" validate:"omitempty,min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
 	Proof             string `mapstructure:"proof" flag:"egress-tracker-service-proof" toml:"proof,omitempty"`
 }
 
@@ -295,7 +308,9 @@ func (s *UploadServiceConfig) ToAppConfig() (app.UploadServiceConfig, error) {
 }
 
 type PublisherServiceConfig struct {
-	AnnounceURLs []string `mapstructure:"ipni_announce_urls" validate:"required,min=1,dive,url" flag:"ipni-announce-urls" toml:"ipni_announce_urls,omitempty"`
+	// AnnounceURLs may be empty: adverts are still built and served locally,
+	// but no IPNI node is notified of them.
+	AnnounceURLs []string `mapstructure:"ipni_announce_urls" validate:"omitempty,dive,url" flag:"ipni-announce-urls" toml:"ipni_announce_urls,omitempty"`
 }
 
 func (s *PublisherServiceConfig) Validate() error {
