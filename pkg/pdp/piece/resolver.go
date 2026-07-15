@@ -110,9 +110,12 @@ func (r *StoreResolver) ResolveToPiece(ctx context.Context, blob multihash.Multi
 		return nil, false, fmt.Errorf("cannot resolve blob with codec %s to commp", multicodec.Fr32Sha256Trunc254Padbintree.String())
 	}
 
+	// The mhash column holds the raw multihash bytes (see PDPPieceMHToCommp
+	// writers in piece_commp.go / piece_upload.go) — query it as bytes, not
+	// the base58 string form.
 	var record models.PDPPieceMHToCommp
 	err = r.db.WithContext(ctx).
-		Where("mhash = ?", blob.String()).
+		Where("mhash = ?", []byte(blob)).
 		First(&record).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

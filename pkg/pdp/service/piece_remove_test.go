@@ -16,6 +16,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
@@ -131,6 +132,40 @@ func seedRoot(t *testing.T, db *gorm.DB, subroots []string) {
 			SubrootSize:    1024,
 		}).Error)
 	}
+}
+
+// TestRemovePiece_AcceptedBlobDefersWithRealResolver is the end-to-end
+// regression for the resolver mhash key form: with the mh→commp row seeded
+// exactly as CalculateCommP writes it (raw multihash bytes) and the piece
+// live as a subroot, RemovePiece must queue a pending removal — never
+// hard-delete bytes that are still being proven. A resolver that queries
+// the mhash column by its string form misses the row and deletes the bytes.
+func TestRemovePiece_AcceptedBlobDefersWithRealResolver(t *testing.T) {
+	svc, bs, _ := setupRemovalTest(t)
+	resolver, err := piece.NewStoreResolver(piece.StoreResolverParams{DB: svc.db})
+	require.NoError(t, err)
+	svc.pieceResolver = resolver
+
+	blob := mustMultihash(t, "blob-real")
+	pieceMH := mustMultihash(t, "piece-real")
+	commp := commpCIDString(pieceMH)
+	require.NoError(t, bs.Put(t.Context(), blob, 4, bytes.NewReader([]byte("data"))))
+
+	// Seed as piece_commp.go does: raw multihash bytes in mhash.
+	require.NoError(t, svc.db.Create(&models.PDPPieceMHToCommp{
+		Mhash: blob, Size: 4, Commp: commp,
+	}).Error)
+	// The piece is a live subroot of an aggregate root.
+	seedRoot(t, svc.db, []string{commp})
+
+	require.NoError(t, svc.RemovePiece(t.Context(), blob))
+
+	_, err = bs.Get(t.Context(), blob)
+	require.NoError(t, err, "accepted blob's bytes must be retained until root retirement")
+	var removals []models.PDPPendingRemoval
+	require.NoError(t, svc.db.Find(&removals).Error)
+	require.Len(t, removals, 1, "removal deferred via pending-removal queue")
+	require.Equal(t, models.PendingRemovalStatePending, removals[0].State)
 }
 
 func TestProcessPendingRemovals_WaitsForWholeRootDeath(t *testing.T) {

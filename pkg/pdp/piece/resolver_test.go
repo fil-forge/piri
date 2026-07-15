@@ -124,6 +124,38 @@ func TestStoreResolverResolveWithCommpMapping(t *testing.T) {
 	require.Equal(t, resolvedHash, got)
 }
 
+// TestStoreResolverResolveToPiece is the regression test for the mhash
+// key form: writers store the raw multihash bytes (piece_commp.go /
+// piece_upload.go), and the lookup must query the same form. A string-form
+// query silently misses, which made RemovePiece misclassify accepted blobs
+// as unaggregated and hard-delete proven bytes.
+func TestStoreResolverResolveToPiece(t *testing.T) {
+	fx := newResolverFixture(t)
+
+	commpCID := mustTestCommpCID(t)
+	size := 10 * 1024
+	blobHash := randomMultihash(t, randomBytes(t, size))
+
+	// Seed exactly as CalculateCommP does: raw multihash bytes in mhash.
+	entry := models.PDPPieceMHToCommp{
+		Mhash: blobHash,
+		Size:  int64(size),
+		Commp: commpCID.String(),
+	}
+	require.NoError(t, fx.db.Create(&entry).Error)
+
+	got, ok, err := fx.resolver.ResolveToPiece(fx.ctx, blobHash)
+	require.NoError(t, err)
+	require.True(t, ok, "blob with a recorded commp mapping must resolve")
+	require.Equal(t, commpCID.Hash(), got)
+
+	// Cache-hit path returns the same result.
+	got, ok, err = fx.resolver.ResolveToPiece(fx.ctx, blobHash)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, commpCID.Hash(), got)
+}
+
 func TestStoreResolverResolveNotFound(t *testing.T) {
 	fx := newResolverFixture(t)
 
