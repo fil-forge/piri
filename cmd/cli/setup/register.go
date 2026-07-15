@@ -812,6 +812,7 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 			blob.Allocate.Command,
 			blob.Accept.Command,
 			blob.Remove.Command,
+			blob.Unallocate.Command,
 			pdp.Info.Command,
 			replicacmds.Allocate.Command,
 		}

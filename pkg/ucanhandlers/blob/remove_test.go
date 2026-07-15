@@ -33,11 +33,12 @@ type removeWorld struct {
 
 func newRemoveWorld(t *testing.T) *removeWorld {
 	t.Helper()
-	ds := dssync.MutexWrap(datastore.NewMapDatastore())
+	// Separate backends per store — production namespaces them; a shared
+	// flat datastore would leak allocation rows into acceptance scans.
 	w := &removeWorld{
-		allocs:  allocationstore.NewDatastoreStore(ds),
-		accepts: acceptancestore.NewDatastoreStore(ds),
-		claims:  invocationstore.NewDatastoreStore(ds),
+		allocs:  allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
+		accepts: acceptancestore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
+		claims:  invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 		pieces:  pdpfake.NewPieces(),
 	}
 	w.deps = RemoveDeps{
