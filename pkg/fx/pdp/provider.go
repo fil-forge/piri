@@ -1,9 +1,12 @@
 package pdp
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"github.com/fil-forge/filecoin-services/go/eip712"
+	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 	"gorm.io/gorm"
 
@@ -27,6 +30,8 @@ import (
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
+var log = logging.Logger("fx/pdp")
+
 var Module = fx.Module("pdp-service",
 	fx.Provide(
 		eip712.NewExtraDataEncoder,
@@ -46,6 +51,7 @@ var Module = fx.Module("pdp-service",
 			// concrete *PDPService receivers.
 			fx.As(new(types.PieceWriterAPI)),
 			fx.As(new(types.PieceCommPAPI)),
+			fx.As(new(types.PieceRemoverAPI)),
 		),
 		ProvideProofSetIDProvider,
 		fx.Annotate(
@@ -54,7 +60,44 @@ var Module = fx.Module("pdp-service",
 			fx.ResultTags(`group:"route_registrar"`),
 		),
 	),
+	fx.Invoke(StartRemovalSweeper),
 )
+
+// RemovalSweepInterval is how often queued blob removals are advanced
+// (root retirement + post-confirmation byte deletion).
+const RemovalSweepInterval = 30 * time.Second
+
+// StartRemovalSweeper runs ProcessPendingRemovals on a fixed interval for
+// the lifetime of the application.
+func StartRemovalSweeper(lc fx.Lifecycle, remover types.PieceRemoverAPI) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			go func() {
+				defer close(done)
+				ticker := time.NewTicker(RemovalSweepInterval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if err := remover.ProcessPendingRemovals(ctx); err != nil {
+							log.Errorw("processing pending removals", "err", err)
+						}
+					}
+				}
+			}()
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			cancel()
+			<-done
+			return nil
+		},
+	})
+}
 
 type Params struct {
 	fx.In

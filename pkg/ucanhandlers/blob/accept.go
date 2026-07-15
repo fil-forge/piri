@@ -191,6 +191,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("creating location commitment: %w", err)
 	}
 
+	claimLink := claim.Link()
 	acc := acceptance.Acceptance{
 		Space: req.Space,
 		Blob: acceptance.Blob{
@@ -200,6 +201,9 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
 		PDPAccept:  &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
+		// The claim link is the digest→claim index /blob/remove uses to
+		// delete the location claim when this space's acceptance is removed.
+		Claim: &claimLink,
 	}
 	err = deps.Acceptances.Put(ctx, acc)
 	if err != nil {

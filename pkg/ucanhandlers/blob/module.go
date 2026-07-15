@@ -16,20 +16,27 @@ var Module = fx.Module("ucan/blob",
 	fx.Provide(
 		ucanhandlers.ProvideRPC(NewAcceptHandler),
 		ucanhandlers.ProvideRPC(NewBlobAllocateHandler),
+		ucanhandlers.ProvideRPC(NewBlobRemoveHandler),
 		ucanhandlers.ProvideRetrieval(NewBlobRetrieveHandler),
 
 		fx.Annotate(
 			func(a allocationstore.AllocationStore) allocationstore.AllocationStore { return a },
 			fx.As(new(AllocationStore)),
+			fx.As(new(AllocationRemover)),
 		),
 		fx.Annotate(
 			func(a acceptancestore.AcceptanceStore) acceptancestore.AcceptanceStore { return a },
 			fx.As(new(AcceptanceStore)),
+			fx.As(new(AcceptanceRemover)),
 		),
 		fx.Annotate(
 			func(p pdptypes.PieceAPI) pdptypes.PieceAPI { return p },
 			fx.As(new(PieceAllocator)),
 			fx.As(new(PieceReader)),
+		),
+		fx.Annotate(
+			func(p pdptypes.PieceRemoverAPI) pdptypes.PieceRemoverAPI { return p },
+			fx.As(new(PieceRemover)),
 		),
 	),
 )

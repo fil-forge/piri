@@ -22,6 +22,9 @@ type InvocationStore interface {
 	Get(context.Context, cid.Cid) (ucan.Invocation, error)
 	// Put adds or replaces a invocation in the store.
 	Put(context.Context, ucan.Invocation) error
+	// Delete removes an invocation by its root CID. Deleting a nonexistent
+	// invocation is not an error (idempotent).
+	Delete(context.Context, cid.Cid) error
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -55,6 +58,13 @@ func (s *Store) Get(ctx context.Context, link cid.Cid) (ucan.Invocation, error) 
 
 func (s *Store) Put(ctx context.Context, dlg ucan.Invocation) error {
 	return s.store.Put(ctx, s.encoder.EncodeKey(dlg.Link()), dlg)
+}
+
+func (s *Store) Delete(ctx context.Context, link cid.Cid) error {
+	if err := s.store.Delete(ctx, s.encoder.EncodeKey(link)); err != nil {
+		return fmt.Errorf("deleting invocation: %w", err)
+	}
+	return nil
 }
 
 // Codec implements genericstore.Codec for ucan.Invocation

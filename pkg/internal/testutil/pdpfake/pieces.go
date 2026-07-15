@@ -36,6 +36,7 @@ type Pieces struct {
 	uploads  map[uuid.UUID]multihash.Multihash
 	writeURL url.URL
 	readURL  url.URL
+	removed  []multihash.Multihash
 }
 
 // NewPieces returns an empty in-memory Pieces fake. Default URLs use the
@@ -167,6 +168,30 @@ func (p *Pieces) CalculateCommP(_ context.Context, _ multihash.Multihash) (types
 	panic("pdpfake: CalculateCommP not implemented")
 }
 
+// --- types.PieceRemoverAPI ---
+
+// RemovePiece deletes the bytes for blob and records the call so tests can
+// assert removal was requested. Idempotent, like the real implementation.
+func (p *Pieces) RemovePiece(_ context.Context, blob multihash.Multihash) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.data, blob.HexString())
+	p.removed = append(p.removed, blob)
+	return nil
+}
+
+// ProcessPendingRemovals is a no-op — the fake removes bytes immediately.
+func (p *Pieces) ProcessPendingRemovals(_ context.Context) error {
+	return nil
+}
+
+// Removed returns the digests RemovePiece has been called with.
+func (p *Pieces) Removed() []multihash.Multihash {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]multihash.Multihash(nil), p.removed...)
+}
+
 // --- extras on types.PieceAPI ---
 
 func (p *Pieces) ParkPiece(_ context.Context, _ types.ParkPieceRequest) error {
@@ -186,4 +211,7 @@ func (p *Pieces) ReadPieceURL(_ cid.Cid) (url.URL, error) {
 }
 
 // Compile-time check that Pieces satisfies the surface handlers depend on.
-var _ types.PieceAPI = (*Pieces)(nil)
+var (
+	_ types.PieceAPI        = (*Pieces)(nil)
+	_ types.PieceRemoverAPI = (*Pieces)(nil)
+)

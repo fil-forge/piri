@@ -28,9 +28,13 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 	}
 
 	cw := cbg.NewCborWriter(w)
-	fieldCount := 5
+	fieldCount := 6
 
 	if t.PDPAccept == nil {
+		fieldCount--
+	}
+
+	if t.Claim == nil {
 		fieldCount--
 	}
 
@@ -68,6 +72,32 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 
 	if err := cbg.WriteCid(cw, t.Cause); err != nil {
 		return xerrors.Errorf("failed to write cid field t.Cause: %w", err)
+	}
+
+	// t.Claim (cid.Cid) (struct)
+	if t.Claim != nil {
+
+		if len("claim") > 8192 {
+			return xerrors.Errorf("Value in field \"claim\" was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("claim"))); err != nil {
+			return err
+		}
+		if _, err := cw.WriteString(string("claim")); err != nil {
+			return err
+		}
+
+		if t.Claim == nil {
+			if _, err := cw.Write(cbg.CborNull); err != nil {
+				return err
+			}
+		} else {
+			if err := cbg.WriteCid(cw, *t.Claim); err != nil {
+				return xerrors.Errorf("failed to write cid field t.Claim: %w", err)
+			}
+		}
+
 	}
 
 	// t.Space (did.DID) (struct)
@@ -186,6 +216,29 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 				t.Cause = c
+
+			}
+			// t.Claim (cid.Cid) (struct)
+		case "claim":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+
+					c, err := cbg.ReadCid(cr)
+					if err != nil {
+						return xerrors.Errorf("failed to read cid field t.Claim: %w", err)
+					}
+
+					t.Claim = &c
+				}
 
 			}
 			// t.Space (did.DID) (struct)

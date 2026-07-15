@@ -17,6 +17,7 @@ var Module = fx.Module("pdpfake",
 			fx.As(fx.Self()),
 			fx.As(new(types.PieceAPI)),
 			fx.As(new(types.PieceReaderAPI)),
+			fx.As(new(types.PieceRemoverAPI)),
 		),
 		fx.Annotate(
 			NewCommp,

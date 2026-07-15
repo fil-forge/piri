@@ -12,6 +12,12 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/service/models"
 )
 
+// RemoveRoot schedules the on-chain removal of a root (piece) from a proof
+// set: it obtains an eip712 authorization from the signing service, encodes
+// it as the schedulePieceDeletions extraData, and submits the transaction.
+// The root stops being challenged once the removal takes effect on-chain;
+// callers own any local cleanup (bytes, piece refs) and should perform it
+// only after the transaction lands.
 func (p *PDPService) RemoveRoot(ctx context.Context, proofSetID uint64, rootID uint64) (res common.Hash, retErr error) {
 	log.Infow("removing root", "proofSetID", proofSetID, "rootID", rootID)
 	defer func() {
@@ -27,14 +33,37 @@ func (p *PDPService) RemoveRoot(ctx context.Context, proofSetID uint64, rootID u
 		return common.Hash{}, fmt.Errorf("get contract ABI: %w", err)
 	}
 
-	// TODO should probably check if we even have the proof set before scheduling a removal
+	proofSet := new(big.Int).SetUint64(proofSetID)
+	pieceIDs := []*big.Int{new(big.Int).SetUint64(rootID)}
 
-	// TODO this will surely fail without extraData as a signature.
+	// Resolve the dataset's client id (and implicitly verify the proof set
+	// exists) from the warm-storage service contract — the removal signature
+	// is bound to the clientDataSetId, mirroring AddRoots.
+	datasetInfo, err := p.serviceContract.GetDataSet(ctx, proofSet)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to get dataset info for proof set %d: %w", proofSetID, err)
+	}
+
+	signature, err := p.signingService.SignSchedulePieceRemovals(ctx,
+		p.id,
+		datasetInfo.ClientDataSetId,
+		pieceIDs,
+		nil, // proofs (access delegation) — signing-service obtains its own
+	)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to sign SchedulePieceRemovals: %w", err)
+	}
+
+	extraDataBytes, err := p.edc.EncodeSchedulePieceRemovalsExtraData(signature)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("failed to encode extraData: %w", err)
+	}
+
 	// Pack the method call data
 	data, err := abiData.Pack("schedulePieceDeletions",
-		big.NewInt(int64(proofSetID)),
-		[]*big.Int{big.NewInt(int64(rootID))},
-		[]byte{},
+		proofSet,
+		pieceIDs,
+		extraDataBytes,
 	)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("pack ABI method call: %w", err)
@@ -67,7 +96,7 @@ func (p *PDPService) RemoveRoot(ctx context.Context, proofSetID uint64, rootID u
 		tx.WithContext(ctx).Create(&m)
 		return nil
 	}); err != nil {
-		return common.Hash{}, fmt.Errorf("shceduling delete root %d from proofset %d: %w", rootID, proofSetID, err)
+		return common.Hash{}, fmt.Errorf("scheduling delete root %d from proofset %d: %w", rootID, proofSetID, err)
 	}
 
 	return txHash, nil

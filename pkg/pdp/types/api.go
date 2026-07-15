@@ -302,6 +302,21 @@ type PieceReaderAPI interface {
 	Has(ctx context.Context, blob multihash.Multihash) (bool, error)
 }
 
+// PieceRemoverAPI releases blob bytes once no space claims them. It is
+// intentionally not part of PieceAPI/API: removal is an in-process concern of
+// the storage node (the UCAN /blob/remove handler) and is not exposed over
+// the PDP HTTP API.
+type PieceRemoverAPI interface {
+	// RemovePiece deletes the blob's bytes immediately when the blob was
+	// never aggregated; otherwise it queues the blob for deferred removal —
+	// its aggregate root is retired on-chain once all subroots are queued,
+	// then the bytes are deleted. Idempotent.
+	RemovePiece(ctx context.Context, blob multihash.Multihash) error
+	// ProcessPendingRemovals advances queued removals (root retirement +
+	// finalization). Called periodically by the removal sweeper.
+	ProcessPendingRemovals(ctx context.Context) error
+}
+
 type PieceCommPAPI interface {
 	// CalculateCommP accepts a blob multihash and returns a result containing its commp CID, raw and padded size.
 	CalculateCommP(ctx context.Context, blob multihash.Multihash) (CalculateCommPResponse, error)

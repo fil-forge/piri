@@ -22,6 +22,10 @@ type Acceptance struct {
 	// Cause is a link to the `/blob/accept` task that requested the
 	// acceptance.
 	Cause cid.Cid `cborgen:"cause"`
+	// Claim is the location-claim invocation CID stored at accept time —
+	// the digest→claim index removal needs to delete the claim. Nil on
+	// records written before this field existed.
+	Claim *cid.Cid `cborgen:"claim,omitempty"`
 }
 
 // Blob captures the bytes the acceptance attests to.

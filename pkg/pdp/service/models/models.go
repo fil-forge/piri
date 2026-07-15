@@ -221,6 +221,39 @@ func (PDPProofsetRoot) TableName() string {
 	return "pdp_proofset_roots"
 }
 
+// pdp_pending_removals tracks blobs whose claims have all been released but
+// whose bytes are still proven as subroots of a live aggregate root. The
+// removal sweep retires a root on-chain once every one of its subroots is
+// pending, then deletes the bytes and drops these rows.
+type PDPPendingRemoval struct {
+	// Blob is the blob multihash bytes (primary key — one removal per blob).
+	Blob []byte `gorm:"primaryKey;column:blob"`
+	// Commp is the piece CID string of the blob (the subroot in
+	// pdp_proofset_roots).
+	Commp string `gorm:"not null;column:commp"`
+	// State is "pending" (awaiting whole-root death) or "scheduled" (a
+	// schedulePieceDeletions transaction is in flight or landed).
+	State string `gorm:"not null;default:'pending';column:state"`
+	// ProofsetID/RootID are recorded when the removal is scheduled so
+	// finalization can detect root death after the proofset-root rows are
+	// cleaned up (the commp→root mapping is gone by then).
+	ProofsetID *int64 `gorm:"column:proofset_id"`
+	RootID     *int64 `gorm:"column:root_id"`
+	// RemoveMessageHash is the schedulePieceDeletions tx (references
+	// message_waits_eth) once scheduled.
+	RemoveMessageHash *string   `gorm:"column:remove_message_hash"`
+	CreatedAt         time.Time `gorm:"default:current_timestamp;column:created_at"`
+}
+
+func (PDPPendingRemoval) TableName() string {
+	return "pdp_pending_removals"
+}
+
+const (
+	PendingRemovalStatePending   = "pending"
+	PendingRemovalStateScheduled = "scheduled"
+)
+
 // pdp_proofset_root_adds (composite PK)
 type PDPProofsetRootAdd struct {
 	ProofsetID int64        `gorm:"primaryKey;column:proofset_id"`                                   // references pdp_proof_sets(id)
@@ -353,6 +386,7 @@ func AutoMigrateDB(ctx context.Context, db *gorm.DB) error {
 			&PDPProofsetRoot{},
 			&PDPProofsetRootAdd{},
 			&PDPPieceMHToCommp{},
+			&PDPPendingRemoval{},
 			&PDPProviderRegistration{},
 
 			&MessageSendsEth{},
