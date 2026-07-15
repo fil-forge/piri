@@ -20,6 +20,7 @@ import (
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/commands/pdp"
+	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -125,7 +126,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		span.End()
 	}()
 
-	log := log.With("blob", req.Blob.Digest)
+	log := log.With("blob", digestutil.Format(req.Blob.Digest))
 	log.Infof("%s %s", blob.Accept.Command, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
