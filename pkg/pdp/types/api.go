@@ -196,6 +196,17 @@ const (
 	// as an enum, so it's value is 0
 )
 
+// PieceRemoverAPI queues blob byte-release requests. RemovePiece never
+// deletes inline: classification (parked vs mid-pipeline vs proven) races
+// a concurrently-advancing pipeline, so requests are recorded in
+// pdp_pending_piece_removals and advanced asynchronously by the removal
+// machinery, which re-verifies claims before every destructive step.
+type PieceRemoverAPI interface {
+	// RemovePiece records a request to release a blob's bytes once nothing
+	// references them. Idempotent.
+	RemovePiece(ctx context.Context, blob multihash.Multihash) error
+}
+
 type ProofSetAPI interface {
 	CreateProofSet(ctx context.Context) (common.Hash, error)
 	GetProofSetStatus(ctx context.Context, txHash common.Hash) (*ProofSetStatus, error)

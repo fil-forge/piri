@@ -51,9 +51,11 @@ type AcceptDeps struct {
 }
 
 // AcceptanceStore is the slice of acceptancestore.AcceptanceStore the
-// Accept handler depends on.
+// Accept handler depends on. Delete is the compensating action when the
+// pipeline enqueue fails after the acceptance has been written.
 type AcceptanceStore interface {
 	Put(ctx context.Context, a acceptance.Acceptance) error
+	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 }
 
 // PieceReader is the slice of the PDP piece API the Accept handler depends on.
@@ -150,11 +152,6 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		log.Errorw("creating retrieval URL for blob", "error", err)
 		return nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
 	}
-	// submit the piece for aggregation
-	if err := deps.Commp.Enqueue(ctx, req.Blob.Digest); err != nil {
-		log.Errorw("submitting piece for aggregation", "error", err)
-		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
-	}
 	// generate the invocation that will complete when aggregation is complete and the piece is accepted
 	pdpAcceptInv, err := pdp.Accept.Invoke(
 		deps.ID,
@@ -191,6 +188,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("creating location commitment: %w", err)
 	}
 
+	claimLink := claim.Link()
 	acc := acceptance.Acceptance{
 		Space: req.Space,
 		Blob: acceptance.Blob{
@@ -200,11 +198,29 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
 		PDPAccept:  &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
+		// The claim link is the digest→claim index /blob/remove uses to
+		// delete the location claim when this space's acceptance is removed.
+		Claim: &claimLink,
 	}
+	// The acceptance is written BEFORE the pipeline enqueue so "an
+	// acceptance exists" is a conservative superset of "the blob entered
+	// the PDP pipeline" — the ordering /blob/reject's BlobAccepted guard
+	// and the removal machinery's claim re-checks rely on. If the enqueue
+	// then fails, the acceptance is compensated away so a failed accept
+	// leaves no state.
 	err = deps.Acceptances.Put(ctx, acc)
 	if err != nil {
 		log.Errorw("putting acceptance for blob", "error", err)
 		return nil, fmt.Errorf("putting acceptance for blob: %w", err)
+	}
+
+	// submit the piece for aggregation
+	if err := deps.Commp.Enqueue(ctx, req.Blob.Digest); err != nil {
+		log.Errorw("submitting piece for aggregation", "error", err)
+		if derr := deps.Acceptances.Delete(ctx, req.Blob.Digest, req.Space); derr != nil {
+			log.Errorw("compensating acceptance delete after enqueue failure", "error", derr)
+		}
+		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
 	}
 
 	err = deps.ClaimStore.Put(ctx, claim)
