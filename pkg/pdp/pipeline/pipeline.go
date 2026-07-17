@@ -4,7 +4,7 @@
 // and the asynchronous blob-removal sweep (PDPRemoveSweep).
 //
 // All pipeline state lives in harmonydb (pdp_blob_pipeline,
-// pdp_root_submissions — see pkg/curiopdp/sql/00000003-blob-pipeline.sql),
+// pdp_root_submissions — see pkg/curiopdp/schema/sql/00000003-blob-pipeline.sql),
 // which makes every stage transition transactional with the tables the
 // removal machinery inspects. That is the property the previous
 // jobqueue-based trio (pkg/pdp/aggregation/{commp,aggregator,manager})
