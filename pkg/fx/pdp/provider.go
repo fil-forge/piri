@@ -12,7 +12,6 @@ import (
 
 	// curio infra
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -26,6 +25,7 @@ import (
 	"github.com/fil-forge/piri/pkg/service/proofs"
 	"github.com/fil-forge/piri/pkg/service/signer"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -69,11 +69,11 @@ type Params struct {
 	Config           app.PDPServiceConfig
 	BlobStore        blobstore.Blobstore
 	AcceptanceStore  acceptancestore.AcceptanceStore
+	AllocationStore  allocationstore.AllocationStore
 	ReceiptStore     receiptstore.ReceiptStore
 	Resolver         types.PieceResolverAPI
 	Reader           types.PieceReaderAPI
 	Sender           *message.SenderETH
-	Engine           *harmonytask.TaskEngine
 	ChainScheduler   *chainsched.CurioChainSched
 	ChainClient      service.ChainClient
 	EthClient        ethchain.EthClient // raw eth client — contract.FSRegister signs/sends the register tx and reads balance
@@ -92,11 +92,11 @@ func ProvidePDPService(params Params) (*service.PDPService, error) {
 		params.DB,
 		params.BlobStore,
 		params.AcceptanceStore,
+		params.AllocationStore,
 		params.ReceiptStore,
 		params.Resolver,
 		params.Reader,
 		params.Sender,
-		params.Engine,
 		params.ChainScheduler,
 		params.ChainClient,
 		params.EthClient,

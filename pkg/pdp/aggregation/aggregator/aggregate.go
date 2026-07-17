@@ -9,10 +9,13 @@ import (
 
 	"github.com/filecoin-project/go-commp-utils/v2/zerocomm"
 	"github.com/filecoin-project/go-data-segment/merkletree"
+	logging "github.com/ipfs/go-log/v2"
 
 	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
+
+var log = logging.Logger("aggregation/aggregator")
 
 // This code is adapted from
 // https://github.com/filecoin-project/go-commp-utils/blob/master/commd.go

@@ -27,9 +27,6 @@ func main() {
 		types.AggregatePiece{},
 		types.Aggregate{},
 		types.Buffer{},
-		types.AggregatorJob{},
-		types.ManagerJob{},
-		types.CommpJob{},
 	}
 	const cborFile = "../cbor_gen.go"
 	if err := cbg.WriteMapEncodersToFile(cborFile, "types", models...); err != nil {
