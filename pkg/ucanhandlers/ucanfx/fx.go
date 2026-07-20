@@ -11,6 +11,7 @@ import (
 	"github.com/fil-forge/ucantone/did/plc"
 	"github.com/fil-forge/ucantone/did/resolver"
 	"github.com/fil-forge/ucantone/did/web"
+
 	// Registers the secp256k1 verification method used by did:plc DID documents.
 	_ "github.com/fil-forge/ucantone/multikey/secp256k1/verifier"
 	"github.com/fil-forge/ucantone/server"
@@ -90,17 +91,14 @@ func newDIDResolver(cfg app.UCANServiceConfig) (did.Resolver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create http resolver: %w", err)
 	}
-
+	p, err := plc.NewResolver(cfg.PLCDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("could not create did:plc resolver: %w", err)
+	}
 	m := resolver.ByMethod{
 		"key": key.Resolver,
 		"web": resolver.NewCached(httpResolver, 24*time.Hour),
-	}
-	if cfg.PLCDirectory != nil {
-		p, err := plc.NewResolver(*cfg.PLCDirectory)
-		if err != nil {
-			return nil, fmt.Errorf("could not create did:plc resolver: %w", err)
-		}
-		m["plc"] = resolver.NewCached(p, 3*time.Hour)
+		"plc": resolver.NewCached(p, 3*time.Hour),
 	}
 	return m, nil
 }

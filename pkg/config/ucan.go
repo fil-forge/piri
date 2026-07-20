@@ -63,13 +63,13 @@ func (s UCANServiceConfig) ToAppConfig(publicURL url.URL) (app.UCANServiceConfig
 // parsePLCDirectory converts the configured did:plc directory endpoint into a
 // URL. An empty string falls back to DefaultPLCDirectory, so did:plc resolution
 // is always available.
-func parsePLCDirectory(s string) (*url.URL, error) {
+func parsePLCDirectory(s string) (url.URL, error) {
 	if s == "" {
 		s = DefaultPLCDirectory
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		return nil, fmt.Errorf("invalid PLC directory URL %q: %w", s, err)
+		return url.URL{}, fmt.Errorf("invalid PLC directory URL %q: %w", s, err)
 	}
-	return u, nil
+	return *u, nil
 }

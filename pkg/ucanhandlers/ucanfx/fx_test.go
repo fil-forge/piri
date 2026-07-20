@@ -25,7 +25,7 @@ func TestNewDIDResolver(t *testing.T) {
 		plcDir, err := url.Parse("https://plc.directory")
 		require.NoError(t, err)
 
-		r, err := newDIDResolver(app.UCANServiceConfig{PLCDirectory: plcDir})
+		r, err := newDIDResolver(app.UCANServiceConfig{PLCDirectory: *plcDir})
 		require.NoError(t, err)
 
 		bm, ok := r.(resolver.ByMethod)
