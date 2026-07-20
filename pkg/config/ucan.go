@@ -48,13 +48,9 @@ func (s UCANServiceConfig) ToAppConfig(publicURL url.URL) (app.UCANServiceConfig
 	if err != nil {
 		return app.UCANServiceConfig{}, err
 	}
-	var plcDir *url.URL
-	if s.PLCDirectory != "" {
-		u, err := url.Parse(s.PLCDirectory)
-		if err != nil {
-			return app.UCANServiceConfig{}, fmt.Errorf("invalid PLC directory URL %q: %w", s.PLCDirectory, err)
-		}
-		plcDir = u
+	plcDir, err := parsePLCDirectory(s.PLCDirectory)
+	if err != nil {
+		return app.UCANServiceConfig{}, err
 	}
 	return app.UCANServiceConfig{
 		Services:              svcCfg,
@@ -62,4 +58,17 @@ func (s UCANServiceConfig) ToAppConfig(publicURL url.URL) (app.UCANServiceConfig
 		InsecureDIDResolution: s.InsecureDIDResolution,
 		PLCDirectory:          plcDir,
 	}, nil
+}
+
+// parsePLCDirectory converts the configured did:plc directory endpoint into a
+// URL. An empty string yields a nil URL, which disables did:plc resolution.
+func parsePLCDirectory(s string) (*url.URL, error) {
+	if s == "" {
+		return nil, nil
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid PLC directory URL %q: %w", s, err)
+	}
+	return u, nil
 }
