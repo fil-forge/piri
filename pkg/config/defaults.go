@@ -10,6 +10,10 @@ import (
 // DefaultMinimumEgressBatchSize is the minimum allowed egress tracker batch size (10 MiB).
 const DefaultMinimumEgressBatchSize int64 = 10 * 1024 * 1024
 
+// DefaultPLCDirectory is the did:plc directory endpoint used when none is
+// configured (an omitted or empty ucan.plc_directory value falls back to it).
+const DefaultPLCDirectory = "https://plc.directory"
+
 // Key is a configuration key path used with Viper.
 type Key string
 
@@ -66,7 +70,7 @@ var defaultValues = map[Key]any{
 	ManagerJobQueueRetries:    50,
 	ManagerJobQueueRetryDelay: time.Minute,
 
-	UCANPLCDirectory: "https://plc.directory",
+	UCANPLCDirectory: DefaultPLCDirectory,
 }
 
 // SetDefaults sets all viper defaults for configuration.

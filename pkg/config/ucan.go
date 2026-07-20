@@ -30,7 +30,7 @@ type UCANServiceConfig struct {
 	// NB: this should only be used for development purposes.
 	InsecureDIDResolution bool `mapstructure:"insecure_did_resolution" toml:"insecure_did_resolution,omitempty"`
 	// PLCDirectory is the did:plc directory endpoint used to resolve did:plc
-	// DIDs. Empty disables did:plc resolution.
+	// DIDs. An omitted or empty value falls back to DefaultPLCDirectory.
 	PLCDirectory string `mapstructure:"plc_directory" validate:"omitempty,url" toml:"plc_directory,omitempty"`
 }
 
@@ -61,10 +61,11 @@ func (s UCANServiceConfig) ToAppConfig(publicURL url.URL) (app.UCANServiceConfig
 }
 
 // parsePLCDirectory converts the configured did:plc directory endpoint into a
-// URL. An empty string yields a nil URL, which disables did:plc resolution.
+// URL. An empty string falls back to DefaultPLCDirectory, so did:plc resolution
+// is always available.
 func parsePLCDirectory(s string) (*url.URL, error) {
 	if s == "" {
-		return nil, nil
+		s = DefaultPLCDirectory
 	}
 	u, err := url.Parse(s)
 	if err != nil {

@@ -81,12 +81,12 @@ func init() {
 	cobra.CheckErr(InitCmd.MarkFlagRequired("operator-email"))
 	cobra.CheckErr(InitCmd.MarkFlagRequired("public-url"))
 
-	// did:plc resolution is enabled by default against the public PLC directory.
-	// Pass an empty value to disable did:plc resolution in the generated config.
+	// did:plc resolution is always available; an omitted or empty value falls
+	// back to the default PLC directory. Set a non-empty value to override it.
 	InitCmd.Flags().String(
 		"plc-directory",
-		"https://plc.directory",
-		"did:plc directory URL used to resolve did:plc identities (set empty to disable)",
+		config.DefaultPLCDirectory,
+		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
 	)
 
 	// Database configuration flags
@@ -438,7 +438,7 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		return nil, fmt.Errorf("error reading --plc-directory: %w", err)
 	}
 	// Validate up front so init fails fast rather than at serve time. An empty
-	// value is allowed and disables did:plc resolution.
+	// value is allowed and falls back to the default PLC directory at serve time.
 	if plcDirectory != "" {
 		parsed, err := url.Parse(plcDirectory)
 		if err != nil {

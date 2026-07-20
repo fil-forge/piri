@@ -8,10 +8,11 @@ import (
 )
 
 func TestParsePLCDirectory(t *testing.T) {
-	t.Run("empty string yields nil (disabled)", func(t *testing.T) {
+	t.Run("empty string falls back to the default", func(t *testing.T) {
 		u, err := parsePLCDirectory("")
 		require.NoError(t, err)
-		assert.Nil(t, u)
+		require.NotNil(t, u)
+		assert.Equal(t, DefaultPLCDirectory, u.String())
 	})
 
 	t.Run("valid URL yields non-nil", func(t *testing.T) {
