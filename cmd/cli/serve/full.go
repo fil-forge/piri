@@ -54,6 +54,14 @@ func init() {
 	cobra.CheckErr(viper.BindEnv("ucan.insecure_did_resolution", "PIRI_INSECURE_DID_RESOLUTION"))
 
 	FullCmd.Flags().String(
+		"plc-directory",
+		"",
+		"did:plc directory URL used to resolve did:plc identities (empty disables did:plc resolution)",
+	)
+	cobra.CheckErr(viper.BindPFlag("ucan.plc_directory", FullCmd.Flags().Lookup("plc-directory")))
+	cobra.CheckErr(viper.BindEnv("ucan.plc_directory", "PIRI_PLC_DIRECTORY"))
+
+	FullCmd.Flags().String(
 		"network",
 		"",
 		fmt.Sprintf("Network the node will operate on. This will set default values for service URLs and DIDs and contract addresses. Available values are: %q", presets.AvailableNetworks),

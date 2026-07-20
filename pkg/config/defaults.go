@@ -36,6 +36,11 @@ const (
 	ManagerJobQueueRetryDelay Key = "pdp.aggregation.manager.job_queue.retry_delay"
 )
 
+// UCAN service
+const (
+	UCANPLCDirectory Key = "ucan.plc_directory"
+)
+
 // PDP Gas Fee Limits (dynamic - can change at runtime)
 const (
 	GasMaxFeeProve         Key = "pdp.gas.max_fee.prove"
@@ -60,6 +65,8 @@ var defaultValues = map[Key]any{
 	ManagerJobQueueWorkers:    3,
 	ManagerJobQueueRetries:    50,
 	ManagerJobQueueRetryDelay: time.Minute,
+
+	UCANPLCDirectory: "https://plc.directory",
 }
 
 // SetDefaults sets all viper defaults for configuration.

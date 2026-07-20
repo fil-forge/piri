@@ -8,8 +8,11 @@ import (
 
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/key"
+	"github.com/fil-forge/ucantone/did/plc"
 	"github.com/fil-forge/ucantone/did/resolver"
 	"github.com/fil-forge/ucantone/did/web"
+	// Registers the secp256k1 verification method used by did:plc DID documents.
+	_ "github.com/fil-forge/ucantone/multikey/secp256k1/verifier"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/validator"
 
@@ -39,25 +42,7 @@ var Module = fx.Module("ucan",
 			fx.ResultTags(`group:"route_registrar"`),
 		),
 
-		func(cfg app.UCANServiceConfig) (did.Resolver, error) {
-			var (
-				httpResolver did.Resolver
-				err          error
-			)
-			if cfg.InsecureDIDResolution {
-				httpResolver, err = web.NewResolver(web.WithInsecure(true))
-			} else {
-				httpResolver, err = web.NewResolver()
-			}
-			if err != nil {
-				return nil, fmt.Errorf("could not create http resolver: %w", err)
-			}
-
-			return resolver.ByMethod{
-				"key": key.Resolver,
-				"web": resolver.NewCached(httpResolver, 24*time.Hour),
-			}, nil
-		},
+		newDIDResolver,
 
 		// Server-wide options. Both transports need the DID verifier
 		// resolvers so they can validate UCANs signed by did:web identities
@@ -88,3 +73,34 @@ var Module = fx.Module("ucan",
 	content.Module,
 	pdp.Module,
 )
+
+// newDIDResolver builds the DID resolver used to validate incoming UCANs. It
+// always supports did:key and did:web, and additionally supports did:plc when a
+// PLC directory URL is configured.
+func newDIDResolver(cfg app.UCANServiceConfig) (did.Resolver, error) {
+	var (
+		httpResolver did.Resolver
+		err          error
+	)
+	if cfg.InsecureDIDResolution {
+		httpResolver, err = web.NewResolver(web.WithInsecure(true))
+	} else {
+		httpResolver, err = web.NewResolver()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("could not create http resolver: %w", err)
+	}
+
+	m := resolver.ByMethod{
+		"key": key.Resolver,
+		"web": resolver.NewCached(httpResolver, 24*time.Hour),
+	}
+	if cfg.PLCDirectory != nil {
+		p, err := plc.NewResolver(*cfg.PLCDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("could not create did:plc resolver: %w", err)
+		}
+		m["plc"] = resolver.NewCached(p, 3*time.Hour)
+	}
+	return m, nil
+}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -28,6 +29,9 @@ type UCANServiceConfig struct {
 	// InsecureDIDResolution enables HTTP (instead of HTTPS) for did:web resolution.
 	// NB: this should only be used for development purposes.
 	InsecureDIDResolution bool `mapstructure:"insecure_did_resolution" toml:"insecure_did_resolution,omitempty"`
+	// PLCDirectory is the did:plc directory endpoint used to resolve did:plc
+	// DIDs. Empty disables did:plc resolution.
+	PLCDirectory string `mapstructure:"plc_directory" validate:"omitempty,url" toml:"plc_directory,omitempty"`
 }
 
 func (s UCANServiceConfig) Validate() error {
@@ -44,9 +48,18 @@ func (s UCANServiceConfig) ToAppConfig(publicURL url.URL) (app.UCANServiceConfig
 	if err != nil {
 		return app.UCANServiceConfig{}, err
 	}
+	var plcDir *url.URL
+	if s.PLCDirectory != "" {
+		u, err := url.Parse(s.PLCDirectory)
+		if err != nil {
+			return app.UCANServiceConfig{}, fmt.Errorf("invalid PLC directory URL %q: %w", s.PLCDirectory, err)
+		}
+		plcDir = u
+	}
 	return app.UCANServiceConfig{
 		Services:              svcCfg,
 		ProofSetID:            s.ProofSetID,
 		InsecureDIDResolution: s.InsecureDIDResolution,
+		PLCDirectory:          plcDir,
 	}, nil
 }
