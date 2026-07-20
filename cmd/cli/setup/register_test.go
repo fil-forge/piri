@@ -54,8 +54,9 @@ func TestGenerateConfig(t *testing.T) {
 		publicURL, _ := url.Parse("https://example.com")
 		uploadDID, _ := did.Parse("did:web:up.test.storacha.network")
 		return &initFlags{
-			keyFile:   "/path/to/key.pem",
-			publicURL: publicURL,
+			keyFile:      "/path/to/key.pem",
+			publicURL:    publicURL,
+			plcDirectory: "https://plc.directory",
 			baseConfig: &baseConfigValues{
 				network:                 "testnet",
 				signingServiceDID:       "did:key:signing",
@@ -243,6 +244,9 @@ func TestGenerateConfig(t *testing.T) {
 		// Verify proofs
 		require.Equal(t, "indexer-proof", result.UCANService.Services.Indexer.Proof)
 		require.Equal(t, "egress-proof", result.UCANService.Services.EgressTracker.Proof)
+
+		// Verify PLC directory is propagated into the generated config
+		require.Equal(t, "https://plc.directory", result.UCANService.PLCDirectory)
 
 		// Verify network is read from viper
 		require.Equal(t, "testnet", result.Network)
