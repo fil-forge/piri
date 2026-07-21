@@ -148,8 +148,8 @@ func (s ServicesConfig) ToAppConfig(publicURL url.URL) (app.ExternalServicesConf
 }
 
 // IndexingServiceConfig configures the indexing service integration. Like the
-// egress tracker, the integration is optional: leaving DID and URL empty
-// disables it (claims are neither cached with an indexer nor announced).
+// egress tracker, the integration is optional: leaving the DID or the URL
+// empty disables it (claims are neither cached with an indexer nor announced).
 type IndexingServiceConfig struct {
 	DID   string `mapstructure:"did" flag:"indexing-service-did" toml:"did,omitempty"`
 	URL   string `mapstructure:"url" validate:"omitempty,url" flag:"indexing-service-url" toml:"url,omitempty"`
@@ -216,10 +216,11 @@ type EgressTrackerServiceConfig struct {
 	// According to the spec, batch size should be between 10MiB and 1GiB
 	// (see https://github.com/storacha/specs/blob/main/w3-egress-tracking.md)
 	//
-	// The value is optional: 0 (or omitting the key) means "use the default
-	// batch size" — `piri serve` applies DefaultMinimumEgressBatchSize as the
-	// flag default, and a zero reaching the retrieval journal falls back to
-	// retrievaljournal.DefaultBatchSize. A zero does NOT disable egress
+	// The value is optional, but note that 0 and an unset key differ under
+	// `piri serve`: an unset key is filled with the flag default
+	// (DefaultMinimumEgressBatchSize, 10MiB), while an explicit 0 passes
+	// validation and makes the retrieval journal fall back to its built-in
+	// retrievaljournal.DefaultBatchSize (100MiB). Neither disables egress
 	// tracking; disable it by leaving DID and URL empty.
 	MaxBatchSizeBytes int64  `mapstructure:"max_batch_size_bytes" validate:"omitempty,min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
 	Proof             string `mapstructure:"proof" flag:"egress-tracker-service-proof" toml:"proof,omitempty"`
