@@ -81,6 +81,14 @@ func init() {
 	cobra.CheckErr(InitCmd.MarkFlagRequired("operator-email"))
 	cobra.CheckErr(InitCmd.MarkFlagRequired("public-url"))
 
+	// did:plc resolution is always available; an omitted or empty value falls
+	// back to the default PLC directory. Set a non-empty value to override it.
+	InitCmd.Flags().String(
+		"plc-directory",
+		config.DefaultPLCDirectory,
+		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
+	)
+
 	// Database configuration flags
 	InitCmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
 	InitCmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required when db-type=postgres)")
@@ -133,6 +141,7 @@ type initFlags struct {
 	lotusEndpoint string
 	operatorEmail string
 	delegatorURL  string
+	plcDirectory  string
 	// baseConfig holds values from --base-config or network presets
 	baseConfig *baseConfigValues
 	// storage holds storage backend configuration (S3/Postgres)
@@ -424,6 +433,22 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		return nil, fmt.Errorf("error reading --registrar-url: %w", err)
 	}
 
+	plcDirectory, err := cmd.Flags().GetString("plc-directory")
+	if err != nil {
+		return nil, fmt.Errorf("error reading --plc-directory: %w", err)
+	}
+	// Validate up front so init fails fast rather than at serve time. An empty
+	// value is allowed and falls back to the default PLC directory at serve time.
+	if plcDirectory != "" {
+		parsed, err := url.Parse(plcDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --plc-directory: %w", err)
+		}
+		if parsed.Scheme == "" {
+			return nil, fmt.Errorf("--plc-directory must include a scheme (http:// or https://)")
+		}
+	}
+
 	host, err := cmd.Flags().GetString("host")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --host: %w", err)
@@ -575,6 +600,7 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		lotusEndpoint: lotusEndpoint,
 		operatorEmail: operatorEmail,
 		delegatorURL:  delegatorURL,
+		plcDirectory:  plcDirectory,
 		baseConfig:    baseValues,
 		storage:       storage,
 	}, nil
@@ -967,7 +993,8 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 					AnnounceURLs: flags.baseConfig.ipniAnnounceURLs,
 				},
 			},
-			ProofSetID: proofSetID,
+			ProofSetID:   proofSetID,
+			PLCDirectory: flags.plcDirectory,
 		},
 	}, nil
 }

@@ -53,6 +53,17 @@ func init() {
 	// Developer only: enable HTTP (instead of HTTPS) for did:web resolution
 	cobra.CheckErr(viper.BindEnv("ucan.insecure_did_resolution", "PIRI_INSECURE_DID_RESOLUTION"))
 
+	// The flag default is intentionally empty: an omitted or empty value falls
+	// back to the default PLC directory (https://plc.directory), so did:plc
+	// resolution is always available. Set a non-empty value to override it.
+	FullCmd.Flags().String(
+		"plc-directory",
+		"",
+		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
+	)
+	cobra.CheckErr(viper.BindPFlag("ucan.plc_directory", FullCmd.Flags().Lookup("plc-directory")))
+	cobra.CheckErr(viper.BindEnv("ucan.plc_directory", "PIRI_PLC_DIRECTORY"))
+
 	FullCmd.Flags().String(
 		"network",
 		"",
