@@ -215,6 +215,12 @@ type EgressTrackerServiceConfig struct {
 	ReceiptsEndpoint string `mapstructure:"receipts_endpoint" flag:"egress-tracker-service-receipts-endpoint" toml:"receipts_endpoint,omitempty"`
 	// According to the spec, batch size should be between 10MiB and 1GiB
 	// (see https://github.com/storacha/specs/blob/main/w3-egress-tracking.md)
+	//
+	// The value is optional: 0 (or omitting the key) means "use the default
+	// batch size" — `piri serve` applies DefaultMinimumEgressBatchSize as the
+	// flag default, and a zero reaching the retrieval journal falls back to
+	// retrievaljournal.DefaultBatchSize. A zero does NOT disable egress
+	// tracking; disable it by leaving DID and URL empty.
 	MaxBatchSizeBytes int64  `mapstructure:"max_batch_size_bytes" validate:"omitempty,min=10485760,max=1073741824" flag:"egress-tracker-service-max-batch-size-bytes" toml:"max_batch_size_bytes,omitempty"`
 	Proof             string `mapstructure:"proof" flag:"egress-tracker-service-proof" toml:"proof,omitempty"`
 }

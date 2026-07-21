@@ -124,7 +124,7 @@ func init() {
 	FullCmd.Flags().Int64(
 		"egress-tracker-service-max-batch-size-bytes",
 		config.DefaultMinimumEgressBatchSize,
-		"Maximum batch size in bytes for egress tracker service. It should be between 10MiB and 1GiB",
+		"Maximum batch size in bytes for egress tracker service, between 10MiB and 1GiB. 0 means use the default batch size; it does not disable egress tracking (leave the egress tracker DID/URL empty to disable).",
 	)
 	cobra.CheckErr(FullCmd.Flags().MarkHidden("egress-tracker-service-max-batch-size-bytes"))
 	cobra.CheckErr(viper.BindPFlag("ucan.services.etracker.max_batch_size_bytes", FullCmd.Flags().Lookup("egress-tracker-service-max-batch-size-bytes")))
