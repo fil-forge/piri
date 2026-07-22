@@ -19,6 +19,7 @@ import (
 	"github.com/fil-forge/piri/cmd/cliutil"
 	"github.com/fil-forge/piri/pkg/config"
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/telemetry"
@@ -340,6 +341,10 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("parsing config: %w", err)
 	}
+
+	// Install Curio's PDP contract addresses from config before building the fx app;
+	// the pdpv0 task constructors resolve them eagerly during fx construction.
+	curiopdp.SetContractAddresses(appCfg.PDPService)
 
 	if err := initTelemetry(
 		cmd.Context(),

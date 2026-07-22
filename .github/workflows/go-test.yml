@@ -18,5 +18,9 @@ jobs:
     uses: ipdxco/unified-github-workflows/.github/workflows/go-test.yml@v1.0
     with:
       go-versions: '["this"]'
+      # Curio's dep tree includes FFI cgo packages unless built with the
+      # skiff tag (see Makefile); cgo is disabled via go-test-config.json.
+      env: |
+        GOFLAGS=-tags=skiff
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

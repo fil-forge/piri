@@ -8,9 +8,7 @@ import (
 
 	"github.com/cenkalti/backoff/v5"
 	"github.com/ethereum/go-ethereum/common"
-	"gorm.io/gorm"
-
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/yugabyte/pgx/v5"
 )
 
 // TODO: this method treats the database as the source of truth for transaction confirmation
@@ -25,12 +23,19 @@ import (
 func (p *PDPService) WaitForConfirmation(ctx context.Context, txHash common.Hash, wait time.Duration) error {
 	log.Infow("waiting for transaction confirmation", "txHash", txHash.Hex())
 	transactionConfirmed := func() (interface{}, error) {
-		var waits models.MessageWaitsEth
-		err := p.db.WithContext(ctx).
-			Where("signed_tx_hash = ?", txHash.Hex()).
-			First(&waits).Error
+		// Curio writes signed_tx_hash lowercased; common.Hash.Hex() is already lowercase, so it matches.
+		var waits struct {
+			TxStatus             string `db:"tx_status"`
+			TxSuccess            *bool  `db:"tx_success"`
+			ConfirmedBlockNumber *int64 `db:"confirmed_block_number"`
+			TxReceipt            []byte `db:"tx_receipt"`
+		}
+		err := p.db.QueryRow(ctx, `
+			SELECT tx_status, tx_success, confirmed_block_number, tx_receipt
+			FROM message_waits_eth WHERE signed_tx_hash = $1
+		`, txHash.Hex()).Scan(&waits.TxStatus, &waits.TxSuccess, &waits.ConfirmedBlockNumber, &waits.TxReceipt)
 		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
+			if errors.Is(err, pgx.ErrNoRows) {
 				// if the transaction doesn't exit in the database, then this represents a developer error or a system failure.
 				return nil, backoff.Permanent(fmt.Errorf("transaction %s not found in message_waits_eth", txHash))
 			}

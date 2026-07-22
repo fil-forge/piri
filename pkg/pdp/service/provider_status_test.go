@@ -2,17 +2,12 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
@@ -30,8 +25,9 @@ func TestRequireProviderRegistered(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Registration status is read purely from the contracts; no DB
+			// is involved on the Curio-based core.
 			service := &PDPService{
-				db:   setupProviderStatusTestDB(t),
 				name: "storacha",
 				registryContract: &mockRegistry{
 					isRegistered: tc.isRegistered,
@@ -49,21 +45,6 @@ func TestRequireProviderRegistered(t *testing.T) {
 			}
 		})
 	}
-}
-
-// setupProviderStatusTestDB creates an in-memory SQLite database for provider status tests
-func setupProviderStatusTestDB(t *testing.T) *gorm.DB {
-	dbName := fmt.Sprintf("file:provider-status-test-%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dbName), &gorm.Config{})
-	require.NoError(t, err)
-
-	sqlDb, err := db.DB()
-	require.NoError(t, err)
-	sqlDb.SetMaxOpenConns(1)
-
-	err = db.AutoMigrate(&models.PDPProviderRegistration{})
-	require.NoError(t, err)
-	return db
 }
 
 // mockRegistry implements smartcontracts.Registry for testing

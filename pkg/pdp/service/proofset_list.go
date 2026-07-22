@@ -2,13 +2,10 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/ipfs/go-cid"
-	"gorm.io/gorm"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -21,26 +18,40 @@ func (p *PDPService) ListProofSets(ctx context.Context) (res []types.ProofSet, r
 			log.Infow("listed proof sets", "count", len(res))
 		}
 	}()
-	var proofSets []models.PDPProofSet
-	if err := p.db.
-		WithContext(ctx).
-		Where("service = ?", p.name).
-		Find(&proofSets).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, types.NewErrorf(types.KindNotFound, "no proof sets found")
-		}
+	var dsets []struct {
+		ID                        int64  `db:"id"`
+		InitReady                 bool   `db:"init_ready"`
+		ProveAtEpoch              *int64 `db:"prove_at_epoch"`
+		PrevChallengeRequestEpoch *int64 `db:"prev_challenge_request_epoch"`
+		ProvingPeriod             *int64 `db:"proving_period"`
+		ChallengeWindow           *int64 `db:"challenge_window"`
+	}
+	err := p.db.Select(ctx, &dsets, `
+		SELECT id, init_ready, prove_at_epoch, prev_challenge_request_epoch,
+		       proving_period, challenge_window
+		FROM pdp_data_sets WHERE service = $1
+	`, p.name)
+	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve proof sets: %w", err)
 	}
 
 	// Build the response for each proof set
-	result := make([]types.ProofSet, 0, len(proofSets))
-	for _, proofSet := range proofSets {
-		// Retrieve the roots associated with the proof set
-		var roots []models.PDPProofsetRoot
-		if err := p.db.WithContext(ctx).
-			Where("proofset_id = ?", proofSet.ID).
-			Order("root_id, subroot_offset").
-			Find(&roots).Error; err != nil {
+	result := make([]types.ProofSet, 0, len(dsets))
+	for _, proofSet := range dsets {
+		// Retrieve the pieces (roots) associated with the data set
+		var roots []struct {
+			PieceID        int64  `db:"piece_id"`
+			Piece          string `db:"piece"`
+			SubPiece       string `db:"sub_piece"`
+			SubPieceOffset int64  `db:"sub_piece_offset"`
+		}
+		err := p.db.Select(ctx, &roots, `
+			SELECT piece_id, piece, sub_piece, sub_piece_offset
+			FROM pdp_data_set_pieces
+			WHERE data_set = $1
+			ORDER BY piece_id, sub_piece_offset
+		`, proofSet.ID)
+		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve proof set roots for proof set %d: %w", proofSet.ID, err)
 		}
 
@@ -50,19 +61,19 @@ func (p *PDPService) ListProofSets(ctx context.Context) (res []types.ProofSet, r
 			Initialized: proofSet.InitReady,
 		}
 		for _, r := range roots {
-			rootCid, err := cid.Decode(r.Root)
+			rootCid, err := cid.Decode(r.Piece)
 			if err != nil {
-				return nil, fmt.Errorf("failed to decode root cid %s for proof set %d: %w", r.Root, proofSet.ID, err)
+				return nil, fmt.Errorf("failed to decode root cid %s for proof set %d: %w", r.Piece, proofSet.ID, err)
 			}
-			subrootCid, err := cid.Decode(r.Subroot)
+			subrootCid, err := cid.Decode(r.SubPiece)
 			if err != nil {
-				return nil, fmt.Errorf("failed to decode subroot cid %s for proof set %d: %w", r.Subroot, proofSet.ID, err)
+				return nil, fmt.Errorf("failed to decode subroot cid %s for proof set %d: %w", r.SubPiece, proofSet.ID, err)
 			}
 			response.Roots = append(response.Roots, types.RootEntry{
-				RootID:        uint64(r.RootID),
+				RootID:        uint64(r.PieceID),
 				RootCID:       rootCid,
 				SubrootCID:    subrootCid,
-				SubrootOffset: r.SubrootOffset,
+				SubrootOffset: r.SubPieceOffset,
 			})
 		}
 		if proofSet.ProveAtEpoch != nil {

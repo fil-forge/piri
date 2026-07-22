@@ -28,8 +28,6 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
-	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
@@ -39,6 +37,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	"github.com/fil-forge/piri/pkg/fx/root"
 	"github.com/fil-forge/piri/pkg/health"
@@ -653,6 +652,10 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 		Replicator: appcfg.DefaultReplicatorConfig(),
 	}
 
+	// Install Curio's PDP contract addresses from config before building the fx app;
+	// the pdpv0 task constructors resolve them eagerly during fx construction.
+	curiopdp.SetContractAddresses(cfg.PDPService)
+
 	var (
 		pdpSvc *service.PDPService
 		wlt    wallet.Wallet
@@ -721,43 +724,35 @@ func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issue
 		return status.ID, nil
 	}
 	// else we need to register
-	res, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
+	if _, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
 		Name:        id.DID().String(),
 		Description: "Storacha Service Operator",
-	})
-	if err != nil {
+	}); err != nil {
 		return 0, fmt.Errorf("registering provider: %w", err)
 	}
 
-	cmd.PrintErrf("⏳ Waiting for registration to be confirmed on-chain (tx %s)...\n", res.TransactionHash.Hex())
-	feedbackCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		for {
-			timer := time.NewTimer(10 * time.Second)
-			select {
-			case <-feedbackCtx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-			cmd.PrintErrln("   Transaction status: pending")
+	cmd.PrintErrln("⏳ Waiting for registration to be confirmed on-chain...")
+	// contract.FSRegister fires the registerProvider tx without local tracking,
+	// so we confirm by polling on-chain status until the provider appears in the
+	// registry.
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		status, err = pdpSvc.GetProviderStatus(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("getting provider status: %w", err)
 		}
-	}()
-	// then wait for transaction to be applied
-	if err := pdpSvc.WaitForConfirmation(ctx, res.TransactionHash,
-		(tasks.MinConfidence+2)*smartcontracts.FilecoinEpoch); err != nil {
-		return 0, fmt.Errorf("waiting for confirmation of registration: %w", err)
+		if status.IsRegistered {
+			cmd.PrintErrln("   Registration status: confirmed")
+			return status.ID, nil
+		}
+		cmd.PrintErrln("   Registration status: pending")
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	// cancel the feedback context
-	cancel()
-	cmd.PrintErrln("   Transaction status: confirmed")
-	// so that we may then query for our provider ID
-	status, err = pdpSvc.GetProviderStatus(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("getting provider status: %w", err)
-	}
-	return status.ID, nil
 }
 
 // setupProofSet creates or finds an existing proof set
@@ -1000,7 +995,16 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 }
 
 func doInit(cmd *cobra.Command, _ []string) error {
-	logging.SetAllLoggers(logging.LevelFatal)
+	// Init normally runs near-silent so the [N/6] progress output stays readable.
+	// Set PIRI_INIT_LOG_LEVEL (e.g. "info" or "debug") to surface the node's logs
+	// — useful for debugging the PDP pipeline (chainsched/watchers) during init.
+	initLevel := logging.LevelFatal
+	if v := os.Getenv("PIRI_INIT_LOG_LEVEL"); v != "" {
+		if lvl, err := logging.LevelFromString(v); err == nil {
+			initLevel = lvl
+		}
+	}
+	logging.SetAllLoggers(initLevel)
 	ctx := context.Background()
 
 	cmd.PrintErrln("🚀 Initializing your Piri node on the Storacha Network...")
@@ -1028,7 +1032,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrf("✅ Node created with DID: %s\n", cfg.Identity.Issuer.DID().String())
 	cmd.PrintErrln()
 
-	// Step 3: Register with the smart contract
+	// Step 3: Register with the smart contract (Curio's contract.FSRegister)
 	cmd.PrintErrln("[3/6] Registering provider with contract...")
 	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Issuer, pdpSvc)
 	if err != nil {

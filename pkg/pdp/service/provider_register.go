@@ -2,54 +2,34 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/fil-forge/piri/pkg/pdp/types"
-	"gorm.io/gorm"
+	"github.com/filecoin-project/curio/pdp/contract"
 
-	"github.com/fil-forge/filecoin-services/go/bindings"
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
-	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
+// RegisterProvider registers this node as a service provider by adopting Curio's
+// contract.FSRegister: it reads the PDP signing key from the harmonydb eth_keys
+// table, checks the wallet balance via the Lotus node, then signs and sends the
+// ServiceProviderRegistry.registerProvider transaction directly. There is no
+// local registration-tracking table — registration state lives entirely on-chain
+// (queried via GetProviderStatus).
 func (p *PDPService) RegisterProvider(ctx context.Context, params types.RegisterProviderParams) (types.RegisterProviderResults, error) {
-	// Check for pending registration in database
-	var pendingReg models.PDPProviderRegistration
-	err := p.db.WithContext(ctx).
-		Where("service = ? AND provider_registered = ?", p.name, false).
-		First(&pendingReg).Error
-
-	if err == nil {
-		// Found a pending registration
-		return types.RegisterProviderResults{}, types.NewError(types.KindConflict, fmt.Sprintf("provider registration already in progress (tx: %s)", pendingReg.RegisterMessageHash))
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return types.RegisterProviderResults{}, fmt.Errorf("failed to check for pending registration: %w", err)
-	}
-
 	isRegistered, err := p.registryContract.IsRegisteredProvider(ctx, p.address)
 	if err != nil {
 		return types.RegisterProviderResults{}, fmt.Errorf("failed to check if service provider is registered: %w", err)
 	}
-
 	if isRegistered {
 		return types.RegisterProviderResults{}, types.NewError(types.KindConflict, "Provider is already registered")
 	}
 
-	// not registered, lets do this
-	abiData, err := bindings.ServiceProviderRegistryMetaData.GetAbi()
-	if err != nil {
-		return types.RegisterProviderResults{}, fmt.Errorf("failed to get ABI: %w", err)
-	}
-
-	capabilityKeys, capabilityValues, err := smartcontracts.BuildPDPCapabilities(smartcontracts.ServiceProviderRegistryStoragePDPOffering{
-		// None of these fields except PaymentTokenAddress are used by the service contract, they simply serve as an
-		// unused on-chain registy of data.
-		// TODO: later, we way want to allow node providers to pick these themselves, unsure what value that adds currently
-		// but this does represent information that are advertising on chain.
-		ServiceURL:               "https://storacha.network",
+	// Build the on-chain PDP offering. Only PaymentTokenAddress is consumed by the
+	// service contract; the remaining fields are advertised on-chain as an unused
+	// registry of provider metadata.
+	offering := contract.PDPOfferingData{
+		ServiceURL:               p.endpoint.String(),
 		MinPieceSizeInBytes:      big.NewInt(1),
 		MaxPieceSizeInBytes:      big.NewInt(1),
 		IpniPiece:                false,
@@ -57,67 +37,16 @@ func (p *PDPService) RegisterProvider(ctx context.Context, params types.Register
 		StoragePricePerTibPerDay: big.NewInt(1),
 		MinProvingPeriodInEpochs: big.NewInt(1),
 		Location:                 "earth",
-		// This field DOES matter as it's the address payment will be issued to by the contract.
-		PaymentTokenAddress: p.address,
-	})
-	if err != nil {
-		return types.RegisterProviderResults{}, fmt.Errorf("failed to encode capability data: %w", err)
+		PaymentTokenAddress:      p.address,
 	}
 
-	data, err := abiData.Pack(
-		"registerProvider",
-		p.address,
-		params.Name,
-		params.Description,
-		types.ProductTypePDP,
-		capabilityKeys,
-		capabilityValues,
-	)
-	if err != nil {
-		return types.RegisterProviderResults{}, fmt.Errorf("failed to pack register message abi: %w", err)
+	if err := contract.FSRegister(ctx, p.db, p.ethClient, params.Name, params.Description, offering, nil); err != nil {
+		return types.RegisterProviderResults{}, fmt.Errorf("failed to register provider: %w", err)
 	}
 
-	tx := ethtypes.NewTransaction(
-		0,
-		p.cfg.Contracts.ProviderRegistry,
-		smartcontracts.RegisterFee,
-		0,
-		nil,
-		data,
-	)
-
-	reason := "register_provider"
-	txHash, err := p.sender.Send(ctx, p.address, tx, reason)
-	if err != nil {
-		return types.RegisterProviderResults{}, fmt.Errorf("failed to send transaction: %w", err)
-	}
-
-	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		msgWait := models.MessageWaitsEth{
-			SignedTxHash: txHash.Hex(),
-			TxStatus:     "pending",
-		}
-		if err := tx.Create(&msgWait).Error; err != nil {
-			return fmt.Errorf("failed to insert into %s: %w", msgWait.TableName(), err)
-		}
-
-		// Insert into pdp_provider_registrations
-		providerReg := models.PDPProviderRegistration{
-			RegisterMessageHash: txHash.Hex(),
-			Service:             p.name,
-			ProviderRegistered:  false,
-		}
-		if err := tx.Create(&providerReg).Error; err != nil {
-			return fmt.Errorf("failed to insert into %s: %w", providerReg.TableName(), err)
-		}
-
-		// Return nil to commit the transaction.
-		return nil
-	}); err != nil {
-		return types.RegisterProviderResults{}, err
-	}
-
+	// FSRegister fires the transaction without tracking it; registration is
+	// confirmed by polling on-chain status (see GetProviderStatus).
 	return types.RegisterProviderResults{
-		TransactionHash: txHash,
+		Address: p.address,
 	}, nil
 }
