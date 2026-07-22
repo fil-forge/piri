@@ -199,7 +199,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
 		PDPAccept:  &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
-		// The claim link is the digest→claim index /blob/remove uses to
+		// The claim link is the digest→claim index /blob/release uses to
 		// delete the location claim when this space's acceptance is removed.
 		Claim: &claimLink,
 	}

@@ -13,14 +13,14 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 )
 
-// /blob/remove is performed by the upload service under a
+// /blob/release is performed by the upload service under a
 // provider->upload-service delegation, mirroring /blob/accept: the subject is
 // the storage provider and the space releasing its claim travels in the
 // arguments. The handler deletes the space's allocation, acceptance, and
 // location claim, and releases the bytes only when no space claims the
 // digest afterward.
 
-func (s *RPCSuite) TestBlobRemove_ReleasesClaimAndBytes() {
+func (s *RPCSuite) TestBlobRelease_ReleasesClaimAndBytes() {
 	t := s.T()
 	service := s.ServiceID.DID()
 
@@ -61,12 +61,12 @@ func (s *RPCSuite) TestBlobRemove_ReleasesClaimAndBytes() {
 
 	// Remove the blob from the space.
 	removeProof := testutil.Must(delegation.Delegate(
-		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Remove.Command,
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Release.Command,
 	))(t)
-	remove := testutil.Must(blob.Remove.Invoke(
+	remove := testutil.Must(blob.Release.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RemoveArguments{
+		&blob.ReleaseArguments{
 			Space:  space,
 			Digest: digest,
 		},
@@ -87,10 +87,10 @@ func (s *RPCSuite) TestBlobRemove_ReleasesClaimAndBytes() {
 	require.Contains(t, s.Pieces.Removed(), digest)
 
 	// Idempotent: removing again succeeds.
-	removeAgain := testutil.Must(blob.Remove.Invoke(
+	removeAgain := testutil.Must(blob.Release.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RemoveArguments{
+		&blob.ReleaseArguments{
 			Space:  space,
 			Digest: digest,
 		},
@@ -100,7 +100,7 @@ func (s *RPCSuite) TestBlobRemove_ReleasesClaimAndBytes() {
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, removeAgain, removeProof))
 }
 
-func (s *RPCSuite) TestBlobRemove_OtherSpaceRetainsBytes() {
+func (s *RPCSuite) TestBlobRelease_OtherSpaceRetainsBytes() {
 	t := s.T()
 	service := s.ServiceID.DID()
 
@@ -131,12 +131,12 @@ func (s *RPCSuite) TestBlobRemove_OtherSpaceRetainsBytes() {
 
 	// Remove from spaceA only.
 	removeProof := testutil.Must(delegation.Delegate(
-		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Remove.Command,
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Release.Command,
 	))(t)
-	remove := testutil.Must(blob.Remove.Invoke(
+	remove := testutil.Must(blob.Release.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RemoveArguments{
+		&blob.ReleaseArguments{
 			Space:  spaceA,
 			Digest: digest,
 		},

@@ -21,10 +21,10 @@ import (
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
-// removeWorld bundles the stores backing RemoveDeps so tests can seed and
+// removeWorld bundles the stores backing ReleaseDeps so tests can seed and
 // inspect state.
 type removeWorld struct {
-	deps    RemoveDeps
+	deps    ReleaseDeps
 	allocs  *allocationstore.Store
 	accepts *acceptancestore.Store
 	claims  *invocationstore.Store
@@ -41,7 +41,7 @@ func newRemoveWorld(t *testing.T) *removeWorld {
 		claims:  invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 		pieces:  pdpfake.NewPieces(),
 	}
-	w.deps = RemoveDeps{
+	w.deps = ReleaseDeps{
 		Allocations: w.allocs,
 		Acceptances: w.accepts,
 		ClaimStore:  w.claims,
@@ -50,10 +50,10 @@ func newRemoveWorld(t *testing.T) *removeWorld {
 	return w
 }
 
-func TestRemove_UnknownBlobIsSuccess(t *testing.T) {
+func TestRelease_UnknownBlobIsSuccess(t *testing.T) {
 	w := newRemoveWorld(t)
 
-	err := Remove(t.Context(), w.deps, &RemoveRequest{
+	err := Release(t.Context(), w.deps, &ReleaseRequest{
 		Space:  testutil.RandomDID(t),
 		Digest: testutil.RandomMultihash(t),
 	})
@@ -62,7 +62,7 @@ func TestRemove_UnknownBlobIsSuccess(t *testing.T) {
 	require.Len(t, w.pieces.Removed(), 1)
 }
 
-func TestRemove_ReleasesClaimAndBytes(t *testing.T) {
+func TestRelease_ReleasesClaimAndBytes(t *testing.T) {
 	w := newRemoveWorld(t)
 	digest := testutil.RandomMultihash(t)
 	space := testutil.RandomDID(t)
@@ -89,7 +89,7 @@ func TestRemove_ReleasesClaimAndBytes(t *testing.T) {
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: space, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
 
 	_, err = w.allocs.Get(t.Context(), digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "allocation deleted")
@@ -100,10 +100,10 @@ func TestRemove_ReleasesClaimAndBytes(t *testing.T) {
 	require.Len(t, w.pieces.Removed(), 1, "no space claims the digest — bytes released")
 
 	// Removing again is idempotent success.
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: space, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
 }
 
-func TestRemove_OtherSpaceClaimRetainsBytes(t *testing.T) {
+func TestRelease_OtherSpaceClaimRetainsBytes(t *testing.T) {
 	w := newRemoveWorld(t)
 	digest := testutil.RandomMultihash(t)
 	removingSpace := testutil.RandomDID(t)
@@ -121,7 +121,7 @@ func TestRemove_OtherSpaceClaimRetainsBytes(t *testing.T) {
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: removingSpace, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))
 
 	_, err := w.accepts.Get(t.Context(), digest, removingSpace)
 	require.ErrorIs(t, err, store.ErrNotFound, "removing space's acceptance deleted")
@@ -130,11 +130,11 @@ func TestRemove_OtherSpaceClaimRetainsBytes(t *testing.T) {
 	require.Empty(t, w.pieces.Removed(), "other space still claims the digest — bytes retained")
 
 	// Releasing the last claim releases the bytes.
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: otherSpace, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: otherSpace, Digest: digest}))
 	require.Len(t, w.pieces.Removed(), 1)
 }
 
-func TestRemove_LiveAllocationRetainsBytes(t *testing.T) {
+func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 	// An allocation from another space (upload possibly in flight) blocks
 	// physical deletion even when no acceptance exists.
 	w := newRemoveWorld(t)
@@ -153,11 +153,11 @@ func TestRemove_LiveAllocationRetainsBytes(t *testing.T) {
 		Cause: testutil.RandomCID(t),
 	}))
 
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: removingSpace, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))
 	require.Empty(t, w.pieces.Removed(), "live allocation in another space — bytes retained")
 }
 
-func TestRemove_AcceptanceWithoutClaimLink(t *testing.T) {
+func TestRelease_AcceptanceWithoutClaimLink(t *testing.T) {
 	// Records written before the Claim field existed have no claim link;
 	// removal must still succeed.
 	w := newRemoveWorld(t)
@@ -170,7 +170,7 @@ func TestRemove_AcceptanceWithoutClaimLink(t *testing.T) {
 		Cause: testutil.RandomCID(t),
 	}))
 
-	require.NoError(t, Remove(t.Context(), w.deps, &RemoveRequest{Space: space, Digest: digest}))
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
 	_, err := w.accepts.Get(t.Context(), digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	require.Len(t, w.pieces.Removed(), 1)

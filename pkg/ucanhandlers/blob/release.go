@@ -27,8 +27,8 @@ import (
 	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
-// RemoveDeps is the dependency set populated by fx for the Remove handler.
-type RemoveDeps struct {
+// ReleaseDeps is the dependency set populated by fx for the Release handler.
+type ReleaseDeps struct {
 	fx.In
 	ID          identity.Identity
 	Allocations AllocationRemover
@@ -52,7 +52,7 @@ type AcceptanceRemover interface {
 	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
 }
 
-// PieceRemover is the slice of the PDP piece-remover API the Remove handler
+// PieceRemover is the slice of the PDP piece-remover API the Release handler
 // depends on.
 type PieceRemover interface {
 	RemovePiece(ctx context.Context, blob multihash.Multihash) error
@@ -64,43 +64,43 @@ var (
 	_ PieceRemover      = (pdptypes.PieceRemoverAPI)(nil)
 )
 
-func NewBlobRemoveHandler(deps RemoveDeps) server.Route {
-	return blob.Remove.Route(func(req *binding.Request[*blob.RemoveArguments], rsp *binding.Response[*blob.RemoveOK]) error {
+func NewBlobReleaseHandler(deps ReleaseDeps) server.Route {
+	return blob.Release.Route(func(req *binding.Request[*blob.ReleaseArguments], rsp *binding.Response[*blob.ReleaseOK]) error {
 		args := req.Task().Arguments()
 
 		// The invocation subject must be this storage provider; the space
 		// releasing its claim travels in the arguments. Authorization that
-		// the upload service may invoke /blob/remove is enforced by the
+		// the upload service may invoke /blob/release is enforced by the
 		// validator's proof chain (rooted at the provider).
 		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
 			return rsp.SetFailure(err)
 		}
 
-		if err := Remove(req.Context(), deps, &RemoveRequest{
+		if err := Release(req.Context(), deps, &ReleaseRequest{
 			Space:  args.Space,
 			Digest: args.Digest,
 		}); err != nil {
 			return err
 		}
 
-		return rsp.SetSuccess(&blob.RemoveOK{})
+		return rsp.SetSuccess(&blob.ReleaseOK{})
 	})
 }
 
-type RemoveRequest struct {
+type ReleaseRequest struct {
 	Space  did.DID
 	Digest multihash.Multihash
 }
 
-// Remove releases a space's claim on an accepted blob: it deletes the
+// Release releases a space's claim on an accepted blob: it deletes the
 // space's allocation, acceptance, and location claim for the digest, and —
 // when no space holds a claim on the digest afterward — queues the bytes
 // for release via the PDP piece remover. Physical deletion is always
 // asynchronous: the removal machinery re-verifies zero claims and retires
 // proven pieces on-chain before deleting. Idempotent: removing an unknown
 // blob or an already-released claim succeeds.
-func Remove(ctx context.Context, deps RemoveDeps, req *RemoveRequest) (err error) {
-	ctx, span := tracer.Start(ctx, "blob.remove")
+func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err error) {
+	ctx, span := tracer.Start(ctx, "blob.release")
 	defer func() {
 		if err != nil {
 			span.RecordError(err)
@@ -110,7 +110,7 @@ func Remove(ctx context.Context, deps RemoveDeps, req *RemoveRequest) (err error
 	}()
 
 	log := log.With("blob", digestutil.Format(req.Digest))
-	log.Infof("%s space: %s", blob.Remove.Command, req.Space)
+	log.Infof("%s space: %s", blob.Release.Command, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
 		attribute.Stringer("blob.digest", req.Digest),

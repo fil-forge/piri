@@ -10,8 +10,6 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
-	blobhandlers "github.com/fil-forge/piri/pkg/ucanhandlers/blob"
-
 	"github.com/fil-forge/piri/pkg/store"
 )
 
@@ -121,7 +119,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	_, err := blob.Reject.Unpack(rcpt)
 	var em datamodel.ErrorModel
 	require.ErrorAs(t, err, &em)
-	require.Equal(t, blobhandlers.BlobAcceptedErrorName, em.Name(),
+	require.Equal(t, blob.BlobAcceptedErrorName, em.Name(),
 		"accepted blobs are refused — release via /blob/remove")
 
 	_, err = s.Acceptances.Get(t.Context(), digest, space)

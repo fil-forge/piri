@@ -17,14 +17,11 @@ import (
 	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/server"
 
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
-
-// BlobAcceptedErrorName is the stable receipt-failure name when reject is
-// invoked for a blob that has been accepted — accepted blobs are released
-// via /blob/remove, never rejected.
-const BlobAcceptedErrorName = "BlobAccepted"
 
 // RejectDeps is the dependency set populated by fx for the Reject handler.
 type RejectDeps struct {
@@ -38,7 +35,8 @@ type RejectDeps struct {
 // AcceptanceChecker is the slice of acceptancestore.AcceptanceStore the
 // Reject handler depends on.
 type AcceptanceChecker interface {
-	Exists(ctx context.Context, digest multihash.Multihash) (bool, error)
+	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (acceptance.Acceptance, error)
+	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
 }
 
 var _ AcceptanceChecker = (acceptancestore.AcceptanceStore)(nil)
@@ -77,11 +75,14 @@ type RejectRequest struct {
 
 // Reject retires a parked blob — the "don't accept" exit of the
 // allocate→accept|reject lifecycle: it deletes the space's allocation for
-// the digest and, when no space holds an allocation afterward, queues the
-// bytes for release. A blob with any acceptance is refused with
-// BlobAccepted — accepted blobs carry claims and are released via
-// /blob/remove. Idempotent: rejecting an unknown or already-rejected blob
-// succeeds.
+// the digest and, when no space holds an allocation or acceptance
+// afterward, queues the bytes for release. A blob THE INVOKING SPACE has
+// accepted is refused with BlobAccepted — the space's acceptance carries
+// claims and is released via /blob/remove. The guard is scoped to the
+// invoking space, not the digest: another space's acceptance of the same
+// bytes never blocks the reject — the space's allocation is dropped and the
+// bytes are retained for whoever still claims them. Idempotent: rejecting
+// an unknown or already-rejected blob succeeds.
 func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error) {
 	ctx, span := tracer.Start(ctx, "blob.reject")
 	defer func() {
@@ -99,18 +100,20 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 		attribute.Stringer("blob.digest", req.Digest),
 	)
 
-	// Reject operates strictly on parked blobs. An acceptance in ANY space
-	// means the bytes carry claims (and may be aggregated) — the caller
-	// must release its claim via /blob/remove instead.
-	accepted, err := deps.Acceptances.Exists(ctx, req.Digest)
-	if err != nil {
+	// Reject operates strictly on parked blobs. An acceptance by THE
+	// INVOKING SPACE means its bytes carry claims (and may be aggregated) —
+	// that space must release its claim via /blob/remove instead. Another
+	// space's acceptance is irrelevant: each space exits its own lifecycle
+	// independently, and shared bytes are protected by the claim count
+	// below, not by this guard.
+	_, err = deps.Acceptances.Get(ctx, req.Digest, req.Space)
+	if err == nil {
+		return errors.New(blob.BlobAcceptedErrorName,
+			"blob %s has been accepted by %s; release the claim via %s",
+			digestutil.Format(req.Digest), req.Space, blob.Remove.Command)
+	} else if !errors.Is(err, store.ErrNotFound) {
 		log.Errorw("checking acceptance", "error", err)
 		return fmt.Errorf("checking acceptance: %w", err)
-	}
-	if accepted {
-		return errors.New(BlobAcceptedErrorName,
-			"blob %s has been accepted; release the claim via %s",
-			digestutil.Format(req.Digest), blob.Remove.Command)
 	}
 
 	if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
@@ -118,16 +121,22 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 		return fmt.Errorf("deleting allocation: %w", err)
 	}
 
-	// Bytes are released only when no space holds an allocation — another
-	// space's in-flight upload of the same content shares them.
+	// Bytes are released only when no space holds an allocation or an
+	// acceptance — another space's in-flight upload or accepted copy of the
+	// same content shares them.
 	allocSpaces, err := deps.Allocations.ListSpaces(ctx, req.Digest)
 	if err != nil {
 		log.Errorw("listing allocation spaces", "error", err)
 		return fmt.Errorf("listing allocation spaces: %w", err)
 	}
-	if len(allocSpaces) > 0 {
-		log.Infow("blob still allocated in other spaces, retaining bytes",
-			"allocations", len(allocSpaces))
+	acceptSpaces, err := deps.Acceptances.ListSpaces(ctx, req.Digest)
+	if err != nil {
+		log.Errorw("listing acceptance spaces", "error", err)
+		return fmt.Errorf("listing acceptance spaces: %w", err)
+	}
+	if len(allocSpaces) > 0 || len(acceptSpaces) > 0 {
+		log.Infow("blob still claimed, retaining bytes",
+			"allocations", len(allocSpaces), "acceptances", len(acceptSpaces))
 		return nil
 	}
 

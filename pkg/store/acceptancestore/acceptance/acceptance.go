@@ -23,7 +23,7 @@ type Acceptance struct {
 	// acceptance.
 	Cause cid.Cid `cborgen:"cause"`
 	// Claim is a link to the `/assert/location` claim minted at acceptance —
-	// the digest→claim index `/blob/remove` uses to delete the location
+	// the digest→claim index `/blob/release` uses to delete the location
 	// claim when this space's acceptance is removed. Nil for acceptances
 	// recorded before this field existed.
 	Claim *cid.Cid `cborgen:"claim,omitempty"`

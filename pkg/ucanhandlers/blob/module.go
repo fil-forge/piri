@@ -16,7 +16,7 @@ var Module = fx.Module("ucan/blob",
 	fx.Provide(
 		ucanhandlers.ProvideRPC(NewAcceptHandler),
 		ucanhandlers.ProvideRPC(NewBlobAllocateHandler),
-		ucanhandlers.ProvideRPC(NewBlobRemoveHandler),
+		ucanhandlers.ProvideRPC(NewBlobReleaseHandler),
 		ucanhandlers.ProvideRPC(NewBlobRejectHandler),
 		ucanhandlers.ProvideRetrieval(NewBlobRetrieveHandler),
 
