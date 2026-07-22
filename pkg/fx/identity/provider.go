@@ -24,3 +24,10 @@ var Module = fx.Module("identity",
 func ProvideIdentity(cfg app.IdentityConfig) identity.Identity {
 	return identity.Identity{Issuer: cfg.Issuer}
 }
+
+// ProvideIssuer exposes the node's identity as a ucan.Issuer for components that
+// depend on it directly via fx — e.g. the aggregation PieceAccepter, which began
+// requiring a ucan.Issuer in piri PR #18.
+func ProvideIssuer(cfg app.IdentityConfig) ucan.Issuer {
+	return cfg.Issuer
+}

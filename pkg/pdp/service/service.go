@@ -14,12 +14,15 @@ import (
 	filtypes "github.com/filecoin-project/lotus/chain/types"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
+
+	// curio infra
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
+	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/pdp/chainsched"
-	"github.com/fil-forge/piri/pkg/pdp/ethereum"
-	"github.com/fil-forge/piri/pkg/pdp/scheduler"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -52,17 +55,26 @@ type PDPService struct {
 	blobstore       blobstore.Blobstore
 	acceptanceStore acceptancestore.AcceptanceStore
 	receiptStore    receiptstore.ReceiptStore
-	sender          ethereum.Sender
 	chainClient     ChainClient
 
-	db   *gorm.DB
+	// ethClient lets Curio's contract.FSRegister sign/send the registerProvider
+	// tx and read the wallet balance (via BalanceAt) — no Lotus node required.
+	ethClient ethchain.EthClient
+
+	// db is the single DB surface — Curio harmonydb (Postgres), backing every
+	// PDP table (pipeline + piece/commP mapping + parked pieces).
+	db *harmonydb.DB
+
 	name string
 
 	pieceResolver types.PieceResolverAPI
 	pieceReader   types.PieceReaderAPI
 
-	chainScheduler *chainsched.Scheduler
-	engine         *scheduler.TaskEngine
+	// curio infra (replaces piri sender/engine/chainScheduler)
+	sender         *message.SenderETH
+	engine         *harmonytask.TaskEngine
+	chainScheduler *chainsched.CurioChainSched
+
 	signingService signer.SigningService
 
 	commPGroup singleflight.Group
@@ -79,16 +91,17 @@ func New(
 	cfg appconfig.PDPServiceConfig,
 	id ucan.Issuer,
 	endpoint url.URL,
-	db *gorm.DB,
+	db *harmonydb.DB, // curio harmonydb — single DB surface
 	bs blobstore.Blobstore,
 	acceptanceStore acceptancestore.AcceptanceStore,
 	receiptStore receiptstore.ReceiptStore,
 	resolver types.PieceResolverAPI,
 	reader types.PieceReaderAPI,
-	sender ethereum.Sender,
-	engine *scheduler.TaskEngine,
-	chainScheduler *chainsched.Scheduler,
+	sender *message.SenderETH,
+	engine *harmonytask.TaskEngine,
+	chainScheduler *chainsched.CurioChainSched,
 	chainClient ChainClient,
+	ethClient ethchain.EthClient,
 	signingService signer.SigningService,
 	edc *eip712.ExtraDataEncoder,
 	verifier smartcontracts.Verifier,
@@ -111,6 +124,7 @@ func New(
 		engine:           engine,
 		chainScheduler:   chainScheduler,
 		chainClient:      chainClient,
+		ethClient:        ethClient,
 		signingService:   signingService,
 		edc:              edc,
 		verifierContract: verifier,

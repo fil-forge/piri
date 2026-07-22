@@ -6,9 +6,8 @@ import (
 	"fmt"
 
 	"github.com/ipfs/go-cid"
-	"gorm.io/gorm"
+	"github.com/yugabyte/pgx/v5"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -34,60 +33,82 @@ func (p *PDPService) GetProofSet(ctx context.Context, id uint64) (res *types.Pro
 			log.Infow("got proof set", "id", id, "response", res)
 		}
 	}()
-	// Retrieve the proof set record.
-	var proofSet models.PDPProofSet
-	if err := p.db.WithContext(ctx).First(&proofSet, id).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Retrieve the data-set record.
+	var ps struct {
+		ID                        int64  `db:"id"`
+		Service                   string `db:"service"`
+		InitReady                 bool   `db:"init_ready"`
+		ProveAtEpoch              *int64 `db:"prove_at_epoch"`
+		PrevChallengeRequestEpoch *int64 `db:"prev_challenge_request_epoch"`
+		ProvingPeriod             *int64 `db:"proving_period"`
+		ChallengeWindow           *int64 `db:"challenge_window"`
+	}
+	err := p.db.QueryRow(ctx, `
+		SELECT id, service, init_ready, prove_at_epoch,
+		       prev_challenge_request_epoch, proving_period, challenge_window
+		FROM pdp_data_sets WHERE id = $1
+	`, id).Scan(&ps.ID, &ps.Service, &ps.InitReady, &ps.ProveAtEpoch,
+		&ps.PrevChallengeRequestEpoch, &ps.ProvingPeriod, &ps.ChallengeWindow)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, types.NewErrorf(types.KindNotFound, "proof set %d not found", id)
 		}
 		return nil, fmt.Errorf("failed to retrieve proof set: %w", err)
 	}
 
-	if proofSet.Service != p.name {
+	if ps.Service != p.name {
 		return nil, types.NewError(types.KindUnauthorized, "not authorized")
 	}
 
-	// Retrieve the roots associated with the proof set.
-	var roots []models.PDPProofsetRoot
-	if err := p.db.WithContext(ctx).
-		Where("proofset_id = ?", id).
-		Order("root_id, subroot_offset").
-		Find(&roots).Error; err != nil {
+	// Retrieve the pieces (roots) associated with the data set.
+	var roots []struct {
+		PieceID        int64  `db:"piece_id"`
+		Piece          string `db:"piece"`
+		SubPiece       string `db:"sub_piece"`
+		SubPieceOffset int64  `db:"sub_piece_offset"`
+	}
+	err = p.db.Select(ctx, &roots, `
+		SELECT piece_id, piece, sub_piece, sub_piece_offset
+		FROM pdp_data_set_pieces
+		WHERE data_set = $1
+		ORDER BY piece_id, sub_piece_offset
+	`, id)
+	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve proof set roots: %w", err)
 	}
 
-	// Step 5: Build the response.
+	// Build the response.
 	response := &types.ProofSet{
-		ID:          uint64(proofSet.ID),
-		Initialized: proofSet.InitReady,
+		ID:          uint64(ps.ID),
+		Initialized: ps.InitReady,
 	}
 	for _, r := range roots {
-		rootCid, err := cid.Decode(r.Root)
+		rootCid, err := cid.Decode(r.Piece)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode root cid %s for proof set %d: %w", r.Root, proofSet.ID, err)
+			return nil, fmt.Errorf("failed to decode root cid %s for proof set %d: %w", r.Piece, ps.ID, err)
 		}
-		subrootCid, err := cid.Decode(r.Subroot)
+		subrootCid, err := cid.Decode(r.SubPiece)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode subroot cid %s for proof set %d: %w", r.Subroot, proofSet.ID, err)
+			return nil, fmt.Errorf("failed to decode subroot cid %s for proof set %d: %w", r.SubPiece, ps.ID, err)
 		}
 		response.Roots = append(response.Roots, types.RootEntry{
-			RootID:        uint64(r.RootID),
+			RootID:        uint64(r.PieceID),
 			RootCID:       rootCid,
 			SubrootCID:    subrootCid,
-			SubrootOffset: r.SubrootOffset,
+			SubrootOffset: r.SubPieceOffset,
 		})
 	}
-	if proofSet.ProveAtEpoch != nil {
-		response.NextChallengeEpoch = *proofSet.ProveAtEpoch
+	if ps.ProveAtEpoch != nil {
+		response.NextChallengeEpoch = *ps.ProveAtEpoch
 	}
-	if proofSet.PrevChallengeRequestEpoch != nil {
-		response.PreviousChallengeEpoch = *proofSet.PrevChallengeRequestEpoch
+	if ps.PrevChallengeRequestEpoch != nil {
+		response.PreviousChallengeEpoch = *ps.PrevChallengeRequestEpoch
 	}
-	if proofSet.ProvingPeriod != nil {
-		response.ProvingPeriod = *proofSet.ProvingPeriod
+	if ps.ProvingPeriod != nil {
+		response.ProvingPeriod = *ps.ProvingPeriod
 	}
-	if proofSet.ChallengeWindow != nil {
-		response.ChallengeWindow = *proofSet.ChallengeWindow
+	if ps.ChallengeWindow != nil {
+		response.ChallengeWindow = *ps.ChallengeWindow
 	}
 
 	return response, nil

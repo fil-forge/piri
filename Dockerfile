@@ -1,5 +1,5 @@
 # Build stage - use native platform for faster cross-compilation
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
 
 ARG TARGETARCH
 ARG TARGETOS=linux
@@ -14,7 +14,10 @@ RUN go mod download
 COPY . .
 
 # Build with cross-compilation and stripped binary
+# skiff selects Curio's FFI-free variants (CGO-free build); see Makefile for
+# why no other tags are needed.
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -tags "skiff" \
     -ldflags="-s -w" \
     -o /app \
     ./cmd

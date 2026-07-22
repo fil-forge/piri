@@ -55,15 +55,24 @@ func NewSubmissionWorkspace(params SubmissionWorkspaceParams) (BufferStore, erro
 		store: ipldstore.CBORStore[aggBufferKey, Aggregation](ss),
 	}
 
-	// Initialize empty buffer at creation time to avoid race conditions
-	// and side effects in read operations
+	// Initialize an empty buffer ONLY when none exists. Unconditionally
+	// resetting here loses roots that were buffered (aggregate stored,
+	// Submit()ed) but not yet flushed to a chain submission when the process
+	// died — they would never be re-submitted, silently dropping data from
+	// the proving pipeline. Verified by the smelt restart-recovery e2e:
+	// kill piri between "aggregate create" and the manager poll flush, and
+	// the aggregate must still reach AddRoots after restart.
 	ctx := context.Background()
-	emptyBuffer := Aggregation{
-		Roots: []cid.Cid{},
-	}
-	err := sw.store.Put(ctx, aggBufferKey{}, emptyBuffer)
-	if err != nil {
-		return nil, fmt.Errorf("putting empty buffer: %w", err)
+	if _, err := sw.store.Get(ctx, aggBufferKey{}); err != nil {
+		if !store.IsNotFound(err) {
+			return nil, fmt.Errorf("reading submission buffer: %w", err)
+		}
+		emptyBuffer := Aggregation{
+			Roots: []cid.Cid{},
+		}
+		if err := sw.store.Put(ctx, aggBufferKey{}, emptyBuffer); err != nil {
+			return nil, fmt.Errorf("putting empty buffer: %w", err)
+		}
 	}
 
 	return sw, nil
