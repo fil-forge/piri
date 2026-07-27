@@ -88,9 +88,8 @@ func init() {
 		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
 	)
 
-	// Database configuration flags
-	InitCmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
-	InitCmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required when db-type=postgres)")
+	// Database configuration flags (PostgreSQL is the only supported backend)
+	InitCmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required unless provided via --base-config)")
 	InitCmd.Flags().Int("db-postgres-max-open-conns", 5, "PostgreSQL max open connections (default: 5)")
 	InitCmd.Flags().Int("db-postgres-max-idle-conns", 5, "PostgreSQL max idle connections (default: 5)")
 	InitCmd.Flags().String("db-postgres-conn-max-lifetime", "30m", "PostgreSQL connection max lifetime (e.g. '30m')")
@@ -510,54 +509,46 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		}
 	}
 
-	// Database configuration - only if user explicitly provided --db-type flag
-	dbType, err := cmd.Flags().GetString("db-type")
-	if err != nil {
-		return nil, fmt.Errorf("error reading --db-type: %w", err)
-	}
-	dbFlagsChanged := cmd.Flags().Changed("db-type")
+	// Database configuration (PostgreSQL is the only supported backend) -
+	// only if user explicitly provided a db flag
+	dbFlagsChanged := cmd.Flags().Changed("db-postgres-url") ||
+		cmd.Flags().Changed("db-postgres-max-open-conns") ||
+		cmd.Flags().Changed("db-postgres-max-idle-conns") ||
+		cmd.Flags().Changed("db-postgres-conn-max-lifetime")
 	if dbFlagsChanged {
-		if dbType != "sqlite" && dbType != "postgres" {
-			return nil, fmt.Errorf("--db-type must be 'sqlite' or 'postgres', got %q", dbType)
+		postgresURL, err := cmd.Flags().GetString("db-postgres-url")
+		if err != nil {
+			return nil, fmt.Errorf("error reading --db-postgres-url: %w", err)
+		}
+		if postgresURL == "" {
+			return nil, fmt.Errorf("--db-postgres-url is required when configuring the database")
+		}
+		// Validate URL format
+		if _, err := url.Parse(postgresURL); err != nil {
+			return nil, fmt.Errorf("invalid --db-postgres-url: %w", err)
 		}
 
 		if storage == nil {
 			storage = &storageConfig{}
 		}
-		storage.database.Type = dbType
+		storage.database.Postgres.URL = postgresURL
+		storage.database.Postgres.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns")
+		if err != nil {
+			return nil, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
+		}
+		storage.database.Postgres.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns")
+		if err != nil {
+			return nil, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
+		}
+		storage.database.Postgres.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime")
+		if err != nil {
+			return nil, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
+		}
 
-		if dbType == "postgres" {
-			postgresURL, err := cmd.Flags().GetString("db-postgres-url")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-url: %w", err)
-			}
-			if postgresURL == "" {
-				return nil, fmt.Errorf("--db-postgres-url is required when --db-type is 'postgres'")
-			}
-			// Validate URL format
-			if _, err := url.Parse(postgresURL); err != nil {
-				return nil, fmt.Errorf("invalid --db-postgres-url: %w", err)
-			}
-
-			storage.database.Postgres.URL = postgresURL
-			storage.database.Postgres.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
-			}
-			storage.database.Postgres.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
-			}
-			storage.database.Postgres.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
-			}
-
-			// Validate duration format if provided
-			if storage.database.Postgres.ConnMaxLifetime != "" {
-				if _, err := time.ParseDuration(storage.database.Postgres.ConnMaxLifetime); err != nil {
-					return nil, fmt.Errorf("invalid --db-postgres-conn-max-lifetime: %w", err)
-				}
+		// Validate duration format if provided
+		if storage.database.Postgres.ConnMaxLifetime != "" {
+			if _, err := time.ParseDuration(storage.database.Postgres.ConnMaxLifetime); err != nil {
+				return nil, fmt.Errorf("invalid --db-postgres-conn-max-lifetime: %w", err)
 			}
 		}
 	}
@@ -576,15 +567,16 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 			storage.s3 = baseValues.s3Config
 		}
 
-		// Use base-config database if --db-type was not explicitly set
-		if !dbFlagsChanged && baseValues.database.Type != "" {
+		// Use base-config database if no db flags were explicitly set
+		if !dbFlagsChanged && baseValues.database.Postgres.URL != "" {
 			storage.database = baseValues.database
 		}
 	}
 
-	// Apply default database type if still not set
-	if storage != nil && storage.database.Type == "" {
-		storage.database.Type = "sqlite"
+	// PostgreSQL is required: the PDP pipeline (Curio's harmonydb) does not
+	// support any other backend.
+	if storage == nil || storage.database.Postgres.URL == "" {
+		return nil, fmt.Errorf("a PostgreSQL database is required: provide --db-postgres-url or repo.database.postgres.url via --base-config (SQLite is no longer supported)")
 	}
 
 	return &initFlags{

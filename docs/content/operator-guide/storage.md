@@ -130,8 +130,8 @@ As capacity needs grow, you have options:
 - **Multiple nodes**: Run additional Piri instances, each managing its own storage
 - **Scalable storage backend**: Use a storage backend that can grow with your needs
 
-### Database Selection
+### Database
 
-Piri uses a database for operational state and job scheduling. Choose based on your scale and requirements—see [Database](../concepts/database.md) for details on SQLite versus PostgreSQL.
+Piri requires a PostgreSQL database for operational state, job scheduling, and the PDP proving pipeline—see [Database](../concepts/database.md) for details.
 
 The [Prerequisites](../setup/prerequisites.md) guide recommends 1+ TB to start, but actual needs depend on how much data Storacha routes to your node.

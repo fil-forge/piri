@@ -38,7 +38,8 @@ piri init \
   --wallet-file=/path/to/wallet.hex \
   --lotus-endpoint=wss://YOUR_LOTUS_ENDPOINT/rpc/v1 \
   --operator-email=your-email@example.com \
-  --public-url=https://piri.example.com > config.toml
+  --public-url=https://piri.example.com \
+  --db-postgres-url="postgres://piri:CHANGE_ME@localhost:5432/piri?sslmode=disable" > config.toml
 ```
 </div>
 
@@ -54,7 +55,8 @@ piri init \
   --wallet-file=/path/to/wallet.hex \
   --lotus-endpoint=wss://YOUR_LOTUS_ENDPOINT/rpc/v1 \
   --operator-email=your-email@example.com \
-  --public-url=https://piri.example.com > config.toml
+  --public-url=https://piri.example.com \
+  --db-postgres-url="postgres://piri:CHANGE_ME@localhost:5432/piri?sslmode=disable" > config.toml
 ```
 </div>
 
@@ -70,6 +72,7 @@ Note: if you move the config file to your user config directory (e.g. `~/.config
 - `--lotus-endpoint`: WebSocket address of your Lotus node
 - `--operator-email`: Your email so the Storacha team can contact you
 - `--public-url`: The public HTTPS address for your Piri node (use the domain from the [TLS setup](./tls-termination.md), like `https://piri.example.com`)
+- `--db-postgres-url`: Connection string for your [PostgreSQL database](./prerequisites.md#postgresql)
 
 **Expected Output:**
 

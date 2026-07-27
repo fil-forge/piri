@@ -1,39 +1,46 @@
--- Copyright (c) https://github.com/maragudk/goqite
--- https://github.com/maragudk/goqite/blob/6d1bf3c0bcab5a683e0bc7a82a4c76ceac1bbe3f/LICENSE
---
--- This source code is licensed under the MIT license found in the LICENSE file
--- in the root directory of this source tree, or at:
--- https://opensource.org/licenses/MIT
+-- PostgreSQL version of the jobqueue schema
 
-create table if not exists jobqueue (
-  id text primary key default ('m_' || lower(hex(randomblob(16)))),
-  created text not null default (strftime('%Y-%m-%dT%H:%M:%fZ')),
-  updated text not null default (strftime('%Y-%m-%dT%H:%M:%fZ')),
-  queue text not null,
-  body blob not null,
-  timeout text not null default (strftime('%Y-%m-%dT%H:%M:%fZ')),
-  received integer not null default 0
-) strict;
+CREATE TABLE IF NOT EXISTS jobqueue (
+  id TEXT PRIMARY KEY DEFAULT ('m_' || replace(gen_random_uuid()::text, '-', '')),
+  created TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  queue TEXT NOT NULL,
+  body BYTEA NOT NULL,
+  timeout TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  received INTEGER NOT NULL DEFAULT 0
+);
 
-create trigger if not exists jobqueue_updated_timestamp after update on jobqueue begin
-  update jobqueue set updated = strftime('%Y-%m-%dT%H:%M:%fZ') where id = old.id;
-end;
+-- Trigger function for auto-updating the updated timestamp
+CREATE OR REPLACE FUNCTION jobqueue_update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
-create index if not exists jobqueue_queue_created_idx on jobqueue (queue, created);
+-- Drop and recreate trigger (PostgreSQL doesn't have CREATE TRIGGER IF NOT EXISTS in older versions)
+DROP TRIGGER IF EXISTS jobqueue_updated_timestamp ON jobqueue;
+CREATE TRIGGER jobqueue_updated_timestamp
+  BEFORE UPDATE ON jobqueue
+  FOR EACH ROW
+  EXECUTE FUNCTION jobqueue_update_timestamp();
+
+CREATE INDEX IF NOT EXISTS jobqueue_queue_created_idx ON jobqueue (queue, created);
 
 -- Dead letter queue for permanently failed jobs
-create table if not exists jobqueue_dead (
-    id text primary key,
-    created text not null,
-    updated text not null,
-    queue text not null,
-    body blob not null,
-    timeout text not null,
-    received integer not null,
-    job_name text not null,
-    failure_reason text not null,
-    error_message text not null,
-    moved_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ'))
-) strict;
+CREATE TABLE IF NOT EXISTS jobqueue_dead (
+    id TEXT PRIMARY KEY,
+    created TIMESTAMPTZ NOT NULL,
+    updated TIMESTAMPTZ NOT NULL,
+    queue TEXT NOT NULL,
+    body BYTEA NOT NULL,
+    timeout TIMESTAMPTZ NOT NULL,
+    received INTEGER NOT NULL,
+    job_name TEXT NOT NULL,
+    failure_reason TEXT NOT NULL,
+    error_message TEXT NOT NULL,
+    moved_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-create index if not exists jobqueue_dead_queue_moved_at_idx on jobqueue_dead (queue, moved_at);
+CREATE INDEX IF NOT EXISTS jobqueue_dead_queue_moved_at_idx ON jobqueue_dead (queue, moved_at);

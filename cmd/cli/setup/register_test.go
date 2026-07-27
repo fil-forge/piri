@@ -103,25 +103,9 @@ func TestGenerateConfig(t *testing.T) {
 		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
 		require.NoError(t, err)
 
-		// Database should have empty type (defaults to sqlite)
-		require.Equal(t, "", result.Repo.Database.Type)
+		// Database should be empty (no backend configured)
+		require.Equal(t, "", result.Repo.Database.Postgres.URL)
 		// S3 should be nil
-		require.Nil(t, result.Repo.S3)
-	})
-
-	t.Run("sqlite database configuration", func(t *testing.T) {
-		setupViperDefaults(t)
-		flags := baseFlags()
-		flags.storage = &storageConfig{
-			database: config.DatabaseConfig{
-				Type: "sqlite",
-			},
-		}
-
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
-		require.NoError(t, err)
-
-		require.Equal(t, "sqlite", result.Repo.Database.Type)
 		require.Nil(t, result.Repo.S3)
 	})
 
@@ -130,7 +114,6 @@ func TestGenerateConfig(t *testing.T) {
 		flags := baseFlags()
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://user:pass@localhost:5432/piri?sslmode=disable",
 					MaxOpenConns:    10,
@@ -143,7 +126,6 @@ func TestGenerateConfig(t *testing.T) {
 		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
 		require.NoError(t, err)
 
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://user:pass@localhost:5432/piri?sslmode=disable", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 5, result.Repo.Database.Postgres.MaxIdleConns)
@@ -182,7 +164,6 @@ func TestGenerateConfig(t *testing.T) {
 		flags := baseFlags()
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://user:pass@localhost:5432/piri",
 					MaxOpenConns:    25,
@@ -205,7 +186,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify postgres config
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://user:pass@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 25, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxIdleConns)
@@ -265,7 +245,6 @@ func TestGenerateConfig(t *testing.T) {
 		// - S3 values came from base-config (lower priority)
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://flags:user@localhost:5432/piri",
 					MaxOpenConns:    20,
@@ -288,7 +267,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both postgres and S3 should be present in the output
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://flags:user@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 20, result.Repo.Database.Postgres.MaxOpenConns)
 
@@ -305,7 +283,6 @@ func TestGenerateConfig(t *testing.T) {
 		// - postgres values came from base-config (lower priority)
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://base:config@localhost:5432/piri",
 					MaxOpenConns:    12,
@@ -333,7 +310,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, "flags-", result.Repo.S3.BucketPrefix)
 		require.True(t, result.Repo.S3.Insecure)
 
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://base:config@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 	})
 
@@ -344,7 +320,6 @@ func TestGenerateConfig(t *testing.T) {
 		// for the same fields
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://flags:winner@localhost:5432/piri",
 					MaxOpenConns:    50,

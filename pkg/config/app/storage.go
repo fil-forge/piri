@@ -5,48 +5,24 @@ import (
 	"time"
 )
 
-// DatabaseType represents the database backend type.
-type DatabaseType string
-
-const (
-	// DatabaseTypeSQLite uses SQLite as the database backend (default).
-	DatabaseTypeSQLite DatabaseType = "sqlite"
-	// DatabaseTypePostgres uses PostgreSQL as the database backend.
-	DatabaseTypePostgres DatabaseType = "postgres"
-)
-
 // DatabaseConfig contains database connection configuration.
+// PostgreSQL is the only supported backend.
 type DatabaseConfig struct {
-	// Type is the database backend type: "sqlite" (default) or "postgres".
-	Type DatabaseType
-
-	// NB: sqlite doesn't have a config.
-
 	Postgres PostgresConfig
 }
 
-// IsSQLite returns true if using SQLite backend (or if type is empty/default).
-func (c DatabaseConfig) IsSQLite() bool {
-	return c.Type == "" || c.Type == DatabaseTypeSQLite
-}
-
-// IsPostgres returns true if using PostgreSQL backend.
-func (c DatabaseConfig) IsPostgres() bool {
-	return c.Type == DatabaseTypePostgres
-}
-
 type PostgresConfig struct {
-	// URL is the PostgreSQL connection string (only used when Type is "postgres").
+	// URL is the PostgreSQL connection string.
 	// Format: postgres://user:password@host:port/dbname?sslmode=disable
 	URL url.URL
 	// MaxOpenConns is the maximum number of open connections to the database.
-	// Only used for PostgreSQL. Zero means use default (5).
+	// Zero means use default (5).
 	MaxOpenConns int
 	// MaxIdleConns is the maximum number of idle connections in the pool.
-	// Only used for PostgreSQL. Zero means use default (5).
+	// Zero means use default (5).
 	MaxIdleConns int
 	// ConnMaxLifetime is the maximum amount of time a connection may be reused.
-	// Only used for PostgreSQL. Zero means use default (30 minutes).
+	// Zero means use default (30 minutes).
 	ConnMaxLifetime time.Duration
 }
 
@@ -56,7 +32,7 @@ type StorageConfig struct {
 	DataDir string
 	TempDir string
 
-	// Database configuration (sqlite or postgres)
+	// Database configuration (PostgreSQL)
 	Database DatabaseConfig
 
 	// Global S3 config - when set, all supported stores use S3 with separate buckets
@@ -131,7 +107,7 @@ type AcceptanceStorageConfig struct {
 }
 
 // ReplicatorStorageConfig contains replicator-specific storage paths.
-// Currently empty - SQLite paths are derived by providers.
+// Currently empty - the replicator persists via the shared database.
 type ReplicatorStorageConfig struct{}
 
 type KeyStoreConfig struct {
@@ -158,5 +134,5 @@ type Credentials struct {
 }
 
 // SchedulerConfig contains scheduler-specific storage paths.
-// Currently empty - SQLite paths are derived by providers.
+// Currently empty - the scheduler persists via the shared database.
 type SchedulerConfig struct{}

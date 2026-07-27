@@ -14,10 +14,8 @@ import (
 
 	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
-	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -25,8 +23,7 @@ import (
 
 type CommpQueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"aggregator_db"`
-	StorageConfig app.StorageConfig
+	DB *sql.DB `name:"aggregator_db"`
 }
 
 const (
@@ -35,12 +32,6 @@ const (
 )
 
 func NewQueue(params CommpQueueParams) (jobqueue.Service[aggtypes.CommpJob], error) {
-	// Determine dialect from storage config
-	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
-		d = dialect.Postgres
-	}
-
 	commpQueue, err := jobqueue.New[aggtypes.CommpJob](
 		TaskName,
 		params.DB,
@@ -49,7 +40,6 @@ func NewQueue(params CommpQueueParams) (jobqueue.Service[aggtypes.CommpJob], err
 		// TODO(forrest) make these configuration parameters.
 		jobqueue.WithMaxRetries(50),
 		jobqueue.WithMaxWorkers(uint(runtime.NumCPU())),
-		jobqueue.WithDialect(d),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating commp queue: %w", err)
