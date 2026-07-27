@@ -15,16 +15,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	internalsql "github.com/fil-forge/piri/lib/jobqueue/internal/sql"
 	"github.com/fil-forge/piri/lib/jobqueue/logger"
 )
 
 //go:embed schema.sql
-var SchemaSQLite string
-
-//go:embed schema.postgres.sql
-var SchemaPostgres string
+var Schema string
 
 // rfc3339Milli is like time.RFC3339Nano, but with millisecond precision, and fractional seconds do not have trailing
 // zeros removed.
@@ -36,7 +32,6 @@ type NewOpts struct {
 	Name       string
 	Timeout    time.Duration // Default timeout for messages before they can be re-received.
 	Logger     logger.StandardLogger
-	Dialect    dialect.Dialect // SQL dialect (SQLite or Postgres)
 }
 
 // New Queue with the given options.
@@ -79,7 +74,6 @@ func New(opts NewOpts) (*Queue, error) {
 		maxReceive: opts.MaxReceive,
 		timeout:    opts.Timeout,
 		logger:     opts.Logger,
-		dialect:    opts.Dialect,
 	}, nil
 }
 
@@ -89,7 +83,6 @@ type Queue struct {
 	name       string
 	timeout    time.Duration
 	logger     logger.StandardLogger
-	dialect    dialect.Dialect
 }
 
 type ID string
@@ -156,7 +149,7 @@ func (q *Queue) sendAndGetIDTx(ctx context.Context, tx *sql.Tx, m Message) (ID, 
 	timeout := time.Now().Add(m.Delay).Format(rfc3339Milli)
 
 	var id ID
-	query := q.dialect.Rebind(`INSERT INTO jobqueue (queue, body, timeout) VALUES (?, ?, ?) RETURNING id`)
+	query := internalsql.Rebind(`INSERT INTO jobqueue (queue, body, timeout) VALUES (?, ?, ?) RETURNING id`)
 	if err := tx.QueryRowContext(ctx, query, q.name, m.Body, timeout).Scan(&id); err != nil {
 		return "", err
 	}
@@ -180,7 +173,7 @@ func (q *Queue) receiveTx(ctx context.Context, tx *sql.Tx) (*Message, error) {
 	nowFormatted := now.Format(rfc3339Milli)
 	timeoutFormatted := now.Add(q.timeout).Format(rfc3339Milli)
 
-	query := q.dialect.Rebind(`
+	query := internalsql.Rebind(`
 		UPDATE jobqueue
 		SET
 			timeout = ?,
@@ -243,7 +236,7 @@ func (q *Queue) extendTx(ctx context.Context, tx *sql.Tx, id ID, delay time.Dura
 
 	timeout := time.Now().Add(delay).Format(rfc3339Milli)
 
-	query := q.dialect.Rebind(`UPDATE jobqueue SET timeout = ? WHERE queue = ? AND id = ?`)
+	query := internalsql.Rebind(`UPDATE jobqueue SET timeout = ? WHERE queue = ? AND id = ?`)
 	_, err := tx.ExecContext(ctx, query, timeout, q.name, id)
 	return err
 }
@@ -257,7 +250,7 @@ func (q *Queue) Delete(ctx context.Context, id ID) error {
 
 // deleteTx is like Delete, but within an existing transaction.
 func (q *Queue) deleteTx(ctx context.Context, tx *sql.Tx, id ID) error {
-	query := q.dialect.Rebind(`DELETE FROM jobqueue WHERE queue = ? AND id = ?`)
+	query := internalsql.Rebind(`DELETE FROM jobqueue WHERE queue = ? AND id = ?`)
 	_, err := tx.ExecContext(ctx, query, q.name, id)
 	return err
 }
@@ -276,7 +269,7 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id ID, jobNa
 	movedAt := time.Now().Format(rfc3339Milli)
 
 	// First, copy the message to the dead letter queue
-	insertQuery := q.dialect.Rebind(`
+	insertQuery := internalsql.Rebind(`
 		INSERT INTO jobqueue_dead (id, created, updated, queue, body, timeout, received, job_name, failure_reason, error_message, moved_at)
 		SELECT id, created, updated, queue, body, timeout, received, ?, ?, ?, ?
 		FROM jobqueue
@@ -304,28 +297,11 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id ID, jobNa
 	return nil
 }
 
-// Setup the queue in the database using SQLite schema (default).
+// Setup the queue in the database.
 func Setup(ctx context.Context, db *sql.DB) error {
-	return SetupWithDialect(ctx, db, dialect.SQLite)
-}
-
-// SetupPostgres sets up the queue in a PostgreSQL database.
-func SetupPostgres(ctx context.Context, db *sql.DB) error {
-	return SetupWithDialect(ctx, db, dialect.Postgres)
-}
-
-// SetupWithDialect sets up the queue in the database using the specified dialect.
-func SetupWithDialect(ctx context.Context, db *sql.DB, d dialect.Dialect) error {
-	var schema string
-	switch d {
-	case dialect.Postgres:
-		schema = SchemaPostgres
-	default:
-		schema = SchemaSQLite
-	}
-	_, err := db.ExecContext(ctx, schema)
+	_, err := db.ExecContext(ctx, Schema)
 	if err != nil {
-		return fmt.Errorf("setup queue schema (%s): %w", d, err)
+		return fmt.Errorf("setup queue schema: %w", err)
 	}
 	return nil
 }

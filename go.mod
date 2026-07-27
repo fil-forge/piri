@@ -26,7 +26,6 @@ require (
 	github.com/filecoin-project/go-jsonrpc v0.10.3
 	github.com/filecoin-project/go-state-types v0.19.1
 	github.com/filecoin-project/lotus v1.38.3
-	github.com/glebarez/go-sqlite v1.23.0
 	github.com/go-playground/validator/v10 v10.30.6
 	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/google/uuid v1.6.0
@@ -52,7 +51,6 @@ require (
 	github.com/multiformats/go-multibase v0.3.0
 	github.com/multiformats/go-multicodec v0.10.0
 	github.com/multiformats/go-multihash v0.3.0
-	github.com/ncruces/go-sqlite3 v0.24.1
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/samber/lo v1.53.0
 	github.com/schollz/progressbar/v3 v3.19.1
@@ -79,7 +77,6 @@ require (
 	golang.org/x/sync v0.25.0
 	golang.org/x/tools v0.53.0
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da
-	modernc.org/sqlite v1.63.0
 )
 
 require (
@@ -241,8 +238,6 @@ require (
 	github.com/multiformats/go-multistream v0.6.1 // indirect
 	github.com/multiformats/go-varint v0.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/ncruces/go-strftime v1.1.0 // indirect
-	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/nkovacs/streamquote v1.1.0 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/onsi/ginkgo v1.16.5 // indirect
@@ -264,7 +259,6 @@ require (
 	github.com/prometheus/statsd_exporter v0.29.0 // indirect
 	github.com/puzpuzpuz/xsync/v2 v2.5.1 // indirect
 	github.com/raulk/clock v1.1.0 // indirect
-	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
@@ -281,7 +275,6 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.16 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7 // indirect
-	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
@@ -325,9 +318,6 @@ require (
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	howett.net/plist v1.0.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
-	modernc.org/libc v1.80.1 // indirect
-	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.12.1 // indirect
 	pitr.ca/jsontokenizer v0.3.2 // indirect
 )
 

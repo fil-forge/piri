@@ -11,17 +11,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	internalsql "github.com/fil-forge/piri/lib/jobqueue/internal/sql"
 	"github.com/fil-forge/piri/lib/jobqueue/logger"
 	"github.com/fil-forge/piri/lib/jobqueue/queue"
 )
 
-//go:embed schema.sqlite.sql
-var SchemaSQLite string
-
-//go:embed schema.postgres.sql
-var SchemaPostgres string
+//go:embed schema.sql
+var Schema string
 
 type jobDoneStatus int
 
@@ -46,7 +42,6 @@ type NewOpts struct {
 	BlockRepeatsOnDLQ *bool
 	HashFunc          HashFunc
 	Logger            logger.StandardLogger
-	Dialect           dialect.Dialect
 }
 
 type Queue struct {
@@ -58,31 +53,13 @@ type Queue struct {
 	blockRepeatsOnDLQ bool
 	hash              HashFunc
 	logger            logger.StandardLogger
-	dialect           dialect.Dialect
 }
 
-// Setup sets up the dedup queue schema using SQLite dialect (default).
+// Setup sets up the dedup queue schema in the database.
 func Setup(ctx context.Context, db *sql.DB) error {
-	return SetupWithDialect(ctx, db, dialect.SQLite)
-}
-
-// SetupPostgres sets up the dedup queue schema using PostgreSQL dialect.
-func SetupPostgres(ctx context.Context, db *sql.DB) error {
-	return SetupWithDialect(ctx, db, dialect.Postgres)
-}
-
-// SetupWithDialect sets up the dedup queue schema using the specified dialect.
-func SetupWithDialect(ctx context.Context, db *sql.DB, d dialect.Dialect) error {
-	var schema string
-	switch d {
-	case dialect.Postgres:
-		schema = SchemaPostgres
-	default:
-		schema = SchemaSQLite
-	}
-	_, err := db.ExecContext(ctx, schema)
+	_, err := db.ExecContext(ctx, Schema)
 	if err != nil {
-		return fmt.Errorf("setup dedup queue schema (%s): %w", d, err)
+		return fmt.Errorf("setup dedup queue schema: %w", err)
 	}
 	return nil
 }
@@ -128,7 +105,7 @@ func New(opts NewOpts) (*Queue, error) {
 		opts.Logger = &logger.DiscardLogger{}
 	}
 
-	err := ensureQueueConfigured(opts.DB, opts.Name, dedupeEnabled, opts.Dialect)
+	err := ensureQueueConfigured(opts.DB, opts.Name, dedupeEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -142,12 +119,11 @@ func New(opts NewOpts) (*Queue, error) {
 		blockRepeatsOnDLQ: blockRepeatsOnDLQ,
 		hash:              opts.HashFunc,
 		logger:            opts.Logger,
-		dialect:           opts.Dialect,
 	}, nil
 }
 
-func ensureQueueConfigured(db *sql.DB, name string, dedupeEnabled bool, d dialect.Dialect) error {
-	query := d.Rebind(`INSERT INTO queues(queue, dedupe_enabled) VALUES(?, ?) ON CONFLICT(queue) DO UPDATE SET dedupe_enabled = excluded.dedupe_enabled`)
+func ensureQueueConfigured(db *sql.DB, name string, dedupeEnabled bool) error {
+	query := internalsql.Rebind(`INSERT INTO queues(queue, dedupe_enabled) VALUES(?, ?) ON CONFLICT(queue) DO UPDATE SET dedupe_enabled = excluded.dedupe_enabled`)
 	_, err := db.Exec(query, name, boolToInt(dedupeEnabled))
 	if err != nil {
 		return fmt.Errorf("ensure queue configuration: %w", err)
@@ -228,7 +204,7 @@ func (q *Queue) sendAndGetIDTx(ctx context.Context, tx *sql.Tx, m queue.Message)
 	available := time.Now().Add(m.Delay).Unix()
 
 	var id int64
-	insertQuery := q.dialect.Rebind(`
+	insertQuery := internalsql.Rebind(`
 		INSERT INTO jobs(ns_id, key, body, avail_s)
 		VALUES (?, ?, ?, ?)
 		ON CONFLICT(ns_id, key) DO NOTHING
@@ -258,13 +234,13 @@ func decodeEnvelope(body []byte) (*messageEnvelope, error) {
 }
 
 func (q *Queue) ensureNamespace(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
-	query := q.dialect.Rebind(`INSERT INTO job_ns(queue, name) VALUES(?, ?) ON CONFLICT(queue, name) DO NOTHING`)
+	query := internalsql.Rebind(`INSERT INTO job_ns(queue, name) VALUES(?, ?) ON CONFLICT(queue, name) DO NOTHING`)
 	if _, err := tx.ExecContext(ctx, query, q.name, name); err != nil {
 		return 0, fmt.Errorf("ensure namespace insert: %w", err)
 	}
 
 	var id int64
-	selectQuery := q.dialect.Rebind(`SELECT id FROM job_ns WHERE queue = ? AND name = ?`)
+	selectQuery := internalsql.Rebind(`SELECT id FROM job_ns WHERE queue = ? AND name = ?`)
 	if err := tx.QueryRowContext(ctx, selectQuery, q.name, name).Scan(&id); err != nil {
 		return 0, fmt.Errorf("ensure namespace select: %w", err)
 	}
@@ -273,7 +249,7 @@ func (q *Queue) ensureNamespace(ctx context.Context, tx *sql.Tx, name string) (i
 
 func (q *Queue) isJobDone(ctx context.Context, tx *sql.Tx, nsID int64, key []byte) (bool, error) {
 	var status int
-	query := q.dialect.Rebind(`SELECT status FROM job_done WHERE ns_id = ? AND key = ?`)
+	query := internalsql.Rebind(`SELECT status FROM job_done WHERE ns_id = ? AND key = ?`)
 	err := tx.QueryRowContext(ctx, query, nsID, key).Scan(&status)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -299,7 +275,7 @@ func (q *Queue) receiveTx(ctx context.Context, tx *sql.Tx) (*queue.Message, erro
 	nowSecs := now.Unix()
 	newAvail := now.Add(q.timeout).Unix()
 
-	query := q.dialect.Rebind(`
+	query := internalsql.Rebind(`
 		WITH next_job AS (
 			SELECT j.id
 			FROM jobs j
@@ -375,7 +351,7 @@ func (q *Queue) extendTx(ctx context.Context, tx *sql.Tx, id queue.ID, delay tim
 	}
 
 	newAvail := time.Now().Add(delay).Unix()
-	query := q.dialect.Rebind(`UPDATE jobs SET avail_s = ? WHERE id = ?`)
+	query := internalsql.Rebind(`UPDATE jobs SET avail_s = ? WHERE id = ?`)
 	_, err = tx.ExecContext(ctx, query, newAvail, jobID)
 	if err != nil {
 		return fmt.Errorf("extend job: %w", err)
@@ -403,7 +379,7 @@ func (q *Queue) deleteTx(ctx context.Context, tx *sql.Tx, id queue.ID, status jo
 		return err
 	}
 
-	query := q.dialect.Rebind(`DELETE FROM jobs WHERE id = ?`)
+	query := internalsql.Rebind(`DELETE FROM jobs WHERE id = ?`)
 	if _, err := tx.ExecContext(ctx, query, jobID); err != nil {
 		return fmt.Errorf("delete job: %w", err)
 	}
@@ -438,7 +414,7 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id queue.ID,
 		return err
 	}
 
-	insertQuery := q.dialect.Rebind(`
+	insertQuery := internalsql.Rebind(`
 		INSERT INTO job_dead(id, ns_id, key, body, attempts, reason, error)
 		VALUES(?, ?, ?, ?, ?, ?, ?)`)
 	_, err = tx.ExecContext(ctx, insertQuery, row.id, row.namespaceID, row.key, row.body, row.attempts, failureReason, errorMsg)
@@ -446,7 +422,7 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id queue.ID,
 		return fmt.Errorf("insert job_dead: %w", err)
 	}
 
-	deleteQuery := q.dialect.Rebind(`DELETE FROM jobs WHERE id = ?`)
+	deleteQuery := internalsql.Rebind(`DELETE FROM jobs WHERE id = ?`)
 	if _, err := tx.ExecContext(ctx, deleteQuery, jobID); err != nil {
 		return fmt.Errorf("delete job during dead-letter move: %w", err)
 	}
@@ -469,7 +445,7 @@ type jobRow struct {
 }
 
 func (q *Queue) fetchJob(ctx context.Context, tx *sql.Tx, id int64) (*jobRow, error) {
-	query := q.dialect.Rebind(`SELECT id, ns_id, key, body, attempts FROM jobs WHERE id = ?`)
+	query := internalsql.Rebind(`SELECT id, ns_id, key, body, attempts FROM jobs WHERE id = ?`)
 	var row jobRow
 	err := tx.QueryRowContext(ctx, query, id).Scan(&row.id, &row.namespaceID, &row.key, &row.body, &row.attempts)
 	if err != nil {
@@ -482,7 +458,7 @@ func (q *Queue) fetchJob(ctx context.Context, tx *sql.Tx, id int64) (*jobRow, er
 }
 
 func (q *Queue) insertJobDone(ctx context.Context, tx *sql.Tx, nsID int64, key []byte, status jobDoneStatus) error {
-	query := q.dialect.InsertIgnore("job_done", "ns_id, key, status", "?, ?, ?")
+	query := `INSERT INTO job_done(ns_id, key, status) VALUES($1, $2, $3) ON CONFLICT DO NOTHING`
 	_, err := tx.ExecContext(ctx, query, nsID, key, int(status))
 	if err != nil {
 		return fmt.Errorf("insert job_done: %w", err)
