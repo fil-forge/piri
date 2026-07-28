@@ -65,8 +65,8 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) error {
 			return false, nil
 		}
 		n, err := tx.Exec(`
-			INSERT INTO pdp_blob_pipeline (blob) VALUES ($1)
-			ON CONFLICT (blob) DO NOTHING
+			INSERT INTO pdp_blob_pipeline (digest) VALUES ($1)
+			ON CONFLICT (digest) DO NOTHING
 		`, []byte(blob))
 		if err != nil {
 			return false, fmt.Errorf("inserting pipeline entry: %w", err)

@@ -6,7 +6,7 @@
 -- on-chain deletion (schedulePieceDeletions → rm_message_hash on
 -- pdp_data_set_pieces, mirroring Curio's handleDeleteDataSetPiece).
 CREATE TABLE pdp_pending_piece_removals (
-    blob bytea NOT NULL,
+    digest bytea NOT NULL, -- blob multihash, raw bytes
     requested_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT pdp_pending_piece_removals_pk PRIMARY KEY (blob)
+    CONSTRAINT pdp_pending_piece_removals_pk PRIMARY KEY (digest)
 );

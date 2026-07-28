@@ -28,8 +28,8 @@ func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) 
 	}()
 
 	if _, err := p.db.Exec(ctx, `
-		INSERT INTO pdp_pending_piece_removals (blob) VALUES ($1)
-		ON CONFLICT (blob) DO NOTHING
+		INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)
+		ON CONFLICT (digest) DO NOTHING
 	`, []byte(blob)); err != nil {
 		return fmt.Errorf("recording pending piece removal: %w", err)
 	}
@@ -69,9 +69,9 @@ func (p *PDPService) ProcessPendingRemovals(ctx context.Context) error {
 // root removal injected so tests can exercise the sweep without contracts.
 func (p *PDPService) processPendingRemovals(ctx context.Context, removeRoot func(context.Context, uint64, uint64) (common.Hash, error)) error {
 	var pending []struct {
-		Blob []byte `db:"blob"`
+		Blob []byte `db:"digest"`
 	}
-	if err := p.db.Select(ctx, &pending, `SELECT blob FROM pdp_pending_piece_removals`); err != nil {
+	if err := p.db.Select(ctx, &pending, `SELECT digest FROM pdp_pending_piece_removals`); err != nil {
 		return fmt.Errorf("listing pending removals: %w", err)
 	}
 	if len(pending) == 0 {
@@ -250,7 +250,7 @@ func (p *PDPService) blobHasClaims(ctx context.Context, blob multihash.Multihash
 // cancelPendingRemoval drops the removal request, keeping the bytes.
 func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Multihash) error {
 	if _, err := p.db.Exec(ctx, `
-		DELETE FROM pdp_pending_piece_removals WHERE blob = $1
+		DELETE FROM pdp_pending_piece_removals WHERE digest = $1
 	`, []byte(blob)); err != nil {
 		return fmt.Errorf("cancelling pending removal of %s: %w", blob.String(), err)
 	}
@@ -266,13 +266,13 @@ func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Mu
 // noop.
 func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Multihash) (active bool, err error) {
 	if _, err := p.db.Exec(ctx, `
-		DELETE FROM pdp_blob_pipeline WHERE blob = $1 AND aggregate_root IS NULL
+		DELETE FROM pdp_blob_pipeline WHERE digest = $1 AND aggregate_root IS NULL
 	`, []byte(blob)); err != nil {
 		return false, fmt.Errorf("cancelling pipeline row for %s: %w", blob.String(), err)
 	}
 	var remaining int
 	if err := p.db.QueryRow(ctx, `
-		SELECT count(*) FROM pdp_blob_pipeline WHERE blob = $1
+		SELECT count(*) FROM pdp_blob_pipeline WHERE digest = $1
 	`, []byte(blob)).Scan(&remaining); err != nil {
 		return false, fmt.Errorf("checking pipeline row for %s: %w", blob.String(), err)
 	}
@@ -347,7 +347,7 @@ func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multiha
 			return false, fmt.Errorf("deleting mhash to commp mapping: %w", err)
 		}
 		if _, err := tx.Exec(`
-			DELETE FROM pdp_pending_piece_removals WHERE blob = $1
+			DELETE FROM pdp_pending_piece_removals WHERE digest = $1
 		`, []byte(blob)); err != nil {
 			return false, fmt.Errorf("deleting pending removal row: %w", err)
 		}

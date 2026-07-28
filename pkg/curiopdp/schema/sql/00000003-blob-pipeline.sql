@@ -4,9 +4,13 @@
 -- /blob/accept until its aggregate's pieces are staged on-chain; the removal
 -- machinery reads it transactionally to answer "is this digest still in
 -- flight?".
+--
+-- Column typing follows the curio tables this pipeline joins against
+-- (pdp_piece_mh_to_commp: mhash bytea, commp text): multihash digests are
+-- raw bytes, piece CIDs are text strings.
 
 CREATE TABLE pdp_blob_pipeline (
-    blob bytea NOT NULL,
+    digest bytea NOT NULL, -- blob multihash, raw bytes
     -- stage 1: commp. The task id is provenance for the aggregation task's
     -- Follows crash net and is never cleared; commp is the v2 piece CID
     -- string, set when the stage completes.
@@ -18,7 +22,7 @@ CREATE TABLE pdp_blob_pipeline (
     agg_task_id bigint,
     aggregate_root text, -- aggregate root piece CID (v2), set when folded in
     created_at timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT pdp_blob_pipeline_pk PRIMARY KEY (blob)
+    CONSTRAINT pdp_blob_pipeline_pk PRIMARY KEY (digest)
 );
 CREATE INDEX pdp_blob_pipeline_unaggregated_idx
     ON pdp_blob_pipeline (created_at) WHERE aggregate_root IS NULL;

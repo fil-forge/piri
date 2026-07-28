@@ -53,7 +53,7 @@ func (t *AggregateTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_blob_pipeline SET agg_task_id = $1
-			WHERE blob = $2 AND agg_task_id IS NULL AND aggregate_root IS NULL
+			WHERE digest = $2 AND agg_task_id IS NULL AND aggregate_root IS NULL
 		`, id, []byte(blob))
 		return n > 0, err
 	})
@@ -67,13 +67,13 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 		roots = roots[:0]
 
 		var rows []struct {
-			Blob  []byte `db:"blob"`
+			Blob  []byte `db:"digest"`
 			Commp string `db:"commp"`
 		}
 		if err := tx.Select(&rows, `
-			SELECT blob, commp FROM pdp_blob_pipeline
+			SELECT digest, commp FROM pdp_blob_pipeline
 			WHERE commp IS NOT NULL AND aggregate_root IS NULL
-			ORDER BY created_at, blob
+			ORDER BY created_at, digest
 			FOR UPDATE
 		`); err != nil {
 			return false, fmt.Errorf("loading unaggregated pieces: %w", err)
@@ -95,7 +95,7 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			pieces = append(pieces, p)
 		}
 
-		_, aggregates, err := aggregator.AggregatePieces(aggtypes.Buffer{}, pieces)
+		aggregates, err := aggregator.Append(pieces)
 		if err != nil {
 			return false, fmt.Errorf("folding aggregates: %w", err)
 		}
@@ -189,8 +189,8 @@ func (t *AggregateTask) TypeDetails() harmonytask.TaskTypeDetails {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`
 					UPDATE pdp_blob_pipeline SET agg_task_id = $1
-					WHERE blob = (
-						SELECT blob FROM pdp_blob_pipeline
+					WHERE digest = (
+						SELECT digest FROM pdp_blob_pipeline
 						WHERE commp IS NOT NULL AND aggregate_root IS NULL AND agg_task_id IS NULL
 						ORDER BY created_at LIMIT 1
 					)

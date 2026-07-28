@@ -43,7 +43,7 @@ func (t *CommPTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_blob_pipeline SET commp_task_id = $1
-			WHERE blob = $2 AND commp_task_id IS NULL
+			WHERE digest = $2 AND commp_task_id IS NULL
 		`, id, []byte(blob))
 		return n > 0, err
 	})
@@ -53,11 +53,11 @@ func (t *CommPTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 	ctx := context.Background()
 
 	var rows []struct {
-		Blob  []byte  `db:"blob"`
+		Blob  []byte  `db:"digest"`
 		Commp *string `db:"commp"`
 	}
 	if err := t.db.Select(ctx, &rows, `
-		SELECT blob, commp FROM pdp_blob_pipeline WHERE commp_task_id = $1
+		SELECT digest, commp FROM pdp_blob_pipeline WHERE commp_task_id = $1
 	`, taskID); err != nil {
 		return false, fmt.Errorf("loading pipeline row: %w", err)
 	}
@@ -94,7 +94,7 @@ func (t *CommPTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		if _, err := t.db.Exec(ctx, `
-			UPDATE pdp_blob_pipeline SET commp = $1 WHERE blob = $2
+			UPDATE pdp_blob_pipeline SET commp = $1 WHERE digest = $2
 		`, res.PieceCID.String(), []byte(blob)); err != nil {
 			return false, fmt.Errorf("recording commp: %w", err)
 		}
@@ -126,8 +126,8 @@ func (t *CommPTask) TypeDetails() harmonytask.TaskTypeDetails {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`
 					UPDATE pdp_blob_pipeline SET commp_task_id = $1
-					WHERE blob = (
-						SELECT blob FROM pdp_blob_pipeline
+					WHERE digest = (
+						SELECT digest FROM pdp_blob_pipeline
 						WHERE commp_task_id IS NULL AND aggregate_root IS NULL
 						ORDER BY created_at LIMIT 1
 					)

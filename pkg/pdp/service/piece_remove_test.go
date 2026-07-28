@@ -107,7 +107,7 @@ func (w *removalWorld) seedPipeline(t *testing.T, blob multihash.Multihash, comm
 		rootArg = aggregateRoot
 	}
 	_, err := w.db.Exec(t.Context(), `
-		INSERT INTO pdp_blob_pipeline (blob, commp_task_id, commp, aggregate_root)
+		INSERT INTO pdp_blob_pipeline (digest, commp_task_id, commp, aggregate_root)
 		VALUES ($1, 42, $2, $3)
 	`, []byte(blob), commpArg, rootArg)
 	require.NoError(t, err)

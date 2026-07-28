@@ -26,7 +26,6 @@ func main() {
 	models := []any{
 		types.AggregatePiece{},
 		types.Aggregate{},
-		types.Buffer{},
 	}
 	const cborFile = "../cbor_gen.go"
 	if err := cbg.WriteMapEncodersToFile(cborFile, "types", models...); err != nil {
