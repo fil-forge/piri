@@ -555,8 +555,8 @@ github.com/fil-forge/libforge v0.0.0-20260723212548-3e5e6ba95711 h1:xO5gwfL3W2wq
 github.com/fil-forge/libforge v0.0.0-20260723212548-3e5e6ba95711/go.mod h1:0kXihIQ4L2uZ00nR5XrZ/Y8Db7Ht/qQNuiWslwMJ95M=
 github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54 h1:KzQzCcEBBF6AfhZOwbQIPh5W2HwCgLS8VFTmch0oMgo=
 github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54/go.mod h1:O3GqUy+G7hb+oiGW6Wp77W2lRmZs7bewM9s/Vy4D6qo=
-github.com/fil-forge/ucantone v0.0.0-20260630103048-a8f24fe31eb6 h1:0k57ScNcbxTrveaJhos1veTS7jm4RXt2VBofNK+60ko=
-github.com/fil-forge/ucantone v0.0.0-20260630103048-a8f24fe31eb6/go.mod h1:oFY5BfD0bDeodGlbBHh3/nK99MAS93rGXjoQz7s5qgE=
+github.com/fil-forge/ucantone v0.0.0-20260727203046-ccb77059de44 h1:ofvb2Qq7++VPRelGsLbtnd1ZMKVT4n4QGoa79BhJ6VQ=
+github.com/fil-forge/ucantone v0.0.0-20260727203046-ccb77059de44/go.mod h1:oFY5BfD0bDeodGlbBHh3/nK99MAS93rGXjoQz7s5qgE=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2 h1:Abzcl/chtWOahrGeF/+q0phHl+iOZpfMNp28mr5NFEY=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2/go.mod h1:Sd4Ok8KKpt9JyUOh2kL0skv/ccXdEbeGT/eJ2tMJ3Uk=
 github.com/filecoin-project/filecoin-ffi v1.36.0 h1:UFUmwbKDf4MbDMMH04dGLCH7w9Hy5HwuuPmSqGmyRMU=
