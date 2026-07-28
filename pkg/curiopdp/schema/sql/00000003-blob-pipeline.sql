@@ -32,7 +32,7 @@ CREATE INDEX pdp_blob_pipeline_unaggregated_idx
 -- batch task and deleted (with their pipeline rows) once the batch is
 -- submitted on-chain.
 CREATE TABLE pdp_root_submissions (
-    root text NOT NULL,
+    root text NOT NULL, -- aggregate root piece CID (v2)
     add_task_id bigint,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT pdp_root_submissions_pk PRIMARY KEY (root)
