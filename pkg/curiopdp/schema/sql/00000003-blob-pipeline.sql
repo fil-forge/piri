@@ -16,11 +16,13 @@ CREATE TABLE pdp_blob_pipeline (
     -- string, set when the stage completes.
     commp_task_id bigint,
     commp text,
+    commp_hashed_at timestamptz, -- stamped with commp; per-stage age for stuck-row triage
     -- stage 2: aggregation. agg_task_id records the per-piece aggregation
     -- task spawned for this blob (spawn dedup); the fold itself operates on
     -- every unaggregated row under the task's Max=1 serialization.
     agg_task_id bigint,
     aggregate_root text, -- aggregate root piece CID (v2), set when folded in
+    aggregated_at timestamptz, -- stamped with aggregate_root
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT pdp_blob_pipeline_pk PRIMARY KEY (digest)
 );

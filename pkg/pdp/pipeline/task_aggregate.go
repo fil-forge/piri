@@ -116,7 +116,7 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 				members[i] = p.Link.String()
 			}
 			if _, err := tx.Exec(`
-				UPDATE pdp_blob_pipeline SET aggregate_root = $1
+				UPDATE pdp_blob_pipeline SET aggregate_root = $1, aggregated_at = now()
 				WHERE commp = ANY($2) AND aggregate_root IS NULL
 			`, a.Root.String(), members); err != nil {
 				return false, fmt.Errorf("marking aggregated pieces: %w", err)

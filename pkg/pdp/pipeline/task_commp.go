@@ -94,7 +94,7 @@ func (t *CommPTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		}
 
 		if _, err := t.db.Exec(ctx, `
-			UPDATE pdp_blob_pipeline SET commp = $1 WHERE digest = $2
+			UPDATE pdp_blob_pipeline SET commp = $1, commp_hashed_at = now() WHERE digest = $2
 		`, res.PieceCID.String(), []byte(blob)); err != nil {
 			return false, fmt.Errorf("recording commp: %w", err)
 		}
