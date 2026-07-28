@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	internaltesting "github.com/fil-forge/piri/lib/jobqueue/internal/testing"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/worker"
@@ -45,26 +44,22 @@ const (
 
 var allQueueImplementations = []queueImplementation{queueImplClassic, queueImplDedup}
 
-// runForAllQueuesAndBackends runs tests for all queue implementations and all backends
-func runForAllQueuesAndBackends(t *testing.T, fn func(*testing.T, queueImplementation, internaltesting.Backend)) {
+// runForAllQueues runs tests for all queue implementations.
+func runForAllQueues(t *testing.T, fn func(*testing.T, queueImplementation)) {
 	for _, impl := range allQueueImplementations {
 		impl := impl
 		t.Run(string(impl), func(t *testing.T) {
-			internaltesting.RunForAllBackends(t, func(t *testing.T, backend internaltesting.Backend) {
-				fn(t, impl, backend)
-			})
+			fn(t, impl)
 		})
 	}
 }
 
-// runForDedupQueueAndBackends runs tests for dedup queue with all backends
-func runForDedupQueueAndBackends(t *testing.T, fn func(*testing.T, queueImplementation, internaltesting.Backend)) {
+// runForDedupQueue runs tests for the dedup queue implementation.
+func runForDedupQueue(t *testing.T, fn func(*testing.T, queueImplementation)) {
 	for _, impl := range []queueImplementation{queueImplDedup} {
 		impl := impl
 		t.Run(string(impl), func(t *testing.T) {
-			internaltesting.RunForAllBackends(t, func(t *testing.T, backend internaltesting.Backend) {
-				fn(t, impl, backend)
-			})
+			fn(t, impl)
 		})
 	}
 }
@@ -80,38 +75,20 @@ func (k queueImplementation) options() []jobqueue.Option {
 	}
 }
 
-func (k queueImplementation) optionsWithDialect(d dialect.Dialect) []jobqueue.Option {
-	opts := k.options()
-	if d == dialect.Postgres {
-		// For dedup queue with PostgreSQL, configure dedupe with dialect
-		if k == queueImplDedup {
-			opts = []jobqueue.Option{jobqueue.WithDedupQueue(&jobqueue.DedupQueueConfig{
-				Dialect: d,
-			})}
-		}
-	}
-	return opts
-}
-
 func (k queueImplementation) queueName(base string) string {
 	return fmt.Sprintf("%s-%s", base, k)
 }
 
-// newTestJobQueueForBackend creates a new JobQueue for testing with the specified backend
-func newTestJobQueueForBackend(t *testing.T, impl queueImplementation, backend internaltesting.Backend, opts ...jobqueue.Option) *jobqueue.JobQueue[TestMessage] {
+// newTestJobQueue creates a new JobQueue for testing backed by the PostgreSQL test container.
+func newTestJobQueue(t *testing.T, impl queueImplementation, opts ...jobqueue.Option) *jobqueue.JobQueue[TestMessage] {
 	t.Helper()
-	db := internaltesting.NewDBForBackend(t, backend)
-
-	// For PostgreSQL, clean up dedup tables between tests
-	if backend.IsPostgres() {
-		_, err := db.Exec(`TRUNCATE TABLE job_dead, job_done, jobs, job_ns, queues, jobqueue_dead, jobqueue CASCADE`)
-		require.NoError(t, err)
-	}
+	// NewDB applies the schemas and truncates all tables, ensuring a clean
+	// state for each test against the shared container database.
+	db := internaltesting.NewDB(t)
 
 	ser := serializer.JSON[TestMessage]{}
 	allOpts := append([]jobqueue.Option{}, opts...)
-	allOpts = append(allOpts, impl.optionsWithDialect(backend.Dialect())...)
-	allOpts = append(allOpts, jobqueue.WithDialect(backend.Dialect()))
+	allOpts = append(allOpts, impl.options()...)
 
 	jq, err := jobqueue.New[TestMessage](impl.queueName("test-queue"), db, ser, allOpts...)
 	require.NoError(t, err)
@@ -119,8 +96,8 @@ func newTestJobQueueForBackend(t *testing.T, impl queueImplementation, backend i
 }
 
 func TestJobQueue_Stop_GracefulShutdown(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend, jobqueue.WithMaxWorkers(1))
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl, jobqueue.WithMaxWorkers(1))
 
 		var taskCompleted atomic.Bool
 		var taskStarted atomic.Bool
@@ -160,8 +137,8 @@ func TestJobQueue_Stop_GracefulShutdown(t *testing.T) {
 }
 
 func TestJobQueue_Stop_RejectsNewTasks(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		// Register a simple task
 		err := jq.Register("simple-task", func(ctx context.Context, msg TestMessage) error {
@@ -186,8 +163,8 @@ func TestJobQueue_Stop_RejectsNewTasks(t *testing.T) {
 }
 
 func TestJobQueue_RejectRegisterAfterStart(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		// Register a simple task, should pass
 		err := jq.Register("simple-task", func(ctx context.Context, msg TestMessage) error {
@@ -209,8 +186,8 @@ func TestJobQueue_RejectRegisterAfterStart(t *testing.T) {
 }
 
 func TestJobQueue_Stop_ContextTimeout(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend, jobqueue.WithMaxWorkers(1))
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl, jobqueue.WithMaxWorkers(1))
 
 		blockForever := make(chan struct{})
 
@@ -245,8 +222,8 @@ func TestJobQueue_Stop_ContextTimeout(t *testing.T) {
 }
 
 func TestJobQueue_Stop_MultipleCallsHandled(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		// Register a simple task
 		err := jq.Register("simple-task", func(ctx context.Context, msg TestMessage) error {
@@ -293,8 +270,8 @@ func TestJobQueue_Stop_MultipleCallsHandled(t *testing.T) {
 }
 
 func TestJobQueue_DedupPreventsDuplicates(t *testing.T) {
-	runForDedupQueueAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForDedupQueue(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		var processed atomic.Int32
 		require.NoError(t, jq.Register("task", func(ctx context.Context, msg TestMessage) error {
@@ -330,8 +307,8 @@ func TestJobQueue_DedupPreventsDuplicates(t *testing.T) {
 }
 
 func TestJobQueue_Stop_CompletesAllPendingTasks(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend, jobqueue.WithMaxWorkers(2))
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl, jobqueue.WithMaxWorkers(2))
 
 		var processedCount atomic.Int32
 		taskProcessing := make(chan struct{}, 10)
@@ -381,8 +358,8 @@ func TestJobQueue_Stop_CompletesAllPendingTasks(t *testing.T) {
 }
 
 func TestJobQueue_Stop_EnqueueDuringShutdown(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend, jobqueue.WithMaxWorkers(1))
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl, jobqueue.WithMaxWorkers(1))
 
 		shutdownStarted := make(chan struct{})
 		taskCanComplete := make(chan struct{})
@@ -436,8 +413,8 @@ func TestJobQueue_Stop_EnqueueDuringShutdown(t *testing.T) {
 }
 
 func TestJobQueue_Stop_WithoutStart(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		// Stop without starting must fail
 		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -453,8 +430,8 @@ func TestJobQueue_Stop_WithoutStart(t *testing.T) {
 }
 
 func TestJobQueue_Stop_TaskFailureHandling(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend,
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl,
 			jobqueue.WithMaxWorkers(2))
 
 		var processedCount atomic.Int32
@@ -494,8 +471,8 @@ func TestJobQueue_Stop_TaskFailureHandling(t *testing.T) {
 }
 
 func TestJobQueue_StartStopStartCycle(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
-		jq := newTestJobQueueForBackend(t, impl, backend)
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
+		jq := newTestJobQueue(t, impl)
 
 		var processedCount atomic.Int32
 
@@ -538,9 +515,9 @@ func TestJobQueue_StartStopStartCycle(t *testing.T) {
 }
 
 func TestJobQueue_WithOnFailure(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
 		// Create job queue with low max retries for faster test
-		jq := newTestJobQueueForBackend(t, impl, backend,
+		jq := newTestJobQueue(t, impl,
 			jobqueue.WithMaxRetries(2),
 			jobqueue.WithMaxTimeout(100*time.Millisecond))
 
@@ -604,9 +581,9 @@ func TestJobQueue_WithOnFailure(t *testing.T) {
 }
 
 func TestJobQueue_PermanentError(t *testing.T) {
-	runForAllQueuesAndBackends(t, func(t *testing.T, impl queueImplementation, backend internaltesting.Backend) {
+	runForAllQueues(t, func(t *testing.T, impl queueImplementation) {
 		t.Run("does not retry tasks that fail with PermanentError", func(t *testing.T) {
-			jq := newTestJobQueueForBackend(t, impl, backend,
+			jq := newTestJobQueue(t, impl,
 				jobqueue.WithMaxRetries(5),
 				jobqueue.WithMaxTimeout(100*time.Millisecond))
 
@@ -660,7 +637,7 @@ func TestJobQueue_PermanentError(t *testing.T) {
 		})
 
 		t.Run("unwraps PermanentError correctly", func(t *testing.T) {
-			jq := newTestJobQueueForBackend(t, impl, backend,
+			jq := newTestJobQueue(t, impl,
 				jobqueue.WithMaxRetries(3),
 				jobqueue.WithMaxTimeout(100*time.Millisecond))
 

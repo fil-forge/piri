@@ -25,8 +25,8 @@ const HarmonyDBSchema = "curio"
 // only the curated PDP closure schema. Curio's pdpv0 tasks + harmonytask run on
 // this DB. Requires Postgres — harmonytask's claim uses FOR UPDATE SKIP LOCKED.
 func ProvideHarmonyDB(cfg app.StorageConfig) (*harmonydb.DB, error) {
-	if !cfg.Database.IsPostgres() {
-		return nil, fmt.Errorf("curio PDP pipeline requires Postgres (set database type to postgres)")
+	if cfg.Database.Postgres.URL.Host == "" {
+		return nil, fmt.Errorf("curio PDP pipeline requires a PostgreSQL database (set repo.database.postgres.url)")
 	}
 	u := cfg.Database.Postgres.URL
 	port := u.Port()

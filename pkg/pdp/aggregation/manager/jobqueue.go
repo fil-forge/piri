@@ -13,10 +13,8 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/lib/jobqueue/traceutil"
-	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 )
@@ -106,17 +104,10 @@ func (a *AddRootsTaskHandler) Handle(ctx context.Context, job types.ManagerJob) 
 
 type QueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"aggregator_db"`
-	StorageConfig app.StorageConfig
+	DB *sql.DB `name:"aggregator_db"`
 }
 
 func NewQueue(params QueueParams) (jobqueue.Service[types.ManagerJob], error) {
-	// Determine dialect from storage config
-	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
-		d = dialect.Postgres
-	}
-
 	managerQueue, err := jobqueue.New[types.ManagerJob](
 		QueueName,
 		params.DB,
@@ -127,7 +118,6 @@ func NewQueue(params QueueParams) (jobqueue.Service[types.ManagerJob], error) {
 		jobqueue.WithMaxWorkers(uint(3)),
 		// wait for twice a filecoin epoch to submit
 		jobqueue.WithMaxTimeout(time.Minute),
-		jobqueue.WithDialect(d),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating manager job-queue: %w", err)

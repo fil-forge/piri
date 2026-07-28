@@ -8,7 +8,7 @@ This section covers the architectural concepts and design decisions behind Piri'
 
 ### [Database](database.md)
 
-How Piri uses databases for operational state, the difference between SQLite and PostgreSQL backends, and guidance on choosing the right backend for your deployment.
+How Piri uses its required PostgreSQL database for operational state, job queues, and the PDP proving pipeline, and how the logical databases are laid out as schemas.
 
 ### [Networks](networks.md)
 

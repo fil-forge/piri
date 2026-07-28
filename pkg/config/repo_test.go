@@ -6,8 +6,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/fil-forge/piri/pkg/config/app"
 )
 
 func TestPostgresConfig_ToAppConfig(t *testing.T) {
@@ -62,36 +60,21 @@ func TestPostgresConfig_ToAppConfig(t *testing.T) {
 }
 
 func TestDatabaseConfig_ToAppConfig(t *testing.T) {
-	t.Run("sqlite type", func(t *testing.T) {
-		cfg := DatabaseConfig{Type: "sqlite"}
-		result, err := cfg.ToAppConfig()
-		require.NoError(t, err)
-		assert.Equal(t, app.DatabaseTypeSQLite, result.Type)
-	})
-
-	t.Run("empty type defaults to sqlite", func(t *testing.T) {
-		cfg := DatabaseConfig{}
-		result, err := cfg.ToAppConfig()
-		require.NoError(t, err)
-		assert.Equal(t, app.DatabaseTypeSQLite, result.Type)
-	})
-
-	t.Run("postgres type", func(t *testing.T) {
+	t.Run("postgres config", func(t *testing.T) {
 		cfg := DatabaseConfig{
-			Type: "postgres",
 			Postgres: PostgresConfig{
 				URL: "postgres://localhost/db",
 			},
 		}
 		result, err := cfg.ToAppConfig()
 		require.NoError(t, err)
-		assert.Equal(t, app.DatabaseTypePostgres, result.Type)
 		assert.Equal(t, "/db", result.Postgres.URL.Path)
 	})
 
-	t.Run("postgres without URL returns error", func(t *testing.T) {
-		cfg := DatabaseConfig{Type: "postgres"}
+	t.Run("missing URL returns error", func(t *testing.T) {
+		cfg := DatabaseConfig{}
 		_, err := cfg.ToAppConfig()
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "URL is required")
 	})
 }

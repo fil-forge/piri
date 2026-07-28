@@ -104,8 +104,8 @@ to cover the new graph shape.
   logs go through zap.
 - HTTP: echo v4. Observability: OpenTelemetry (traces + metrics, otelecho
   middleware); per-package `telemetry.go` files add handler instrumentation.
-- Persistence: gorm with SQLite and Postgres drivers; job queues in
-  `lib/jobqueue` back async processing.
+- Persistence: PostgreSQL only (the PDP pipeline runs on Curio's harmonydb);
+  job queues in `lib/jobqueue` back async processing.
 
 ## Gotchas / blast radius
 

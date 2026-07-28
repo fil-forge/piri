@@ -38,7 +38,7 @@ func CommonModules(cfg app.AppConfig) fx.Option {
 		identity.Module, // Provides identity.Identity, ucan.Issuer and ucan.Signer
 		proofs.Module,   // Provides service for requesting service proofs
 		echo.Module,     // Provides Echo server with route registration
-		database.Module, // Provides SQLite database for job queues
+		database.Module, // Provides PostgreSQL databases for job queues
 		dynamic.Module,  // Provides dynamic configuration registry
 
 		admin.Module,  // Provides admin module with http routes.
