@@ -82,7 +82,8 @@ func TestAccept_PieceHeld(t *testing.T) {
 	require.Equal(t, digest, stored.Blob.Digest)
 	require.Equal(t, space, stored.Space)
 	require.Equal(t, cause, stored.Cause)
-	require.NotNil(t, stored.PDPAccept, "pdp accept promise persisted")
+	require.Equal(t, resp.PDP.Task().Link(), stored.PDPAccept.Task, "pdp accept promise persisted")
+	require.Equal(t, resp.Claim.Link(), stored.Site, "location claim link persisted")
 
 	// Claim persisted under its own link and is a /assert/location invocation.
 	got, err := claimStore.Get(t.Context(), resp.Claim.Link())

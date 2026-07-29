@@ -75,6 +75,7 @@ func (m *SubmissionManager) flush(ctx context.Context, force bool) error {
 		`).Scan(&unclaimed); err != nil {
 			return fmt.Errorf("counting unclaimed roots: %w", err)
 		}
+		log.Debugw("flushing root submissions", "unclaimed", unclaimed, "batchSize", batchSize, "force", force)
 		if unclaimed == 0 || (!force && unclaimed < batchSize) {
 			return nil
 		}

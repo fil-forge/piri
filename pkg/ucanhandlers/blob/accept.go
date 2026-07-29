@@ -189,7 +189,6 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("creating location commitment: %w", err)
 	}
 
-	claimLink := claim.Link()
 	acc := acceptance.Acceptance{
 		Space: req.Space,
 		Blob: acceptance.Blob{
@@ -198,10 +197,10 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		},
 		ExecutedAt: uint64(time.Now().Unix()),
 		Cause:      req.Cause,
-		PDPAccept:  &promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
+		PDPAccept:  promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
 		// The claim link is the digest→claim index /blob/release uses to
 		// delete the location claim when this space's acceptance is removed.
-		Claim: &claimLink,
+		Site: claim.Link(),
 	}
 	// The acceptance is written BEFORE the pipeline enqueue so "an
 	// acceptance exists" is a conservative superset of "the blob entered

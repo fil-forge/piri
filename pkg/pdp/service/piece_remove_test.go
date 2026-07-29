@@ -16,6 +16,7 @@ import (
 
 	blobcmd "github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan/promise"
 
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/store"
@@ -360,9 +361,11 @@ func TestSweep_RevivedClaimCancelsRemoval(t *testing.T) {
 		require.NoError(t, w.bs.Put(t.Context(), blob, 4, bytes.NewReader([]byte("data"))))
 		require.NoError(t, w.svc.RemovePiece(t.Context(), blob))
 		require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-			Space: testutil.RandomDID(t),
-			Blob:  acceptance.Blob{Digest: blob, Size: 4},
-			Cause: testutil.RandomCID(t),
+			Space:     testutil.RandomDID(t),
+			Blob:      acceptance.Blob{Digest: blob, Size: 4},
+			Cause:     testutil.RandomCID(t),
+			PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+			Site:      testutil.RandomCID(t),
 		}))
 
 		require.NoError(t, w.svc.processPendingRemovals(t.Context(), noopRemoveRoot))

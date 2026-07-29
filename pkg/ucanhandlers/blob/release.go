@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -118,16 +117,13 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 
 	// Delete the space's location claim first (found via the acceptance
 	// record) so a failure never leaves a claim without its acceptance.
-	var claimLink *cid.Cid
 	acc, err := deps.Acceptances.Get(ctx, req.Digest, req.Space)
-	if err == nil {
-		claimLink = acc.Claim
-	} else if !errors.Is(err, store.ErrNotFound) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Errorw("getting acceptance", "error", err)
 		return fmt.Errorf("getting acceptance: %w", err)
 	}
-	if claimLink != nil {
-		if err := deps.ClaimStore.Delete(ctx, *claimLink); err != nil {
+	if err == nil && acc.Site.Defined() {
+		if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
 			log.Errorw("deleting location claim", "error", err)
 			return fmt.Errorf("deleting location claim: %w", err)
 		}

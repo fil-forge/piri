@@ -14,19 +14,17 @@ type Acceptance struct {
 	// Blob is the details of the data that was accepted.
 	Blob Blob `cborgen:"blob"`
 	// PDPAccept is the promise of the `/pdp/accept` task completion.
-	// Nil for acceptances that did not enqueue PDP aggregation.
-	PDPAccept *promise.AwaitOK `cborgen:"pdpAccept,omitempty"`
+	PDPAccept promise.AwaitOK `cborgen:"pdpAccept"`
 	// ExecutedAt is the approximate time (in seconds since unix epoch) that
 	// the `/blob/accept` invocation was executed.
 	ExecutedAt uint64 `cborgen:"executedAt"`
 	// Cause is a link to the `/blob/accept` task that requested the
 	// acceptance.
 	Cause cid.Cid `cborgen:"cause"`
-	// Claim is a link to the `/assert/location` claim minted at acceptance —
+	// Site is a link to the location commitment minted at acceptance —
 	// the digest→claim index `/blob/release` uses to delete the location
-	// claim when this space's acceptance is removed. Nil for acceptances
-	// recorded before this field existed.
-	Claim *cid.Cid `cborgen:"claim,omitempty"`
+	// claim when this space's acceptance is removed.
+	Site cid.Cid `cborgen:"site"`
 }
 
 // Blob captures the bytes the acceptance attests to.

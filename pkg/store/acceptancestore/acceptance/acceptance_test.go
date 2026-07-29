@@ -13,42 +13,22 @@ import (
 )
 
 func TestRoundtrip(t *testing.T) {
-	t.Run("without PDP", func(t *testing.T) {
-		a := acceptance.Acceptance{
-			Space: testutil.RandomDID(t),
-			Blob: acceptance.Blob{
-				Digest: testutil.RandomDigest(t),
-				Size:   rand.Uint64N(1000000),
-			},
-			ExecutedAt: uint64(time.Now().Unix()),
-			Cause:      testutil.RandomCID(t),
-		}
+	a := acceptance.Acceptance{
+		Space: testutil.RandomDID(t),
+		Blob: acceptance.Blob{
+			Digest: testutil.RandomDigest(t),
+			Size:   rand.Uint64N(1000000),
+		},
+		PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+		ExecutedAt: uint64(time.Now().Unix()),
+		Cause:      testutil.RandomCID(t),
+		Site:       testutil.RandomCID(t),
+	}
 
-		buf, err := acceptance.Encode(a)
-		require.NoError(t, err)
+	buf, err := acceptance.Encode(a)
+	require.NoError(t, err)
 
-		a2, err := acceptance.Decode(buf)
-		require.NoError(t, err)
-		require.Equal(t, a, a2)
-	})
-
-	t.Run("with PDP", func(t *testing.T) {
-		a := acceptance.Acceptance{
-			Space: testutil.RandomDID(t),
-			Blob: acceptance.Blob{
-				Digest: testutil.RandomDigest(t),
-				Size:   rand.Uint64N(1000000),
-			},
-			PDPAccept:  &promise.AwaitOK{Task: testutil.RandomCID(t)},
-			ExecutedAt: uint64(time.Now().Unix()),
-			Cause:      testutil.RandomCID(t),
-		}
-
-		buf, err := acceptance.Encode(a)
-		require.NoError(t, err)
-
-		a2, err := acceptance.Decode(buf)
-		require.NoError(t, err)
-		require.Equal(t, a, a2)
-	})
+	a2, err := acceptance.Decode(buf)
+	require.NoError(t, err)
+	require.Equal(t, a, a2)
 }

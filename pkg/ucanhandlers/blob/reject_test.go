@@ -6,6 +6,7 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
 	ucanerrors "github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
@@ -84,8 +85,10 @@ func TestReject_AcceptedBlobRefused(t *testing.T) {
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space: space,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
@@ -116,8 +119,10 @@ func TestReject_OtherSpaceAcceptanceDoesNotBlock(t *testing.T) {
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space: accepted,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 

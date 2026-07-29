@@ -8,6 +8,7 @@ import (
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
@@ -82,10 +83,11 @@ func TestRelease_ReleasesClaimAndBytes(t *testing.T) {
 		Cause: testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: space,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
-		Claim: &claimLink,
+		Space:     space,
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      claimLink,
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
@@ -111,13 +113,17 @@ func TestRelease_OtherSpaceClaimRetainsBytes(t *testing.T) {
 
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space: removingSpace,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space: otherSpace,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
@@ -144,8 +150,10 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space: removingSpace,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
 		Space: uploadingSpace,
@@ -155,23 +163,4 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))
 	require.Empty(t, w.pieces.Removed(), "live allocation in another space — bytes retained")
-}
-
-func TestRelease_AcceptanceWithoutClaimLink(t *testing.T) {
-	// Records written before the Claim field existed have no claim link;
-	// removal must still succeed.
-	w := newRemoveWorld(t)
-	digest := testutil.RandomMultihash(t)
-	space := testutil.RandomDID(t)
-
-	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: space,
-		Blob:  acceptance.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
-	}))
-
-	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
-	_, err := w.accepts.Get(t.Context(), digest, space)
-	require.ErrorIs(t, err, store.ErrNotFound)
-	require.Len(t, w.pieces.Removed(), 1)
 }
