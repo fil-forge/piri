@@ -551,8 +551,6 @@ github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0 h1:HAfXUPv
 github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0/go.mod h1:3NRV/7wc4/0uzzrGdI7NoN/yeF1UvqKRwMyjBqGc5s0=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab h1:2J2cDThqTKP6/0k3SfdlSxfyPa3aLqjTYnmvbEcryfg=
 github.com/fil-forge/go-ucanto v0.0.0-20260507172450-5cb5d073f8ab/go.mod h1:lZF3UXZ2hGLKYmXdquG50JqI9pRlUrV6lubGtgOYfwc=
-github.com/fil-forge/libforge v0.0.0-20260723212548-3e5e6ba95711 h1:xO5gwfL3W2wqaLvwFUDj4MuWX9wHK9TGV8F3jFe/mZM=
-github.com/fil-forge/libforge v0.0.0-20260723212548-3e5e6ba95711/go.mod h1:0kXihIQ4L2uZ00nR5XrZ/Y8Db7Ht/qQNuiWslwMJ95M=
 github.com/fil-forge/libforge v0.0.0-20260729112240-258c78d23f68 h1:Odd+Q//eulp5hAE2Fr8g1kqdMfNc0dQA1NQHRBLKulA=
 github.com/fil-forge/libforge v0.0.0-20260729112240-258c78d23f68/go.mod h1:0kXihIQ4L2uZ00nR5XrZ/Y8Db7Ht/qQNuiWslwMJ95M=
 github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54 h1:KzQzCcEBBF6AfhZOwbQIPh5W2HwCgLS8VFTmch0oMgo=
