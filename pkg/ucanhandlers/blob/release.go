@@ -101,20 +101,15 @@ func NewBlobReleaseHandler(deps ReleaseDeps) server.Route {
 // invocation linked by args.Cause — from the request container and verifies
 // it justifies the release: it must be a /blob/remove task whose subject is
 // args.Space and whose digest is args.Digest, carrying a valid proof chain
-// rooted at the space. An undefined cause, an envelope missing from the
-// container, or a non-/blob/remove task fails with UnknownCause; a
-// subject/digest mismatch or a cause that fails UCAN validation fails with
-// InvalidCause.
+// rooted at the space. An envelope missing from the container or a
+// non-/blob/remove task fails with UnknownCause; a subject/digest mismatch
+// or a cause that fails UCAN validation fails with InvalidCause.
 func validateReleaseCause(
 	ctx context.Context,
 	resolver did.Resolver,
 	req *binding.Request[*blob.ReleaseArguments],
 	args *blob.ReleaseArguments,
 ) error {
-	if !args.Cause.Defined() {
-		return blob.ErrUnknownCause
-	}
-
 	// args.Cause links the /blob/remove task, so match on the task link,
 	// not the invocation envelope link.
 	var cause ucan.Invocation
