@@ -27,7 +27,7 @@ const AggregateTaskName = "PDPAggregate"
 // pdp_blob_pipeline rather than persisted, and Max=1 serializes folds so
 // two tasks never aggregate the same rows. Rows below the aggregation
 // threshold stay buffered (aggregate_root NULL) until later pieces push
-// them over, exactly like the previous persistent-buffer behavior.
+// them over.
 //
 // The fold runs in a single transaction with the candidate rows locked
 // (FOR UPDATE) so the removal sweep's cancel — DELETE WHERE aggregate_root
