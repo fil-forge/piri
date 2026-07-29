@@ -1,6 +1,7 @@
 package blob
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/validator"
 
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
@@ -30,6 +33,7 @@ import (
 type ReleaseDeps struct {
 	fx.In
 	ID          identity.Identity
+	Resolver    did.Resolver
 	Allocations AllocationRemover
 	Acceptances AcceptanceRemover
 	ClaimStore  invocationstore.InvocationStore
@@ -75,6 +79,13 @@ func NewBlobReleaseHandler(deps ReleaseDeps) server.Route {
 			return rsp.SetFailure(err)
 		}
 
+		// The release must be caused by a /blob/remove invocation rooted at
+		// the space — the node verifies it rather than trusting the upload
+		// service's word that the space asked for removal.
+		if err := validateReleaseCause(req.Context(), deps.Resolver, req, args); err != nil {
+			return rsp.SetFailure(err)
+		}
+
 		if err := Release(req.Context(), deps, &ReleaseRequest{
 			Space:  args.Space,
 			Digest: args.Digest,
@@ -84,6 +95,76 @@ func NewBlobReleaseHandler(deps ReleaseDeps) server.Route {
 
 		return rsp.SetSuccess(&blob.ReleaseOK{})
 	})
+}
+
+// validateReleaseCause resolves the release's cause — the /blob/remove
+// invocation linked by args.Cause — from the request container and verifies
+// it justifies the release: it must be a /blob/remove task whose subject is
+// args.Space and whose digest is args.Digest, carrying a valid proof chain
+// rooted at the space. An undefined cause, an envelope missing from the
+// container, or a non-/blob/remove task fails with UnknownCause; a
+// subject/digest mismatch or a cause that fails UCAN validation fails with
+// InvalidCause.
+func validateReleaseCause(
+	ctx context.Context,
+	resolver did.Resolver,
+	req *binding.Request[*blob.ReleaseArguments],
+	args *blob.ReleaseArguments,
+) error {
+	if !args.Cause.Defined() {
+		return blob.ErrUnknownCause
+	}
+
+	// args.Cause links the /blob/remove task, so match on the task link,
+	// not the invocation envelope link.
+	var cause ucan.Invocation
+	for _, inv := range req.Metadata().Invocations() {
+		if inv.Task().Link() == args.Cause {
+			cause = inv
+			break
+		}
+	}
+	if cause == nil {
+		return blob.ErrUnknownCause
+	}
+	if cause.Command() != blob.Remove.Command {
+		return blob.ErrUnknownCause
+	}
+
+	var removeArgs blob.RemoveArguments
+	if err := removeArgs.UnmarshalCBOR(bytes.NewReader(cause.ArgumentsBytes())); err != nil {
+		return errors.New(
+			blob.InvalidCauseErrorName,
+			"decoding %s args: %s", blob.Remove.Command, err,
+		)
+	}
+	if cause.Task().Subject() != args.Space {
+		return errors.New(
+			blob.InvalidCauseErrorName,
+			"cause subject %s is not space %s", cause.Task().Subject(), args.Space,
+		)
+	}
+	if !bytes.Equal(removeArgs.Digest, args.Digest) {
+		return errors.New(
+			blob.InvalidCauseErrorName,
+			"cause digest %s is not %s",
+			digestutil.Format(removeArgs.Digest), digestutil.Format(args.Digest),
+		)
+	}
+
+	// Re-validate the cause as a standalone UCAN invocation: signature,
+	// time bounds, and a proof chain rooted at the space. Proof envelopes
+	// ride in the request container alongside the cause.
+	if err := validator.ValidateInvocation(ctx, cause,
+		validator.WithProofResolver(validator.ProofsFromContainer(req.Metadata())),
+		validator.WithDIDResolver(resolver),
+	); err != nil {
+		return errors.New(
+			blob.InvalidCauseErrorName,
+			"cause not authorized: %s", err,
+		)
+	}
+	return nil
 }
 
 type ReleaseRequest struct {

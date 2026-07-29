@@ -32,9 +32,26 @@ func (s *RPCSuite) sendInvocationWithProofs(
 	proofs ...ucan.Delegation,
 ) ucan.Receipt {
 	t.Helper()
+	return s.sendInvocationWith(t, inv, nil, proofs...)
+}
+
+// sendInvocationWith is sendInvocationWithProofs plus sibling invocation
+// envelopes shipped in the request container — for handlers that resolve a
+// cause CID from the invocation's args against the container (e.g.
+// /blob/release resolving its /blob/remove cause).
+func (s *RPCSuite) sendInvocationWith(
+	t *testing.T,
+	inv ucan.Invocation,
+	invocations []ucan.Invocation,
+	proofs ...ucan.Delegation,
+) ucan.Receipt {
+	t.Helper()
 	reqOpts := []execution.RequestOption{}
 	if len(proofs) > 0 {
 		reqOpts = append(reqOpts, execution.WithDelegations(proofs...))
+	}
+	if len(invocations) > 0 {
+		reqOpts = append(reqOpts, execution.WithInvocations(invocations...))
 	}
 	resp, err := s.RPCClient(t).Execute(execution.NewRequest(t.Context(), inv, reqOpts...))
 	require.NoError(t, err)
