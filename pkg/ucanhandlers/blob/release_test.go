@@ -112,14 +112,14 @@ func TestRelease_OtherSpaceClaimRetainsBytes(t *testing.T) {
 	otherSpace := testutil.RandomDID(t)
 
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: removingSpace,
+		Space:     removingSpace,
 		Blob:      acceptance.Blob{Digest: digest, Size: 4},
 		Cause:     testutil.RandomCID(t),
 		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
 		Site:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: otherSpace,
+		Space:     otherSpace,
 		Blob:      acceptance.Blob{Digest: digest, Size: 4},
 		Cause:     testutil.RandomCID(t),
 		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
@@ -149,7 +149,7 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 	uploadingSpace := testutil.RandomDID(t)
 
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: removingSpace,
+		Space:     removingSpace,
 		Blob:      acceptance.Blob{Digest: digest, Size: 4},
 		Cause:     testutil.RandomCID(t),
 		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},

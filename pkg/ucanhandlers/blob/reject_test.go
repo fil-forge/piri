@@ -84,7 +84,7 @@ func TestReject_AcceptedBlobRefused(t *testing.T) {
 		Cause: testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: space,
+		Space:     space,
 		Blob:      acceptance.Blob{Digest: digest, Size: 4},
 		Cause:     testutil.RandomCID(t),
 		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
@@ -118,7 +118,7 @@ func TestReject_OtherSpaceAcceptanceDoesNotBlock(t *testing.T) {
 		Cause: testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
-		Space: accepted,
+		Space:     accepted,
 		Blob:      acceptance.Blob{Digest: digest, Size: 4},
 		Cause:     testutil.RandomCID(t),
 		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
