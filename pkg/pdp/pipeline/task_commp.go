@@ -65,6 +65,10 @@ func (t *CommPTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done 
 		// Row cancelled by the removal sweep (or never claimed): nothing to do.
 		return true, nil
 	}
+	// A commp_task_id claims exactly one row: digest is the table's primary
+	// key and every claim UPDATE (spawn, IAmBored scavenge) keys on a single
+	// digest. rows[0] below relies on this — a multi-row claim would strand
+	// the extras, since a claimed commp_task_id is never cleared.
 	blob := multihash.Multihash(rows[0].Blob)
 
 	if rows[0].Commp == nil {

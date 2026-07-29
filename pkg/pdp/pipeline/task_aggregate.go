@@ -139,10 +139,14 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-// followCommP is the Follows crash net: when a PDPCommP task completes but
-// its aggregation handoff was lost, the follow poller (~1 min cadence)
-// spawns the missing PDPAggregate task. Dedup is the engine's previous_task
-// check plus the agg_task_id guard.
+// followCommP recovers lost aggregation spawns. A completing PDPCommP task
+// enqueues the PDPAggregate task for its piece (the spawn in CommPTask.Do),
+// but that spawn is best-effort: AddTask swallows errors, and the process
+// can die after the commp result commits but before the spawn commits —
+// leaving a row with a commp set and no aggregation task to fold it. The
+// engine's Follows poller (~1 min cadence) walks completed PDPCommP tasks
+// and calls this to spawn the missing PDPAggregate for any such row. Dedup
+// is the engine's previous_task check plus the agg_task_id guard.
 func (t *AggregateTask) followCommP(commpTaskID harmonytask.TaskID, add harmonytask.AddTaskFunc) (bool, error) {
 	var missing bool
 	if err := t.db.QueryRow(context.Background(), `

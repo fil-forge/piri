@@ -110,10 +110,10 @@ func (p *PDPService) processPendingRemovals(ctx context.Context, removeRoot func
 			continue
 		}
 
-		var commp, commpV1 string
+		var commp string
 		err = p.db.QueryRow(ctx, `
-			SELECT commp, commp_v1 FROM pdp_piece_mh_to_commp WHERE mhash = $1
-		`, r.Blob).Scan(&commp, &commpV1)
+			SELECT commp FROM pdp_piece_mh_to_commp WHERE mhash = $1
+		`, r.Blob).Scan(&commp)
 		if errors.Is(err, pgx.ErrNoRows) {
 			if pipelineActive {
 				// Mid-pipeline without a mapping: the commp stage hasn't
@@ -122,11 +122,17 @@ func (p *PDPService) processPendingRemovals(ctx context.Context, removeRoot func
 			}
 			// No mapping and no pipeline row: the bytes were never
 			// aggregated and, with the row cancelled, never will be.
-			if err := p.finalizeRemoval(ctx, blob, "", ""); err != nil {
+			if err := p.finalizeRemoval(ctx, blob, ""); err != nil {
 				errs = errors.Join(errs, err)
 			}
 			continue
 		}
+		if err != nil {
+			errs = errors.Join(errs, fmt.Errorf("resolving commp for %s: %w", blob.String(), err))
+			continue
+		}
+		// The pdpv0 tables queried below are keyed by the v1 CommP form.
+		commpV1, err := pieceCIDv1String(commp)
 		if err != nil {
 			errs = errors.Join(errs, fmt.Errorf("resolving commp for %s: %w", blob.String(), err))
 			continue
@@ -191,7 +197,7 @@ func (p *PDPService) processPendingRemovals(ctx context.Context, removeRoot func
 				continue
 			}
 			if refCount == 0 || !pipelineActive {
-				if err := p.finalizeRemoval(ctx, blob, commp, commpV1); err != nil {
+				if err := p.finalizeRemoval(ctx, blob, commp); err != nil {
 					errs = errors.Join(errs, err)
 				}
 			}
@@ -284,9 +290,9 @@ func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Mul
 // parked_piece_refs / parked_pieces chain, the mhash→commp mapping, and the
 // pending-removal row itself. Claims are re-checked at the last instant: if
 // the blob was revived after this sweep pass classified it, the removal is
-// cancelled instead. commp/commpV1 are empty when the blob never had a
-// mapping.
-func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multihash, commp, commpV1 string) error {
+// cancelled instead. commp is the v2 piece CID string, empty when the blob
+// never had a mapping; the v1 form the pdpv0 tables key on is derived here.
+func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multihash, commp string) error {
 	revived, err := p.blobHasClaims(ctx, blob)
 	if err != nil {
 		return err
@@ -299,14 +305,16 @@ func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multiha
 		return fmt.Errorf("deleting blob bytes: %w", err)
 	}
 	if _, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		if commpV1 != "" {
+		if commp != "" {
+			commpV1, err := pieceCIDv1String(commp)
+			if err != nil {
+				return false, err
+			}
 			if _, err := tx.Exec(`
 				DELETE FROM pdp_data_set_pieces WHERE sub_piece = $1 AND removed = TRUE
 			`, commpV1); err != nil {
 				return false, fmt.Errorf("deleting removed piece rows: %w", err)
 			}
-		}
-		if commp != "" {
 			var refs []struct {
 				RefID   int64 `db:"piece_ref"`
 				PieceID int64 `db:"piece_id"`

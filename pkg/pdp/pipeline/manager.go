@@ -35,14 +35,19 @@ func NewSubmissionManager(db *harmonydb.DB, cfg manager.ConfigProvider, addRoots
 var _ RootSubmitter = (*SubmissionManager)(nil)
 
 func (m *SubmissionManager) Submit(ctx context.Context, roots ...cid.Cid) error {
-	for _, root := range roots {
-		if _, err := m.db.Exec(ctx, `
-			INSERT INTO pdp_root_submissions (root) VALUES ($1)
-			ON CONFLICT (root) DO NOTHING
-		`, root.String()); err != nil {
-			return fmt.Errorf("buffering root %s for submission: %w", root, err)
+	if len(roots) > 0 {
+		strs := make([]string, len(roots))
+		for i, root := range roots {
+			strs[i] = root.String()
 		}
-		log.Infow("buffered aggregate root for submission", "root", root.String())
+		if _, err := m.db.Exec(ctx, `
+			INSERT INTO pdp_root_submissions (root)
+			SELECT unnest($1::text[])
+			ON CONFLICT (root) DO NOTHING
+		`, strs); err != nil {
+			return fmt.Errorf("buffering %d roots for submission: %w", len(roots), err)
+		}
+		log.Infow("buffered aggregate roots for submission", "roots", strs)
 	}
 	return m.flush(ctx, false)
 }
