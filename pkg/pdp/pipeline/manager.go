@@ -12,10 +12,9 @@ import (
 )
 
 // RootSubmitter buffers aggregate roots for on-chain submission, batching
-// them into PDPAddRoots tasks. It preserves the previous manager's
-// semantics: a batch is submitted as soon as BatchSize roots are buffered,
-// and partial batches are flushed on the poll interval (via the PDPAddRoots
-// task's IAmBored).
+// them into PDPAddRoots tasks. A batch is submitted as soon as BatchSize
+// roots are buffered, and partial batches are flushed on the poll interval
+// (via the PDPAddRoots task's IAmBored).
 type RootSubmitter interface {
 	Submit(ctx context.Context, roots ...cid.Cid) error
 }
