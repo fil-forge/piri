@@ -33,10 +33,20 @@ type PDPServiceConfig struct {
 	ChainID *big.Int
 	// PayerAddress is the Storacha Owned address that pays SPs
 	PayerAddress common.Address
+	// Piece bounds the size of a single piece this node will accept
+	Piece PieceConfig
 	// Aggregation contains aggregation manager configuration
 	Aggregation AggregationConfig
 	// Gas contains gas fee limit configuration
 	Gas GasConfig
+}
+
+// PieceConfig bounds the size of a single piece this node will accept.
+type PieceConfig struct {
+	// MaxPaddedSize is the largest padded (FR32 merkle tree) size a single
+	// piece may occupy, in bytes; always a power of two. Zero means the
+	// default, so the zero value is usable.
+	MaxPaddedSize uint64
 }
 
 // GasConfig configures per-message-type gas fee limits.

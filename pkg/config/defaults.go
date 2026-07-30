@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
 // DefaultMinimumEgressBatchSize is the minimum allowed egress tracker batch size (10 MiB).
@@ -16,6 +18,11 @@ const DefaultPLCDirectory = "https://plc.directory"
 
 // Key is a configuration key path used with Viper.
 type Key string
+
+// PDP Piece (dynamic - can change at runtime)
+const (
+	PieceMaxPaddedSize Key = "pdp.piece.max_padded_size"
+)
 
 // PDP Aggregation - CommP
 const (
@@ -56,6 +63,8 @@ const (
 )
 
 var defaultValues = map[Key]any{
+	PieceMaxPaddedSize: piecesize.DefaultMaxPaddedSize,
+
 	CommPJobQueueWorkers:    runtime.NumCPU(),
 	CommPJobQueueRetries:    50,
 	CommPJobQueueRetryDelay: 10 * time.Second,

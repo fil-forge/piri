@@ -15,6 +15,7 @@ import (
 	"github.com/fil-forge/ucantone/did"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
 type ContractAddresses struct {
@@ -33,8 +34,33 @@ type PDPServiceConfig struct {
 	Contracts      ContractAddresses    `mapstructure:"contracts" validate:"required" toml:"contracts,omitempty"`
 	ChainID        string               `mapstructure:"chain_id" validate:"required" flag:"chain-id" toml:"chain_id,omitempty"`
 	PayerAddress   string               `mapstructure:"payer_address" validate:"required" flag:"payer-address" toml:"payer_address,omitempty"`
+	Piece          PieceConfig          `mapstructure:"piece" toml:"piece,omitempty"`
 	Aggregation    AggregationConfig    `mapstructure:"aggregation" toml:"aggregation,omitempty"`
 	Gas            GasConfig            `mapstructure:"gas" toml:"gas,omitempty"`
+}
+
+// PieceConfig bounds the size of a single piece this node will accept.
+type PieceConfig struct {
+	// MaxPaddedSize is the largest padded (FR32 merkle tree) size a single
+	// piece may occupy, in bytes. It must be a power of two, because padded
+	// tree sizes always are, and it may not exceed the limit above which
+	// Curio's prove task cannot build a memtree.
+	//
+	// The raw byte limit an uploader actually sees is derived from this and
+	// is smaller: a 268435456 (256 MiB) padded limit admits raw blobs up to
+	// 266338304 bytes. Zero means the default.
+	MaxPaddedSize uint64 `mapstructure:"max_padded_size" toml:"max_padded_size,omitempty"`
+}
+
+func (p PieceConfig) ToAppConfig() (app.PieceConfig, error) {
+	maxPadded := p.MaxPaddedSize
+	if maxPadded == 0 {
+		maxPadded = piecesize.DefaultMaxPaddedSize
+	}
+	if err := piecesize.ValidatePaddedSize(maxPadded); err != nil {
+		return app.PieceConfig{}, fmt.Errorf("invalid pdp.piece.max_padded_size: %w", err)
+	}
+	return app.PieceConfig{MaxPaddedSize: maxPadded}, nil
 }
 
 func (c PDPServiceConfig) Validate() error {
@@ -89,6 +115,11 @@ func (c PDPServiceConfig) ToAppConfig() (app.PDPServiceConfig, error) {
 		return app.PDPServiceConfig{}, fmt.Errorf("invalid payer address: %s", c.PayerAddress)
 	}
 
+	pieceCfg, err := c.Piece.ToAppConfig()
+	if err != nil {
+		return app.PDPServiceConfig{}, fmt.Errorf("converting piece config: %w", err)
+	}
+
 	aggregationCfg, err := c.Aggregation.ToAppConfig()
 	if err != nil {
 		return app.PDPServiceConfig{}, fmt.Errorf("converting aggregation config: %w", err)
@@ -108,6 +139,7 @@ func (c PDPServiceConfig) ToAppConfig() (app.PDPServiceConfig, error) {
 		},
 		ChainID:      chainID,
 		PayerAddress: common.HexToAddress(c.PayerAddress),
+		Piece:        pieceCfg,
 		Aggregation:  aggregationCfg,
 		Gas:          c.Gas.ToAppConfig(),
 	}, nil
