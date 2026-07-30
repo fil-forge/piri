@@ -19,7 +19,6 @@ import (
 // PostgreSQL schema names for each logical database
 const (
 	SchemaReplicator    = "replicator"
-	SchemaAggregator    = "aggregator"
 	SchemaEgressTracker = "egress_tracker"
 )
 
@@ -28,10 +27,6 @@ var Module = fx.Module("database",
 		fx.Annotate(
 			ProvideReplicatorDB,
 			fx.ResultTags(`name:"replicator_db"`),
-		),
-		fx.Annotate(
-			ProvideAggregatorDB,
-			fx.ResultTags(`name:"aggregator_db"`),
 		),
 		fx.Annotate(
 			ProvideEgressTrackerDB,
@@ -74,57 +69,6 @@ func ProvideReplicatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error
 			)
 			if err != nil {
 				return nil, fmt.Errorf("creating replicator database: %w", err)
-			}
-			configureSQLiteConnection(db)
-		}
-	}
-
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return db.PingContext(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			return db.Close()
-		},
-	})
-
-	return db, nil
-}
-
-// ProvideAggregatorDB provides the database for the aggregator job queue.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideAggregatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
-
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := postgresdb.OptionsFromConfig(cfg.Database.Postgres)
-		db, err = postgresdb.New(cfg.Database.Postgres.URL.String(), SchemaAggregator, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating postgres aggregator database: %w", err)
-		}
-	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "aggregator", "jobqueue", "jobqueue.db")
-		if dbPath == "" {
-			db, err = sqlitedb.NewMemory()
-			if err != nil {
-				return nil, fmt.Errorf("creating in-memory aggregator database: %w", err)
-			}
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating aggregator database directory: %w", err)
-			}
-
-			db, err = sqlitedb.New(dbPath,
-				database.WithJournalMode(database.JournalModeWAL),
-				database.WithTimeout(5*time.Second),
-				database.WithSyncMode(database.SyncModeNORMAL),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("creating aggregator database: %w", err)
 			}
 			configureSQLiteConnection(db)
 		}

@@ -17,7 +17,6 @@ import (
 
 	// curio infra
 	"github.com/filecoin-project/curio/harmony/harmonydb"
-	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/tasks/message"
@@ -27,6 +26,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -54,6 +54,7 @@ type PDPService struct {
 	address         common.Address
 	blobstore       blobstore.Blobstore
 	acceptanceStore acceptancestore.AcceptanceStore
+	allocationStore allocationstore.AllocationStore
 	receiptStore    receiptstore.ReceiptStore
 	chainClient     ChainClient
 
@@ -72,7 +73,6 @@ type PDPService struct {
 
 	// curio infra (replaces piri sender/engine/chainScheduler)
 	sender         *message.SenderETH
-	engine         *harmonytask.TaskEngine
 	chainScheduler *chainsched.CurioChainSched
 
 	signingService signer.SigningService
@@ -94,11 +94,11 @@ func New(
 	db *harmonydb.DB, // curio harmonydb — single DB surface
 	bs blobstore.Blobstore,
 	acceptanceStore acceptancestore.AcceptanceStore,
+	allocationStore allocationstore.AllocationStore,
 	receiptStore receiptstore.ReceiptStore,
 	resolver types.PieceResolverAPI,
 	reader types.PieceReaderAPI,
 	sender *message.SenderETH,
-	engine *harmonytask.TaskEngine,
 	chainScheduler *chainsched.CurioChainSched,
 	chainClient ChainClient,
 	ethClient ethchain.EthClient,
@@ -119,9 +119,9 @@ func New(
 		pieceReader:      reader,
 		blobstore:        bs,
 		acceptanceStore:  acceptanceStore,
+		allocationStore:  allocationStore,
 		receiptStore:     receiptStore,
 		sender:           sender,
-		engine:           engine,
 		chainScheduler:   chainScheduler,
 		chainClient:      chainClient,
 		ethClient:        ethClient,

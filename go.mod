@@ -12,7 +12,7 @@ require (
 	github.com/fil-forge/delegator v0.0.0-20260619085531-c96197bec34c
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
-	github.com/fil-forge/libforge v0.0.0-20260630210927-2b55dbcf944f
+	github.com/fil-forge/libforge v0.0.0-20260723212548-3e5e6ba95711
 	github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54
 	github.com/fil-forge/ucantone v0.0.0-20260727203046-ccb77059de44
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
@@ -50,7 +50,6 @@ require (
 	github.com/multiformats/go-multihash v0.2.3
 	github.com/ncruces/go-sqlite3 v0.24.1
 	github.com/pelletier/go-toml/v2 v2.2.4
-	github.com/raulk/clock v1.1.0
 	github.com/samber/lo v1.53.0
 	github.com/schollz/progressbar/v3 v3.19.0
 	github.com/shirou/gopsutil/v4 v4.25.6
@@ -266,6 +265,7 @@ require (
 	github.com/prometheus/procfs v0.20.1 // indirect
 	github.com/prometheus/statsd_exporter v0.29.0 // indirect
 	github.com/puzpuzpuz/xsync/v2 v2.5.1 // indirect
+	github.com/raulk/clock v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect

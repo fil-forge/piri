@@ -35,6 +35,12 @@ type AllocationStore interface {
 	Exists(context.Context, multihash.Multihash) (bool, error)
 	// Put adds or replaces allocation data in the store.
 	Put(context.Context, allocation.Allocation) error
+	// Delete removes the allocation for a blob (digest) in a space.
+	// Deleting a missing allocation succeeds (idempotent).
+	Delete(context.Context, multihash.Multihash, did.DID) error
+	// ListSpaces returns the DID of every space holding an allocation for
+	// the digest. An unknown digest yields an empty list.
+	ListSpaces(context.Context, multihash.Multihash) ([]did.DID, error)
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -92,6 +98,21 @@ func (s *Store) Exists(ctx context.Context, digest multihash.Multihash) (bool, e
 
 func (s *Store) Put(ctx context.Context, alloc allocation.Allocation) error {
 	return s.store.Put(ctx, s.encoder.EncodeKey(alloc.Blob.Digest, alloc.Space), alloc)
+}
+
+func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	return s.store.Delete(ctx, s.encoder.EncodeKey(digest, space))
+}
+
+func (s *Store) ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error) {
+	var spaces []did.DID
+	for alloc, err := range s.store.ListPrefix(ctx, s.encoder.EncodeKeyPrefix(digest)) {
+		if err != nil {
+			return nil, fmt.Errorf("listing allocations for %s: %w", digestutil.Format(digest), err)
+		}
+		spaces = append(spaces, alloc.Space)
+	}
+	return spaces, nil
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).

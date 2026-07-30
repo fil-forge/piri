@@ -832,6 +832,8 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		cmds := []ucan.Command{
 			blob.Allocate.Command,
 			blob.Accept.Command,
+			blob.Release.Command,
+			blob.Reject.Command,
 			pdp.Info.Command,
 			replicacmds.Allocate.Command,
 		}

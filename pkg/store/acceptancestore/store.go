@@ -29,6 +29,12 @@ type AcceptanceStore interface {
 	Exists(context.Context, multihash.Multihash) (bool, error)
 	// Put adds or replaces acceptance data in the store.
 	Put(context.Context, acceptance.Acceptance) error
+	// Delete removes the acceptance for a blob (digest) in a space.
+	// Deleting a missing acceptance succeeds (idempotent).
+	Delete(context.Context, multihash.Multihash, did.DID) error
+	// ListSpaces returns the DID of every space holding an acceptance for
+	// the digest. An unknown digest yields an empty list.
+	ListSpaces(context.Context, multihash.Multihash) ([]did.DID, error)
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -75,6 +81,21 @@ func (s *Store) Exists(ctx context.Context, digest multihash.Multihash) (bool, e
 
 func (s *Store) Put(ctx context.Context, acc acceptance.Acceptance) error {
 	return s.store.Put(ctx, s.encoder.EncodeKey(acc.Blob.Digest, acc.Space), acc)
+}
+
+func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	return s.store.Delete(ctx, s.encoder.EncodeKey(digest, space))
+}
+
+func (s *Store) ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error) {
+	var spaces []did.DID
+	for acc, err := range s.store.ListPrefix(ctx, s.encoder.EncodeKeyPrefix(digest)) {
+		if err != nil {
+			return nil, fmt.Errorf("listing acceptances for %s: %w", digestutil.Format(digest), err)
+		}
+		spaces = append(spaces, acc.Space)
+	}
+	return spaces, nil
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).

@@ -34,6 +34,7 @@ type Pieces struct {
 	mu       sync.Mutex
 	data     map[string][]byte
 	uploads  map[uuid.UUID]multihash.Multihash
+	removed  []multihash.Multihash
 	writeURL url.URL
 	readURL  url.URL
 }
@@ -185,5 +186,25 @@ func (p *Pieces) ReadPieceURL(_ cid.Cid) (url.URL, error) {
 	return p.readURL, nil
 }
 
+// RemovePiece records the removal request and drops the bytes immediately —
+// the fake has no async removal machinery. Idempotent, like the real API.
+func (p *Pieces) RemovePiece(_ context.Context, blob multihash.Multihash) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.data, blob.String())
+	p.removed = append(p.removed, blob)
+	return nil
+}
+
+// Removed returns the digests RemovePiece was called with, in order.
+func (p *Pieces) Removed() []multihash.Multihash {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]multihash.Multihash, len(p.removed))
+	copy(out, p.removed)
+	return out
+}
+
 // Compile-time check that Pieces satisfies the surface handlers depend on.
 var _ types.PieceAPI = (*Pieces)(nil)
+var _ types.PieceRemoverAPI = (*Pieces)(nil)

@@ -6,8 +6,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation"
 	"github.com/fil-forge/piri/pkg/pdp/piece"
+	"github.com/fil-forge/piri/pkg/pdp/pipeline"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
@@ -36,7 +36,7 @@ var PDPModule = fx.Module("pdp",
 		),
 	),
 	smartcontracts.Module,
-	aggregation.Module,
+	pipeline.Module, // aggregation pipeline (commp/aggregate/add-roots) + removal sweep as harmonytasks
 	curiopdp.Module, // Curio pdpv0 pipeline (harmonytask + prove/proving-period) on harmonydb
 	pdp.Module,
 	piece.Module,

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+
 	"github.com/fil-forge/piri/pkg/pdp/proof"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -19,4 +21,21 @@ func asPieceCIDv1(pieceCid cid.Cid) (cid.Cid, error) {
 		return c1, err
 	}
 	return pieceCid, nil
+}
+
+// pieceCIDv1String derives the v1 CommP string for a v2 piece CID string —
+// the form the pdpv0 tables (pdp_data_set_pieces, pdp_data_set_piece_adds)
+// are keyed by. v1 is derivable from v2, never the reverse (v1 lacks the
+// size), which is why piri stores only the v2 form and converts at the
+// pdpv0 boundary.
+func pieceCIDv1String(commp string) (string, error) {
+	c, err := cid.Parse(commp)
+	if err != nil {
+		return "", fmt.Errorf("parsing piece cid %s: %w", commp, err)
+	}
+	v1, err := asPieceCIDv1(c)
+	if err != nil {
+		return "", fmt.Errorf("deriving v1 piece cid from %s: %w", commp, err)
+	}
+	return v1.String(), nil
 }
