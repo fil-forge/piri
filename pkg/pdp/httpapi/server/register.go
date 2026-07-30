@@ -10,7 +10,9 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 var log = logging.Logger("pdp/api")
@@ -24,9 +26,10 @@ const (
 type PDPHandler struct {
 	Service       *service.PDPService
 	jwtMiddleware echo.MiddlewareFunc
+	pieceSize     piecesize.Policy
 }
 
-func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig) (*PDPHandler, error) {
+func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig, pieceSize piecesize.Policy) (*PDPHandler, error) {
 	if identity.Issuer == nil {
 		return nil, fmt.Errorf("missing identity signer for jwt auth")
 	}
@@ -38,7 +41,29 @@ func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig) (*P
 	return &PDPHandler{
 		Service:       service,
 		jwtMiddleware: jwtMiddleware,
+		pieceSize:     pieceSize,
 	}, nil
+}
+
+// limitUploadBody rejects an upload whose declared Content-Length already
+// exceeds the piece size limit, before the handler does any database work.
+//
+// This is a cheap early exit, not the real enforcement: a chunked request
+// declares no length (ContentLength < 0), so the authoritative check remains
+// the per-upload verifyread bound, which cuts the stream off at the first
+// byte past the size the allocation declared.
+//
+// The limit is read per request rather than baked in at registration so that
+// retuning pdp.piece.max_padded_size takes effect without a restart.
+func (p *PDPHandler) limitUploadBody(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if declared := c.Request().ContentLength; declared > 0 {
+			if err := p.pieceSize.CheckRaw(uint64(declared)); err != nil {
+				return types.WrapError(types.KindPayloadTooLarge, "upload body too large", err)
+			}
+		}
+		return next(c)
+	}
 }
 
 func (p *PDPHandler) RegisterRoutes(e *echo.Echo) {
@@ -67,7 +92,7 @@ func (p *PDPHandler) RegisterRoutes(e *echo.Echo) {
 
 	// /pdp/piece
 	authenticated.POST(PiecePrefix, p.handlePreparePiece)
-	pdpGroup.PUT(path.Join(PiecePrefix, "/upload/:uploadUUID"), p.handlePieceUpload)
+	pdpGroup.PUT(path.Join(PiecePrefix, "/upload/:uploadUUID"), p.handlePieceUpload, p.limitUploadBody)
 	authenticated.GET(PiecePrefix, p.handleFindPiece)
 
 	// /pdp/provider

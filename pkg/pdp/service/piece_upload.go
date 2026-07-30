@@ -33,6 +33,16 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 	}
 	lg := log.With("upload_id", pieceUpload.ID, "digest", multihash.Multihash(checkHash).String(), "size", checkSize)
 
+	// Re-check the declared size against current policy. The allocation that
+	// created this row passed the limit in force at the time; the operator
+	// may have lowered it since, and an upload in flight across that change
+	// must not slip through.
+	if err := p.pieceSize.CheckRaw(uint64(checkSize)); err != nil {
+		lg.Warnw("rejecting upload whose allocated size exceeds the current limit",
+			"max", p.pieceSize.MaxRaw(), "err", err)
+		return types.WrapError(types.KindPayloadTooLarge, "allocated piece exceeds the current size limit", err)
+	}
+
 	hasher, ok := presets.HasherRegistry[checkHashCodec]
 	if !ok {
 		return types.NewErrorf(types.KindInvalidInput, "unknown hash code: %s", checkHashCodec)
@@ -43,13 +53,20 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 		return types.WrapError(types.KindInternal, "failed to decode check hash", err)
 	}
 
-	vr, err := verifyread.New(pieceUpload.Data, hasher(), mh.Digest)
+	// Bound the body by the size the allocation declared, so an over-long
+	// upload is cut off mid-stream instead of being written to the blobstore
+	// in full and only then rejected by the digest compare.
+	vr, err := verifyread.New(pieceUpload.Data, hasher(), mh.Digest,
+		verifyread.WithExpectedSize(uint64(checkSize)))
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to create verification reader", err)
 	}
 
 	if err := p.blobstore.Put(ctx, checkHash, uint64(checkSize), vr); err != nil {
 		lg.Errorw("failed to write upload to blobstore", "err", err)
+		if errors.Is(err, verifyread.ErrSizeMismatch) {
+			return types.WrapError(types.KindPayloadTooLarge, "upload does not match its allocated size", err)
+		}
 		return types.WrapError(types.KindInvalidInput, "failed to put piece", err)
 	}
 

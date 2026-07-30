@@ -14,6 +14,10 @@ const (
 	KindUnauthorized
 	KindInternal
 	KindConflict
+	// KindPayloadTooLarge is a request body larger than the caller declared
+	// or than policy permits. Distinct from KindInvalidInput so an uploader
+	// can tell "your body was too big" from "your request was malformed".
+	KindPayloadTooLarge
 )
 
 // Error represents a service error with a kind
