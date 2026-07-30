@@ -22,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/tasks/message"
 
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -85,6 +86,11 @@ type PDPService struct {
 	registryContract smartcontracts.Registry
 
 	maxPieceSizeLog2Cache bigIntCache
+
+	// pieceSize is the read-through piece size limit. It is a Policy rather
+	// than a resolved value so an operator retuning
+	// pdp.piece.max_padded_size takes effect without a restart.
+	pieceSize piecesize.Policy
 }
 
 func New(
@@ -107,6 +113,7 @@ func New(
 	verifier smartcontracts.Verifier,
 	serviceContract smartcontracts.Service,
 	registryContract smartcontracts.Registry,
+	pieceSize piecesize.Policy,
 ) (*PDPService, error) {
 	return &PDPService{
 		cfg:              cfg,
@@ -130,5 +137,6 @@ func New(
 		verifierContract: verifier,
 		serviceContract:  serviceContract,
 		registryContract: registryContract,
+		pieceSize:        pieceSize,
 	}, nil
 }

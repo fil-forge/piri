@@ -19,6 +19,7 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 	"github.com/fil-forge/piri/pkg/pdp/httpapi/server"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -82,6 +83,7 @@ type Params struct {
 	Verifier         smartcontracts.Verifier
 	Service          smartcontracts.Service
 	Registry         smartcontracts.Registry
+	PieceSize        piecesize.Policy
 }
 
 func ProvidePDPService(params Params) (*service.PDPService, error) {
@@ -105,6 +107,7 @@ func ProvidePDPService(params Params) (*service.PDPService, error) {
 		params.Verifier,
 		params.Service,
 		params.Registry,
+		params.PieceSize,
 	)
 }
 

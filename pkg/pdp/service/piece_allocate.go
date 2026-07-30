@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/google/uuid"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -19,8 +18,8 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 			log.Infow("allocated piece", "request", allocation, "response", res)
 		}
 	}()
-	if abi.UnpaddedPieceSize(allocation.Piece.Size) > PieceSizeLimit {
-		return nil, types.NewErrorf(types.KindInvalidInput, "piece size %d exceeds limit %d", allocation.Piece.Size, PieceSizeLimit)
+	if err := p.pieceSize.CheckRaw(uint64(allocation.Piece.Size)); err != nil {
+		return nil, types.WrapError(types.KindInvalidInput, "piece too large", err)
 	}
 
 	// check if we already have this piece
