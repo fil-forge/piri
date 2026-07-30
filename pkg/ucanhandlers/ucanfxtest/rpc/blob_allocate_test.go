@@ -6,6 +6,8 @@ import (
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
+
+	blobhandler "github.com/fil-forge/piri/pkg/ucanhandlers/blob"
 )
 
 // /blob/allocate is now provider-scoped: the invocation subject is the storage
@@ -45,6 +47,41 @@ func (s *RPCSuite) TestBlobAllocate_Basic() {
 	require.Equal(t, size, stored.Blob.Size)
 	require.Equal(t, space, stored.Space)
 	require.Equal(t, cause, stored.Cause, "cause records the args.Cause CID the client supplied")
+}
+
+// TestBlobAllocate_SizeLimitExceeded is the end-to-end shape of the fix: an
+// oversized allocation must come back as a receipt failure the upload service
+// can interpret, not a transport error.
+//
+// Note the invocation reaches the handler at all. blob.Allocate is a bare
+// binding.Bind with no policy attached, unlike the older capability which
+// carried policy.LessThanOrEqual(".blob.size", ...) and would have rejected
+// this at the validator. The handler check is the only guard.
+func (s *RPCSuite) TestBlobAllocate_SizeLimitExceeded() {
+	t := s.T()
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+
+	// One byte past the default cap. Costs nothing to run: only the declared
+	// size is oversized, no bytes are materialized.
+	const overLimit = 266338304 + 1
+
+	inv := testutil.Must(blob.Allocate.Invoke(
+		s.ServiceID,
+		s.ServiceID.DID(),
+		&blob.AllocateArguments{
+			Space: space,
+			Blob:  blob.Blob{Digest: digest, Size: overLimit},
+			Cause: testutil.RandomCID(t),
+		},
+		invocation.WithAudience(s.ServiceID.DID()),
+	))(t)
+
+	rcpt := s.sendInvocation(t, inv)
+	assertReceiptFailure(t, rcpt, blobhandler.BlobSizeLimitExceededErrorName)
+
+	_, err := s.Allocations.Get(t.Context(), digest, space)
+	require.Error(t, err, "no allocation persisted for a rejected blob")
 }
 
 func (s *RPCSuite) TestBlobAllocate_RepeatSameBlob() {

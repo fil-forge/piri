@@ -23,6 +23,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
@@ -33,10 +34,8 @@ import (
 
 var log = logging.Logger("storage/handlers/blob")
 
-const maxUploadSize = blob.MaxBlobSize
-
 // BlobSizeLimitExceededErrorName is the stable receipt-failure name when
-// the requested allocation exceeds maxUploadSize.
+// the requested allocation exceeds the configured piece size limit.
 const BlobSizeLimitExceededErrorName = "BlobSizeLimitExceeded"
 
 // AllocateDeps is the dependency set populated by fx for the Allocate
@@ -46,6 +45,9 @@ type AllocateDeps struct {
 	ID          app.IdentityConfig
 	Allocations AllocationStore
 	Pieces      PieceAllocator
+	// PieceSize bounds how large a blob this node will accept. Its zero
+	// value reports the defaults, so tests may leave it unset.
+	PieceSize piecesize.Policy
 }
 
 // AllocationStore is the slice of allocationstore.AllocationStore the
@@ -83,21 +85,18 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 			return rsp.SetFailure(err)
 		}
 
-		// TODO(forrest)[ucan1]: reconcile with blob.MaxBlobSize
-		// to ensure it matches the constraints of piri, namely the aggregation pipeline to adding roots
-		if args.Blob.Size > maxUploadSize {
-			return rsp.SetFailure(errors.New(
-				BlobSizeLimitExceededErrorName,
-				"blob size %d exceeds maximum %d", args.Blob.Size, maxUploadSize,
-			))
-		}
-
 		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
 			Space: args.Space,
 			Blob:  args.Blob,
 			Cause: args.Cause,
 		})
 		if err != nil {
+			// A named error is a decision about the request, not a server
+			// fault: report it as a receipt failure the caller can act on.
+			var named errors.Named
+			if errors.As(err, &named) {
+				return rsp.SetFailure(err)
+			}
 			return err
 		}
 
@@ -144,6 +143,19 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 		attribute.Stringer("blob.digest", req.Blob.Digest),
 		attribute.Int64("blob.size", int64(req.Blob.Size)),
 	)
+
+	// Checked here rather than in the handler so every caller is covered —
+	// notably the replica allocate handler, which calls this function
+	// directly. Returned unwrapped so SetFailure takes its CBORMarshaler
+	// path and the receipt carries the full error model.
+	if limitErr := deps.PieceSize.CheckRaw(req.Blob.Size); limitErr != nil {
+		log.Warnw("rejecting oversized blob allocation",
+			"size", req.Blob.Size, "max", deps.PieceSize.MaxRaw())
+		return nil, errors.New(
+			BlobSizeLimitExceededErrorName,
+			"blob size %d exceeds maximum %d", req.Blob.Size, deps.PieceSize.MaxRaw(),
+		)
+	}
 
 	// check if we already have an allocation for the blob in this space
 	_, err = deps.Allocations.Get(ctx, req.Blob.Digest, req.Space)

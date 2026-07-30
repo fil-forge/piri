@@ -98,6 +98,13 @@ func NewReplicaAllocateHandler(deps ReplicaAllocateDeps) server.Route {
 				Cause: req.Invocation().Link(),
 			})
 			if err != nil {
+				// Mirrors blob/allocate: a named error (e.g. the piece size
+				// limit) is a decision about the request, so it belongs in
+				// the receipt rather than surfacing as a transport error.
+				var named errors.Named
+				if errors.As(err, &named) {
+					return rsp.SetFailure(err)
+				}
 				return fmt.Errorf("allocating replica: %w", err)
 			}
 
