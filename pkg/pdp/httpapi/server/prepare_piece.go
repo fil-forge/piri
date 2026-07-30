@@ -10,11 +10,11 @@ import (
 	"github.com/multiformats/go-multihash"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
-	"github.com/fil-forge/piri/pkg/pdp/proof"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
-var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
+var PieceSizeLimit = piecesize.DefaultLimits.MaxUnpadded()
 
 // handlePreparePiece -> POST /pdp/piece
 func (p *PDPHandler) handlePreparePiece(c echo.Context) error {
