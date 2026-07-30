@@ -164,7 +164,10 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	}
 
 	received := false
-	// check if we received the blob (only possible if we have an allocation)
+	// check if we received the blob. Bytes can also be present with NO
+	// allocation — a released digest awaiting the removal sweep — but that
+	// case is caught below: AllocatePiece finds the piece and reports
+	// nothing to upload.
 	if anyAllocation {
 		has, err := deps.Pieces.Has(ctx, req.Blob.Digest)
 		if err != nil {
@@ -220,17 +223,24 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 			log.Errorw("adding to pdp service", "error", err)
 			return nil, fmt.Errorf("adding to pdp service: %w", err)
 		}
-		var uploadURL url.URL
+		// The piece store can hold the bytes even when no allocation said so:
+		// a re-add of a digest whose last claim was just released, racing the
+		// pending-removal sweep. Then AllocatePiece reports Allocated=false
+		// with no upload ID, and there is nothing to upload — return no
+		// address (the caller proceeds straight to accept), never an address
+		// wrapping an empty URL. The allocation row written below is a claim,
+		// so the sweep cancels the queued removal instead of deleting the
+		// revived bytes.
 		if alloc.Allocated {
-			uploadURL, err = deps.Pieces.WritePieceURL(alloc.UploadID)
+			uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
 			if err != nil {
 				log.Errorw("getting piece write URL", "error", err)
 				return nil, fmt.Errorf("getting piece write URL: %w", err)
 			}
-		}
-		address = &blob.BlobAddress{
-			URL:     commands.CborURL(uploadURL),
-			Expires: int64(expiresAt),
+			address = &blob.BlobAddress{
+				URL:     commands.CborURL(uploadURL),
+				Expires: int64(expiresAt),
+			}
 		}
 	}
 
