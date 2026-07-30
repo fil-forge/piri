@@ -39,12 +39,13 @@ type AggregateTask struct {
 	db        *harmonydb.DB
 	store     aggtypes.Store
 	submitter RootSubmitter
+	policy    aggregator.Policy
 
 	add promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewAggregateTask(db *harmonydb.DB, store aggtypes.Store, submitter RootSubmitter) *AggregateTask {
-	return &AggregateTask{db: db, store: store, submitter: submitter}
+func NewAggregateTask(db *harmonydb.DB, store aggtypes.Store, submitter RootSubmitter, policy aggregator.Policy) *AggregateTask {
+	return &AggregateTask{db: db, store: store, submitter: submitter, policy: policy}
 }
 
 // spawn creates a PDPAggregate task for the blob's piece, deduped on
@@ -95,7 +96,7 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 			pieces = append(pieces, p)
 		}
 
-		aggregates, err := aggregator.Append(pieces)
+		aggregates, err := aggregator.Append(pieces, t.policy)
 		if err != nil {
 			return false, fmt.Errorf("folding aggregates: %w", err)
 		}

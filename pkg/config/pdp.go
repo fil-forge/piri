@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"math/bits"
 	"net/url"
 	"runtime"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/fil-forge/ucantone/did"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
@@ -222,7 +224,38 @@ type CommpConfig struct {
 }
 
 type AggregatorConfig struct {
-	JobQueue JobQueueConfig `mapstructure:"job_queue" toml:"job_queue,omitempty"`
+	// MinAggregateSize is the padded size at which buffered pieces are
+	// folded into an aggregate and submitted on-chain, in bytes; a power of
+	// two. Larger values amortize the addRoots transaction over more pieces
+	// at the cost of making each blob wait longer to become provable. Zero
+	// means the default.
+	MinAggregateSize uint64         `mapstructure:"min_aggregate_size" toml:"min_aggregate_size,omitempty"`
+	JobQueue         JobQueueConfig `mapstructure:"job_queue" toml:"job_queue,omitempty"`
+}
+
+func (a AggregatorConfig) ToAppConfig() (app.AggregatorConfig, error) {
+	minAggregate := a.MinAggregateSize
+	if minAggregate == 0 {
+		minAggregate = aggregator.DefaultMinAggregateSize
+	}
+	if bits.OnesCount64(minAggregate) != 1 {
+		return app.AggregatorConfig{}, fmt.Errorf(
+			"invalid pdp.aggregation.aggregator.min_aggregate_size: must be a power of two, got %d", minAggregate)
+	}
+	if minAggregate < aggregator.MinAllowedAggregateSize || minAggregate > aggregator.MaxAllowedAggregateSize {
+		return app.AggregatorConfig{}, fmt.Errorf(
+			"invalid pdp.aggregation.aggregator.min_aggregate_size: %d outside [%d, %d]",
+			minAggregate, aggregator.MinAllowedAggregateSize, aggregator.MaxAllowedAggregateSize)
+	}
+
+	jqcfg, err := a.JobQueue.ToAppConfig()
+	if err != nil {
+		return app.AggregatorConfig{}, err
+	}
+	return app.AggregatorConfig{
+		MinAggregateSize: minAggregate,
+		JobQueue:         jqcfg,
+	}, nil
 }
 
 type AggregateManagerConfig struct {
@@ -280,7 +313,7 @@ func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
 	if err != nil {
 		return app.AggregationConfig{}, err
 	}
-	aggregatorJobQueueCfg, err := c.Aggregator.JobQueue.ToAppConfig()
+	aggregatorCfg, err := c.Aggregator.ToAppConfig()
 	if err != nil {
 		return app.AggregationConfig{}, err
 	}
@@ -292,10 +325,8 @@ func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
 		CommP: app.CommpConfig{
 			JobQueue: commpJobQueueCfg,
 		},
-		Aggregator: app.AggregatorConfig{
-			JobQueue: aggregatorJobQueueCfg,
-		},
-		Manager: managerCfg,
+		Aggregator: aggregatorCfg,
+		Manager:    managerCfg,
 	}, nil
 }
 
@@ -343,6 +374,7 @@ func DefaultAggregationConfig() AggregationConfig {
 			},
 		},
 		Aggregator: AggregatorConfig{
+			MinAggregateSize: aggregator.DefaultMinAggregateSize,
 			JobQueue: JobQueueConfig{
 				Workers:    uint(runtime.NumCPU()),
 				Retries:    50,
