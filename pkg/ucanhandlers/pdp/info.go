@@ -14,6 +14,7 @@ import (
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/ucan/invocation"
 
 	libpiece "github.com/fil-forge/libforge/piece"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
@@ -79,6 +80,7 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 		pdpAcceptInv, err := pdp.Accept.Invoke(
 			deps.ID, deps.ID.DID(),
 			&pdp.AcceptArguments{Blob: args.Blob},
+			invocation.WithNoNonce(),
 		)
 		if err != nil {
 			log.Errorw("building /pdp/accept invocation", "error", err)
