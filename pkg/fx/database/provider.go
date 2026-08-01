@@ -9,11 +9,9 @@ import (
 	"time"
 
 	"go.uber.org/fx"
-	"gorm.io/gorm"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/database"
-	"github.com/fil-forge/piri/pkg/database/gormdb"
 	"github.com/fil-forge/piri/pkg/database/postgresdb"
 	"github.com/fil-forge/piri/pkg/database/sqlitedb"
 )
@@ -21,9 +19,7 @@ import (
 // PostgreSQL schema names for each logical database
 const (
 	SchemaReplicator    = "replicator"
-	SchemaAggregator    = "aggregator"
 	SchemaEgressTracker = "egress_tracker"
-	SchemaScheduler     = "scheduler"
 )
 
 var Module = fx.Module("database",
@@ -31,14 +27,6 @@ var Module = fx.Module("database",
 		fx.Annotate(
 			ProvideReplicatorDB,
 			fx.ResultTags(`name:"replicator_db"`),
-		),
-		fx.Annotate(
-			ProvideTaskEngineDB,
-			fx.ResultTags(`name:"engine_db"`),
-		),
-		fx.Annotate(
-			ProvideAggregatorDB,
-			fx.ResultTags(`name:"aggregator_db"`),
 		),
 		fx.Annotate(
 			ProvideEgressTrackerDB,
@@ -95,121 +83,6 @@ func ProvideReplicatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error
 		},
 	})
 
-	return db, nil
-}
-
-// ProvideAggregatorDB provides the database for the aggregator job queue.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideAggregatorDB(lc fx.Lifecycle, cfg app.StorageConfig) (*sql.DB, error) {
-	var db *sql.DB
-	var err error
-
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := postgresdb.OptionsFromConfig(cfg.Database.Postgres)
-		db, err = postgresdb.New(cfg.Database.Postgres.URL.String(), SchemaAggregator, opts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating postgres aggregator database: %w", err)
-		}
-	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "aggregator", "jobqueue", "jobqueue.db")
-		if dbPath == "" {
-			db, err = sqlitedb.NewMemory()
-			if err != nil {
-				return nil, fmt.Errorf("creating in-memory aggregator database: %w", err)
-			}
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating aggregator database directory: %w", err)
-			}
-
-			db, err = sqlitedb.New(dbPath,
-				database.WithJournalMode(database.JournalModeWAL),
-				database.WithTimeout(5*time.Second),
-				database.WithSyncMode(database.SyncModeNORMAL),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("creating aggregator database: %w", err)
-			}
-			configureSQLiteConnection(db)
-		}
-	}
-
-	lc.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
-			return db.PingContext(ctx)
-		},
-		OnStop: func(ctx context.Context) error {
-			return db.Close()
-		},
-	})
-
-	return db, nil
-}
-
-// ProvideTaskEngineDB provides the GORM database for the task engine scheduler.
-// Supports both SQLite (default) and PostgreSQL backends.
-func ProvideTaskEngineDB(lc fx.Lifecycle, cfg app.StorageConfig) (*gorm.DB, error) {
-	var db *gorm.DB
-	var err error
-
-	if cfg.Database.IsPostgres() {
-		// Use PostgreSQL with separate schema
-		opts := gormdb.PostgresOptionsFromConfig(cfg.Database.Postgres)
-		db, err = gormdb.NewPostgres(cfg.Database.Postgres.URL.String(), SchemaScheduler, opts)
-		if err != nil {
-			return nil, fmt.Errorf("creating postgres task engine db: %w", err)
-		}
-	} else {
-		// Use SQLite (default) - derive path from DataDir
-		dbPath := sqliteDBPath(cfg.DataDir, "pdp", "state", "state.db")
-		dbOpts := []database.Option{
-			// ensure foreign key constraints are respected.
-			database.WithForeignKeyConstraintsEnable(true),
-			// wait up to 5 seconds before failing to write due to busted database.
-			database.WithTimeout(5 * time.Second),
-		}
-		if dbPath == "" {
-			dbPath = "file::memory:?cache=shared"
-			// use an in-memory cache for in-memory database
-			dbOpts = append(dbOpts, database.WithJournalMode(database.JournalModeMEMORY))
-		} else {
-			// Ensure directory exists for file-based database
-			if err := ensureSQLiteDir(dbPath); err != nil {
-				return nil, fmt.Errorf("creating task engine database directory: %w", err)
-			}
-			// use a write ahead log for transactions, good for parallel operations on persisted databases
-			dbOpts = append(dbOpts, database.WithJournalMode(database.JournalModeWAL))
-		}
-
-		db, err = gormdb.New(dbPath, dbOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating task engine db: %w", err)
-		}
-
-		// Ensure single connection for SQLite to prevent locking issues
-		sqlDB, err := db.DB()
-		if err != nil {
-			return nil, fmt.Errorf("getting underlying sql.DB: %w", err)
-		}
-		configureSQLiteConnection(sqlDB)
-	}
-
-	lc.Append(fx.Hook{
-		// NB(forrest): we don't ping the gorm database on startup since the gorm package does so internally.
-		OnStop: func(ctx context.Context) error {
-			ddb, err := db.DB()
-			if err != nil {
-				return fmt.Errorf("stopping task engine db: %w", err)
-			}
-			if err := ddb.Close(); err != nil {
-				return fmt.Errorf("stopping task engine db: %w", err)
-			}
-			return nil
-		},
-	})
 	return db, nil
 }
 

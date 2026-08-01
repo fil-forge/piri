@@ -6,22 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/fil-forge/filecoin-services/go/eip712"
 	libforgesign "github.com/fil-forge/libforge/commands/pdp/sign"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-commp-utils/nonffi"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/ipfs/go-cid"
 	"github.com/samber/lo"
+	"github.com/yugabyte/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"gorm.io/gorm"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -118,14 +119,17 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		span.End()
 	}()
 
-	// Check if the proof set exists
-	var proofSet models.PDPProofSet
-	if err := p.db.WithContext(ctx).Where("id = ?", id).First(&proofSet).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	// Check if the proof set exists and belongs to this service
+	var dsService string
+	if err := p.db.QueryRow(ctx, `SELECT service FROM pdp_data_sets WHERE id = $1`, id).Scan(&dsService); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return common.Hash{}, types.NewErrorf(types.KindNotFound,
 				"proof set %d does not exist. Must create a proof set first using CreateProofSet before adding roots", id)
 		}
 		return common.Hash{}, fmt.Errorf("failed to check if proof set exists: %w", err)
+	}
+	if dsService != p.name {
+		return common.Hash{}, types.NewError(types.KindUnauthorized, "not authorized")
 	}
 
 	if len(request) == 0 {
@@ -160,79 +164,178 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 
 	// Check if any of these roots have already been successfully added to prevent duplicate submissions
 	// This handles the case where the node crashes after sending the transaction but before
-	// recording it in the database, or when roots have already been fully processed
+	// recording it in the database, or when roots have already been fully processed.
+	//
+	// NB: pdp_data_set_piece_adds / pdp_data_set_pieces store v1 CommP CIDs —
+	// Curio's convention (insertPieceAdds writes pieceCIDv1/subPieceCIDv1, and
+	// the prove task converts sub_piece via CIDToPieceCommitmentV1) — so both
+	// these guard queries and the inserts below use the v1 form.
 	rootCIDs := make([]string, len(request))
 	for i, req := range request {
-		rootCIDs[i] = req.Root.String()
+		v1, err := asPieceCIDv1(req.Root)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("converting root %s to v1 piece CID: %w", req.Root, err)
+		}
+		rootCIDs[i] = v1.String()
 	}
 
 	log.Debugw("Checking for duplicate root submissions",
 		"proofset_id", id,
 		"root_count", len(rootCIDs))
 
-	// First check pdp_proofset_roots for already successfully added roots
-	var existingCompletedRoots []struct {
-		Root           string
-		AddMessageHash string
+	// Partition the request PER ROOT so AddRoots is idempotent. A batch may
+	// mix roots that are already proven-tracked, roots owned by an in-flight
+	// transaction, and genuinely new roots — e.g. the manager's non-atomic
+	// enqueue+clear can re-enqueue an already-submitted root next to new
+	// ones. (An earlier any-match guard returned early on the first overlap
+	// and silently dropped the rest of the batch from proving.)
+	//
+	//  - completed (pdp_data_set_pieces): drop — already on-chain.
+	//  - in-flight (pdp_data_set_piece_adds whose tx is pending or
+	//    confirmed-successful): drop — the AddRoots call that sent that tx
+	//    blocks in WaitForConfirmation below and its caller retries on
+	//    failure, so that call vouches for those roots.
+	//  - dead (piece_adds rows whose tx confirmed-but-reverted or failed):
+	//    clear the stale rows and treat their roots as new — otherwise they
+	//    trap every retry in a wait-on-a-dead-tx loop and never resubmit.
+	//  - new: submitted below.
+
+	var completedRoots []struct {
+		Root           string `db:"piece"`
+		AddMessageHash string `db:"add_message_hash"`
 	}
-	if err := p.db.WithContext(ctx).
-		Table("pdp_proofset_roots").
-		Select("DISTINCT root, add_message_hash").
-		Where("proofset_id = ? AND root IN ?", id, rootCIDs).
-		Scan(&existingCompletedRoots).Error; err != nil {
+	if err := p.db.Select(ctx, &completedRoots, `
+		SELECT DISTINCT piece, add_message_hash
+		FROM pdp_data_set_pieces
+		WHERE data_set = $1 AND piece = ANY($2)
+	`, id, rootCIDs); err != nil {
 		return common.Hash{}, fmt.Errorf("failed to check for existing completed roots: %w", err)
 	}
-
-	if len(existingCompletedRoots) > 0 {
-		// Roots have already been successfully added
-		txHash := existingCompletedRoots[0].AddMessageHash
-		log.Infow("Roots already successfully added, skipping submission",
-			"proofset_id", id,
-			"tx_hash", txHash,
-			"completed_roots", len(existingCompletedRoots))
-		return common.HexToHash(txHash), nil
+	completed := make(map[string]string, len(completedRoots))
+	for _, r := range completedRoots {
+		completed[r.Root] = r.AddMessageHash
 	}
 
-	// Then check pdp_proofset_root_adds for pending additions
-	var existingPendingRoots []struct {
-		Root           string
-		AddMessageHash string
+	var stagedRoots []struct {
+		Root           string `db:"piece"`
+		AddMessageHash string `db:"add_message_hash"`
+		TxStatus       string `db:"tx_status"`
+		TxSuccess      *bool  `db:"tx_success"`
 	}
-	if err := p.db.WithContext(ctx).
-		Table("pdp_proofset_root_adds").
-		Select("DISTINCT root, add_message_hash").
-		Where("proofset_id = ? AND root IN ?", id, rootCIDs).
-		Scan(&existingPendingRoots).Error; err != nil {
-		return common.Hash{}, fmt.Errorf("failed to check for existing pending roots: %w", err)
+	if err := p.db.Select(ctx, &stagedRoots, `
+		SELECT DISTINCT a.piece, a.add_message_hash, m.tx_status, m.tx_success
+		FROM pdp_data_set_piece_adds a
+		JOIN message_waits_eth m ON m.signed_tx_hash = a.add_message_hash
+		WHERE a.data_set = $1 AND a.piece = ANY($2)
+	`, id, rootCIDs); err != nil {
+		return common.Hash{}, fmt.Errorf("failed to check for staged roots: %w", err)
 	}
-
-	if len(existingPendingRoots) > 0 {
-		span.AddEvent("pending roots exist")
-		// Roots are currently being processed - wait for the existing transaction
-		txHashStr := existingPendingRoots[0].AddMessageHash
-		txHash := common.HexToHash(txHashStr)
-
-		log.Infow("Found existing pending transaction for roots, waiting for confirmation",
-			"proofset_id", id,
-			"tx_hash", txHashStr,
-			"pending_roots", len(existingPendingRoots),
-			"wait_duration", waitDuration)
-
-		// Wait for the existing transaction to be confirmed
-		// If it succeeds, return success. If it fails, WaitForConfirmation will return an error
-		// and the Manager's job queue will automatically retry
-		if err := p.WaitForConfirmation(ctx, txHash, waitDuration); err != nil {
-			log.Errorw("Existing AddRoots transaction failed or timed out",
-				"error", err,
-				"tx_hash", txHashStr,
-				"proofset_id", id)
-			return txHash, fmt.Errorf("existing transaction %s failed or timed out: %w", txHashStr, err)
+	inflight := make(map[string]string)
+	deadTxs := make(map[string]struct{})
+	for _, r := range stagedRoots {
+		txDead := r.TxStatus == "failed" ||
+			(r.TxStatus == "confirmed" && r.TxSuccess != nil && !*r.TxSuccess)
+		if txDead {
+			deadTxs[r.AddMessageHash] = struct{}{}
+			continue
 		}
+		// A root staged under several txs (prior retries) stays in-flight as
+		// long as at least one of them is live.
+		inflight[r.Root] = r.AddMessageHash
+	}
 
-		log.Infow("Existing AddRoots transaction confirmed successfully",
-			"tx_hash", txHashStr,
-			"proofset_id", id)
-		return txHash, nil
+	if len(deadTxs) > 0 {
+		// Delete by tx hash, not by requested piece: a failed/reverted tx is
+		// dead for every piece it staged, including pieces outside this
+		// request. The watcher only promotes piece_adds -> pieces on confirmed
+		// success, so rows under a dead tx can never progress; scoping the
+		// delete to this request's pieces would leave a half-cleared tx whose
+		// remaining rows linger until (unless) a later call happens to include
+		// them. Clearing the whole tx loses nothing — any caller retrying
+		// those other pieces finds no staged rows and resubmits them as new.
+		// A piece staged under both a dead tx and a live one keeps its live
+		// rows and stays classified in-flight.
+		//
+		// NB: stock Curio never deletes these rows — a trigger marks them
+		// add_message_ok = FALSE and every Curio consumer (addpiece watcher,
+		// piece GC, dataset verify) filters them out as permanent tombstones.
+		// Deleting instead of tombstoning is safe here because this guard is
+		// the only reader that would ever act on them, and it keeps repeated
+		// AddRoots calls from re-fetching an ever-growing dead row-set.
+		hashes := lo.Keys(deadTxs)
+		log.Warnw("clearing piece-add rows from failed AddRoots transactions; their roots resubmit",
+			"proofset_id", id, "dead_txs", hashes)
+		if _, err := p.db.Exec(ctx, `
+			DELETE FROM pdp_data_set_piece_adds
+			WHERE data_set = $1 AND add_message_hash = ANY($2)
+		`, id, hashes); err != nil {
+			return common.Hash{}, fmt.Errorf("failed to clear dead piece-add rows: %w", err)
+		}
+	}
+
+	// Filter the request down to the genuinely new roots.
+	newRequest := make([]types.RootAdd, 0, len(request))
+	for i, req := range request {
+		v1 := rootCIDs[i]
+		if _, ok := completed[v1]; ok {
+			continue
+		}
+		if _, ok := inflight[v1]; ok {
+			continue
+		}
+		newRequest = append(newRequest, req)
+	}
+
+	if len(newRequest) == 0 {
+		// Nothing new to submit. If roots ride in-flight txs (the pure-retry
+		// case), block on confirmation so the caller's retry loop still owns
+		// eventual delivery: a failure here errors the job, and the next
+		// attempt clears the then-dead rows and resubmits.
+		inflightTxs := make(map[string]struct{}, len(inflight))
+		for _, h := range inflight {
+			inflightTxs[h] = struct{}{}
+		}
+		var last common.Hash
+		for h := range inflightTxs {
+			span.AddEvent("waiting on in-flight add roots tx")
+			txHash := common.HexToHash(h)
+			log.Infow("all requested roots already staged; waiting for in-flight transaction",
+				"proofset_id", id, "tx_hash", h, "wait_duration", waitDuration)
+			if err := p.WaitForConfirmation(ctx, txHash, waitDuration); err != nil {
+				log.Errorw("existing AddRoots transaction failed or timed out",
+					"error", err, "tx_hash", h, "proofset_id", id)
+				return txHash, fmt.Errorf("existing transaction %s failed or timed out: %w", h, err)
+			}
+			last = txHash
+		}
+		if len(inflightTxs) > 0 {
+			return last, nil
+		}
+		// Every requested root is already fully processed.
+		for _, h := range completed {
+			log.Infow("all requested roots already added; nothing to submit",
+				"proofset_id", id, "tx_hash", h)
+			return common.HexToHash(h), nil
+		}
+		return common.Hash{}, fmt.Errorf("internal: empty root partition for non-empty request")
+	}
+
+	if len(newRequest) < len(request) {
+		log.Infow("request partially overlaps already-staged roots; submitting only the new roots",
+			"proofset_id", id,
+			"requested", len(request),
+			"completed", len(completed),
+			"in_flight", len(inflight),
+			"submitting", len(newRequest))
+	}
+	request = newRequest
+
+	// Rebuild the subroot working set for the (possibly filtered) request.
+	newSubroots = cid.NewSet()
+	for _, addReq := range request {
+		for _, subrootEntry := range addReq.SubRoots {
+			newSubroots.Add(subrootEntry)
+		}
 	}
 
 	// Map to store subrootCID -> [pieceInfo, pdp_pieceref.id, subrootOffset, rawSize]
@@ -244,11 +347,11 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 	}
 
 	type subrootRow struct {
-		PieceCID        string `gorm:"column:piece_cid"`
-		PDPPieceRefID   int64  `gorm:"column:pdp_piece_ref_id"`
-		PieceRefID      int64  `gorm:"column:piece_ref"`
-		PiecePaddedSize uint64 `gorm:"column:piece_padded_size"`
-		PieceRawSize    int64  `gorm:"column:piece_raw_size"`
+		PieceCID        string `db:"piece_cid"`
+		PDPPieceRefID   int64  `db:"pdp_piece_ref_id"`
+		PieceRefID      int64  `db:"piece_ref"`
+		PiecePaddedSize uint64 `db:"piece_padded_size"`
+		PieceRawSize    int64  `db:"piece_raw_size"`
 	}
 
 	// Convert set to slice of string for db query
@@ -257,13 +360,14 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 	})
 
 	var rows []subrootRow
-	if err := p.db.WithContext(ctx).
-		Table("pdp_piecerefs as ppr").
-		Select("ppr.piece_cid, ppr.id as pdp_piece_ref_id, ppr.piece_ref, pp.piece_padded_size, pp.piece_raw_size").
-		Joins("JOIN parked_piece_refs as pprf ON pprf.ref_id = ppr.piece_ref").
-		Joins("JOIN parked_pieces as pp ON pp.id = pprf.piece_id").
-		Where("ppr.service = ? AND ppr.piece_cid IN ?", p.name, newSubrootsList).
-		Scan(&rows).Error; err != nil {
+	if err := p.db.Select(ctx, &rows, `
+		SELECT ppr.piece_cid, ppr.id AS pdp_piece_ref_id, ppr.piece_ref,
+		       pp.piece_padded_size, pp.piece_raw_size
+		FROM pdp_piecerefs ppr
+		JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+		JOIN parked_pieces pp ON pp.id = pprf.piece_id
+		WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
+	`, p.name, newSubrootsList); err != nil {
 		return common.Hash{}, err
 	}
 
@@ -317,7 +421,7 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		// GenerateUnsealedCID requires v1PieceCID, so transform here
 		var v1SubInfos []abi.PieceInfo
 		for _, pi := range pieceInfos {
-			v1PieceCID, err := asPieceCIDv1(pi.PieceCID.String())
+			v1PieceCID, err := asPieceCIDv1(pi.PieceCID)
 			if err != nil {
 				return common.Hash{}, err
 			}
@@ -335,7 +439,7 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		}
 
 		// turn the uploaded roots into PieceCIDV1
-		providedPieceCidV1, err := asPieceCIDv1(addReq.Root.String())
+		providedPieceCidV1, err := asPieceCIDv1(addReq.Root)
 		if err != nil {
 			return common.Hash{}, fmt.Errorf("failed to generate PieceCIDV1 for request: %w", err)
 		}
@@ -490,63 +594,102 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 	}
 	span.AddEvent("transaction sent")
 
-	// Step 9: Insert into message_waits_eth and pdp_proofset_root_adds
-	if err := p.db.Transaction(func(tx *gorm.DB) error {
+	// Step 9: Insert into message_waits_eth and pdp_data_set_piece_adds.
+	// Mirror Curio's handleAddPieceToDataSet + insertPieceAdds write-shape.
+	// Use lowercased tx hash to match Curio's storage convention.
+	txHashLower := strings.ToLower(txHash.Hex())
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// Insert into message_waits_eth
-		mw := models.MessageWaitsEth{
-			SignedTxHash: txHash.Hex(),
-			TxStatus:     "pending",
+		n, err := tx.Exec(`
+            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+            VALUES ($1, $2)
+        `, txHashLower, "pending")
+		if err != nil {
+			return false, err
 		}
-		if err := tx.WithContext(ctx).Create(&mw).Error; err != nil {
-			return err
-		}
-
-		// Update proof set for initialization upon first add TODO this is idempotent query, but can be avoided if we are sure the proofset is already ready we should also wait to say its ready until the root has landed on chain
-		if err := tx.WithContext(ctx).
-			Model(&models.PDPProofSet{}).
-			Where("id = ? AND prev_challenge_request_epoch IS NULL AND challenge_request_msg_hash IS NULL AND prove_at_epoch IS NULL", proofSetID.Int64()).
-			Update("init_ready", true).Error; err != nil {
-			return err
+		if n != 1 {
+			return false, fmt.Errorf("expected 1 row in message_waits_eth, got %d", n)
 		}
 
-		// Insert into pdp_proofset_root_adds
+		// Update proof set for initialization upon first add (idempotent)
+		if _, err := tx.Exec(`
+			UPDATE pdp_data_sets SET init_ready = true
+			WHERE id = $1
+			  AND prev_challenge_request_epoch IS NULL
+			  AND challenge_request_msg_hash IS NULL
+			  AND prove_at_epoch IS NULL
+		`, id); err != nil {
+			return false, err
+		}
+
+		// Insert into pdp_data_set_piece_adds — mirror Curio insertPieceAdds.
+		// add_message_index = piece index (outer loop). data_set = id (known, non-null).
+		// piece/sub_piece are stored as v1 CommP CIDs (Curio's convention; the
+		// prove task's CIDToPieceCommitmentV1 rejects v2 piece CIDs).
 		for addMessageIndex, addReq := range request {
+			rootV1, err := asPieceCIDv1(addReq.Root)
+			if err != nil {
+				return false, fmt.Errorf("converting root %s to v1 piece CID: %w", addReq.Root, err)
+			}
 			for _, subrootEntry := range addReq.SubRoots {
 				subInfo := subrootInfoMap[subrootEntry]
-				newRootAdd := models.PDPProofsetRootAdd{
-					ProofsetID:      proofSetID.Int64(),
-					Root:            addReq.Root.String(),
-					AddMessageHash:  txHash.Hex(),
-					AddMessageIndex: models.Ptr(int64(addMessageIndex)),
-					Subroot:         subrootEntry.String(),
-					SubrootOffset:   int64(subInfo.SubrootOffset),
-					SubrootSize:     int64(subInfo.PieceInfo.Size),
-					PDPPieceRefID:   &subInfo.PDPPieceRefID,
+				subV1, err := asPieceCIDv1(subrootEntry)
+				if err != nil {
+					return false, fmt.Errorf("converting subroot %s to v1 piece CID: %w", subrootEntry, err)
 				}
-				if err := tx.WithContext(ctx).Create(&newRootAdd).Error; err != nil {
-					return err
+				n, err := tx.Exec(`
+                    INSERT INTO pdp_data_set_piece_adds (
+                        data_set,
+                        piece,
+                        add_message_hash,
+                        add_message_index,
+                        sub_piece,
+                        sub_piece_offset,
+                        sub_piece_size,
+                        pdp_pieceref
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                `,
+					id,
+					rootV1.String(),
+					txHashLower,
+					addMessageIndex,
+					subV1.String(),
+					subInfo.SubrootOffset,
+					uint64(subInfo.PieceInfo.Size), // sub_piece_size = padded size, matches Curio
+					subInfo.PDPPieceRefID,
+				)
+				if err != nil {
+					return false, err
+				}
+				if n != 1 {
+					return false, fmt.Errorf("expected 1 row in pdp_data_set_piece_adds, got %d", n)
 				}
 			}
 		}
 
-		// If we get here, the transaction will be committed.
-		return nil
-	}); err != nil {
-		log.Errorw("Failed to insert into database", "error", err, "txHash", txHash.Hex(), "subroots", subrootInfoMap)
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
+		log.Errorw("Failed to insert into database", "error", err, "txHash", txHashLower, "subroots", subrootInfoMap)
 		return common.Hash{}, fmt.Errorf("failed to insert into database: %w", err)
+	}
+	if !comm {
+		return common.Hash{}, fmt.Errorf("failed to commit add pieces tracking")
 	}
 
 	// Step 10: Wait for the transaction to be confirmed on chain
 	// This prevents the race condition where multiple parallel AddRoots calls
-	// all read the same nextPieceId but only one can succeed
-	log.Infow("waiting for AddRoots transaction confirmation", "txHash", txHash.Hex(), "proofSetID", proofSetID, "waitDuration", waitDuration)
-	if err := p.WaitForConfirmation(ctx, txHash, waitDuration); err != nil {
-		log.Errorw("AddRoots transaction failed or timed out", "error", err, "txHash", txHash.Hex(), "proofSetID", proofSetID)
-		return txHash, fmt.Errorf("transaction %s failed or timed out: %w", txHash.Hex(), err)
+	// all read the same nextPieceId but only one can succeed.
+	// Rows were written with the lowercased hash, so wait on that form.
+	confirmHash := common.HexToHash(txHashLower)
+	log.Infow("waiting for AddRoots transaction confirmation", "txHash", txHashLower, "proofSetID", id, "waitDuration", waitDuration)
+	if err := p.WaitForConfirmation(ctx, confirmHash, waitDuration); err != nil {
+		log.Errorw("AddRoots transaction failed or timed out", "error", err, "txHash", txHashLower, "proofSetID", id)
+		return confirmHash, fmt.Errorf("transaction %s failed or timed out: %w", txHashLower, err)
 	}
 
-	log.Infow("AddRoots transaction confirmed successfully", "txHash", txHash.Hex(), "proofSetID", proofSetID)
-	return txHash, nil
+	log.Infow("AddRoots transaction confirmed successfully", "txHash", txHashLower, "proofSetID", id)
+	return confirmHash, nil
 }
 
 // TODO(phase 5a): the proof-bundling helper that lived here built per-piece

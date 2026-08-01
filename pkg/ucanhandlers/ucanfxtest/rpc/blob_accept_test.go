@@ -73,7 +73,8 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	require.Equal(t, size, acc.Blob.Size)
 	require.Equal(t, space, acc.Space)
 	require.Equal(t, inv.Task().Link(), acc.Cause, "cause records the accept task link")
-	require.NotNil(t, acc.PDPAccept, "PDP accept promise is recorded for aggregation completion")
+	require.NotEqual(t, cid.Undef, acc.PDPAccept.Task, "PDP accept promise is recorded for aggregation completion")
+	require.Equal(t, ok.Site, acc.Site, "acceptance records the location claim link AcceptOK returns")
 
 	// Invocation store carries the location commitment under AcceptOK.Site.
 	claim, err := s.ClaimStore.Get(t.Context(), ok.Site)

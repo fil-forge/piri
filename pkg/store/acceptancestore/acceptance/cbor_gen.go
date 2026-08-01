@@ -10,7 +10,6 @@ import (
 	"math"
 	"sort"
 
-	promise "github.com/fil-forge/ucantone/ucan/promise"
 	cid "github.com/ipfs/go-cid"
 	cbg "github.com/whyrusleeping/cbor-gen"
 	xerrors "golang.org/x/xerrors"
@@ -28,13 +27,8 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 	}
 
 	cw := cbg.NewCborWriter(w)
-	fieldCount := 5
 
-	if t.PDPAccept == nil {
-		fieldCount--
-	}
-
-	if _, err := cw.Write(cbg.CborEncodeMajorType(cbg.MajMap, uint64(fieldCount))); err != nil {
+	if _, err := cw.Write([]byte{166}); err != nil {
 		return err
 	}
 
@@ -52,6 +46,22 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 
 	if err := t.Blob.MarshalCBOR(cw); err != nil {
 		return err
+	}
+
+	// t.Site (cid.Cid) (struct)
+	if len("site") > 8192 {
+		return xerrors.Errorf("Value in field \"site\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("site"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("site")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteCid(cw, t.Site); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Site: %w", err)
 	}
 
 	// t.Cause (cid.Cid) (struct)
@@ -87,22 +97,19 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 	}
 
 	// t.PDPAccept (promise.AwaitOK) (struct)
-	if t.PDPAccept != nil {
+	if len("pdpAccept") > 8192 {
+		return xerrors.Errorf("Value in field \"pdpAccept\" was too long")
+	}
 
-		if len("pdpAccept") > 8192 {
-			return xerrors.Errorf("Value in field \"pdpAccept\" was too long")
-		}
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("pdpAccept"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("pdpAccept")); err != nil {
+		return err
+	}
 
-		if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("pdpAccept"))); err != nil {
-			return err
-		}
-		if _, err := cw.WriteString(string("pdpAccept")); err != nil {
-			return err
-		}
-
-		if err := t.PDPAccept.MarshalCBOR(cw); err != nil {
-			return err
-		}
+	if err := t.PDPAccept.MarshalCBOR(cw); err != nil {
+		return err
 	}
 
 	// t.ExecutedAt (uint64) (uint64)
@@ -175,6 +182,19 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 			}
+			// t.Site (cid.Cid) (struct)
+		case "site":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Site: %w", err)
+				}
+
+				t.Site = c
+
+			}
 			// t.Cause (cid.Cid) (struct)
 		case "cause":
 
@@ -203,18 +223,8 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 
 			{
 
-				b, err := cr.ReadByte()
-				if err != nil {
-					return err
-				}
-				if b != cbg.CborNull[0] {
-					if err := cr.UnreadByte(); err != nil {
-						return err
-					}
-					t.PDPAccept = new(promise.AwaitOK)
-					if err := t.PDPAccept.UnmarshalCBOR(cr); err != nil {
-						return xerrors.Errorf("unmarshaling t.PDPAccept pointer: %w", err)
-					}
+				if err := t.PDPAccept.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.PDPAccept: %w", err)
 				}
 
 			}

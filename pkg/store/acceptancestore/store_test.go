@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +27,8 @@ func TestDsAcceptanceStore(t *testing.T) {
 			},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
+			PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+			Site:       testutil.RandomCID(t),
 		}
 
 		err := s.Put(t.Context(), acc)
@@ -57,6 +60,8 @@ func TestDsAcceptanceStore(t *testing.T) {
 			},
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
+			PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+			Site:       testutil.RandomCID(t),
 		}
 
 		acc1 := acceptance.Acceptance{
@@ -64,6 +69,8 @@ func TestDsAcceptanceStore(t *testing.T) {
 			Blob:       acc0.Blob,
 			ExecutedAt: uint64(time.Now().Unix()),
 			Cause:      testutil.RandomCID(t),
+			PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+			Site:       testutil.RandomCID(t),
 		}
 
 		err := s.Put(t.Context(), acc0)

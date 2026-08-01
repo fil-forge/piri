@@ -5,24 +5,27 @@ import (
 
 	"github.com/fil-forge/filecoin-services/go/eip712"
 	"go.uber.org/fx"
-	"gorm.io/gorm"
 
 	signerimpl "github.com/fil-forge/piri-signing-service/pkg/inprocess"
 	signingservice "github.com/fil-forge/piri-signing-service/pkg/signer"
 	signertypes "github.com/fil-forge/piri-signing-service/pkg/types"
 
+	// curio infra
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/tasks/message"
+
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
-	"github.com/fil-forge/piri/pkg/pdp/chainsched"
-	"github.com/fil-forge/piri/pkg/pdp/ethereum"
 	"github.com/fil-forge/piri/pkg/pdp/httpapi/server"
-	"github.com/fil-forge/piri/pkg/pdp/scheduler"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/proofs"
 	"github.com/fil-forge/piri/pkg/service/signer"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -46,6 +49,7 @@ var Module = fx.Module("pdp-service",
 			// concrete *PDPService receivers.
 			fx.As(new(types.PieceWriterAPI)),
 			fx.As(new(types.PieceCommPAPI)),
+			fx.As(new(types.PieceRemoverAPI)),
 		),
 		ProvideProofSetIDProvider,
 		fx.Annotate(
@@ -61,17 +65,18 @@ type Params struct {
 
 	ID               app.IdentityConfig
 	ServerConfig     app.ServerConfig
-	DB               *gorm.DB `name:"engine_db"`
+	DB               *harmonydb.DB // curio harmonydb (unnamed; provided by curiopdp.Module) — single DB surface
 	Config           app.PDPServiceConfig
 	BlobStore        blobstore.Blobstore
 	AcceptanceStore  acceptancestore.AcceptanceStore
+	AllocationStore  allocationstore.AllocationStore
 	ReceiptStore     receiptstore.ReceiptStore
 	Resolver         types.PieceResolverAPI
 	Reader           types.PieceReaderAPI
-	Sender           ethereum.Sender
-	Engine           *scheduler.TaskEngine
-	ChainScheduler   *chainsched.Scheduler
+	Sender           *message.SenderETH
+	ChainScheduler   *chainsched.CurioChainSched
 	ChainClient      service.ChainClient
+	EthClient        ethchain.EthClient // raw eth client — contract.FSRegister signs/sends the register tx and reads balance
 	SigningService   signertypes.SigningService
 	ExtraDataEncoder *eip712.ExtraDataEncoder
 	Verifier         smartcontracts.Verifier
@@ -87,13 +92,14 @@ func ProvidePDPService(params Params) (*service.PDPService, error) {
 		params.DB,
 		params.BlobStore,
 		params.AcceptanceStore,
+		params.AllocationStore,
 		params.ReceiptStore,
 		params.Resolver,
 		params.Reader,
 		params.Sender,
-		params.Engine,
 		params.ChainScheduler,
 		params.ChainClient,
+		params.EthClient,
 		params.SigningService,
 		params.ExtraDataEncoder,
 		params.Verifier,

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -29,8 +28,6 @@ import (
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
-	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
@@ -40,6 +37,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	"github.com/fil-forge/piri/pkg/fx/root"
 	"github.com/fil-forge/piri/pkg/health"
@@ -81,6 +79,14 @@ func init() {
 	cobra.CheckErr(InitCmd.MarkFlagRequired("lotus-endpoint"))
 	cobra.CheckErr(InitCmd.MarkFlagRequired("operator-email"))
 	cobra.CheckErr(InitCmd.MarkFlagRequired("public-url"))
+
+	// did:plc resolution is always available; an omitted or empty value falls
+	// back to the default PLC directory. Set a non-empty value to override it.
+	InitCmd.Flags().String(
+		"plc-directory",
+		config.DefaultPLCDirectory,
+		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
+	)
 
 	// Database configuration flags
 	InitCmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
@@ -134,6 +140,7 @@ type initFlags struct {
 	lotusEndpoint string
 	operatorEmail string
 	delegatorURL  string
+	plcDirectory  string
 	// baseConfig holds values from --base-config or network presets
 	baseConfig *baseConfigValues
 	// storage holds storage backend configuration (S3/Postgres)
@@ -425,6 +432,22 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		return nil, fmt.Errorf("error reading --registrar-url: %w", err)
 	}
 
+	plcDirectory, err := cmd.Flags().GetString("plc-directory")
+	if err != nil {
+		return nil, fmt.Errorf("error reading --plc-directory: %w", err)
+	}
+	// Validate up front so init fails fast rather than at serve time. An empty
+	// value is allowed and falls back to the default PLC directory at serve time.
+	if plcDirectory != "" {
+		parsed, err := url.Parse(plcDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("parsing --plc-directory: %w", err)
+		}
+		if parsed.Scheme == "" {
+			return nil, fmt.Errorf("--plc-directory must include a scheme (http:// or https://)")
+		}
+	}
+
 	host, err := cmd.Flags().GetString("host")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --host: %w", err)
@@ -576,6 +599,7 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		lotusEndpoint: lotusEndpoint,
 		operatorEmail: operatorEmail,
 		delegatorURL:  delegatorURL,
+		plcDirectory:  plcDirectory,
 		baseConfig:    baseValues,
 		storage:       storage,
 	}, nil
@@ -627,6 +651,10 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 		}.ToAppConfig()),
 		Replicator: appcfg.DefaultReplicatorConfig(),
 	}
+
+	// Install Curio's PDP contract addresses from config before building the fx app;
+	// the pdpv0 task constructors resolve them eagerly during fx construction.
+	curiopdp.SetContractAddresses(cfg.PDPService)
 
 	var (
 		pdpSvc *service.PDPService
@@ -696,43 +724,35 @@ func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issue
 		return status.ID, nil
 	}
 	// else we need to register
-	res, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
+	if _, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
 		Name:        id.DID().String(),
 		Description: "Storacha Service Operator",
-	})
-	if err != nil {
+	}); err != nil {
 		return 0, fmt.Errorf("registering provider: %w", err)
 	}
 
 	cmd.PrintErrln("⏳ Waiting for registration to be confirmed on-chain...")
-	feedbackCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		for {
-			timer := time.NewTimer(10 * time.Second)
-			select {
-			case <-feedbackCtx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-			cmd.PrintErrln("   Transaction status: pending")
+	// contract.FSRegister fires the registerProvider tx without local tracking,
+	// so we confirm by polling on-chain status until the provider appears in the
+	// registry.
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		status, err = pdpSvc.GetProviderStatus(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("getting provider status: %w", err)
 		}
-	}()
-	// then wait for transaction to be applied
-	if err := pdpSvc.WaitForConfirmation(ctx, res.TransactionHash,
-		(tasks.MinConfidence+2)*smartcontracts.FilecoinEpoch); err != nil {
-		return 0, fmt.Errorf("waiting for confirmation of registration: %w", err)
+		if status.IsRegistered {
+			cmd.PrintErrln("   Registration status: confirmed")
+			return status.ID, nil
+		}
+		cmd.PrintErrln("   Registration status: pending")
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	// cancel the feedback context
-	cancel()
-	cmd.PrintErrln("   Transaction status: confirmed")
-	// so that we may then query for our provider ID
-	status, err = pdpSvc.GetProviderStatus(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("getting provider status: %w", err)
-	}
-	return status.ID, nil
 }
 
 // setupProofSet creates or finds an existing proof set
@@ -758,7 +778,7 @@ func setupProofSet(ctx context.Context, cmd *cobra.Command, pdpSvc *service.PDPS
 		return 0, fmt.Errorf("creating proof set: %w", err)
 	}
 
-	cmd.PrintErrln("⏳ Waiting for proof set creation to be confirmed on-chain...")
+	cmd.PrintErrf("⏳ Waiting for proof set creation to be confirmed on-chain (tx %s)...\n", tx.Hex())
 	for {
 		time.Sleep(10 * time.Second)
 		status, err := pdpSvc.GetProofSetStatus(ctx, tx)
@@ -812,6 +832,8 @@ func registerWithDelegator(ctx context.Context, cmd *cobra.Command, cfg *appcfg.
 		cmds := []ucan.Command{
 			blob.Allocate.Command,
 			blob.Accept.Command,
+			blob.Release.Command,
+			blob.Reject.Command,
 			pdp.Info.Command,
 			replicacmds.Allocate.Command,
 		}
@@ -888,32 +910,6 @@ func encodeProofChain(wire []byte) (string, error) {
 		return "", fmt.Errorf("no delegations in container")
 	}
 	return base64.StdEncoding.EncodeToString(wire), nil
-}
-
-func requestContractApproval(ctx context.Context, id ucan.Issuer, flags *initFlags, ownerAddress common.Address) error {
-	// create a signature by signing our own did with the private key of our did
-	signature := id.Sign([]byte(id.DID().String()))
-
-	c, err := delgclient.New(flags.delegatorURL)
-	if err != nil {
-		return fmt.Errorf("creating delegator client: %w", err)
-	}
-
-	// requesting approval requires the message to be published to chain by delegator
-	// before it returns, so we need an extended timeout
-	// TODO a better(?) mechanism might be to poll via a different method
-	c = c.WithHTTPClient(&http.Client{
-		Timeout: 5 * time.Minute,
-	})
-
-	req := &delgclient.RequestApprovalRequest{
-		Operator:     id.DID().String(),
-		OwnerAddress: ownerAddress.String(),
-		Signature:    signature,
-	}
-
-	// request approval from delegator, on success the delegator will approve piri within the smart contract
-	return c.RequestApproval(ctx, req)
 }
 
 // generateConfig generates the final configuration for the user
@@ -994,20 +990,30 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 					AnnounceURLs: flags.baseConfig.ipniAnnounceURLs,
 				},
 			},
-			ProofSetID: proofSetID,
+			ProofSetID:   proofSetID,
+			PLCDirectory: flags.plcDirectory,
 		},
 	}, nil
 }
 
 func doInit(cmd *cobra.Command, _ []string) error {
-	logging.SetAllLoggers(logging.LevelFatal)
+	// Init normally runs near-silent so the [N/6] progress output stays readable.
+	// Set PIRI_INIT_LOG_LEVEL (e.g. "info" or "debug") to surface the node's logs
+	// — useful for debugging the PDP pipeline (chainsched/watchers) during init.
+	initLevel := logging.LevelFatal
+	if v := os.Getenv("PIRI_INIT_LOG_LEVEL"); v != "" {
+		if lvl, err := logging.LevelFromString(v); err == nil {
+			initLevel = lvl
+		}
+	}
+	logging.SetAllLoggers(initLevel)
 	ctx := context.Background()
 
 	cmd.PrintErrln("🚀 Initializing your Piri node on the Storacha Network...")
 	cmd.PrintErrln()
 
 	// Step 1: Parse and validate flags
-	cmd.PrintErrln("[1/7] Validating configuration...")
+	cmd.PrintErrln("[1/6] Validating configuration...")
 	flags, err := parseAndValidateFlags(cmd)
 	if err != nil {
 		return err
@@ -1019,7 +1025,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	//failures after here are unrelated to arguments and flags supplied.
 	cmd.SilenceUsage = true
 	// Step 2: Create and start node
-	cmd.PrintErrln("[2/7] Creating Piri node...")
+	cmd.PrintErrln("[2/6] Creating Piri node...")
 	fxApp, pdpSvc, cfg, ownerAddress, err := createNode(ctx, flags)
 	if err != nil {
 		return err
@@ -1028,8 +1034,8 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrf("✅ Node created with DID: %s\n", cfg.Identity.Issuer.DID().String())
 	cmd.PrintErrln()
 
-	// Step 3: Register with the smart contract
-	cmd.PrintErrln("[3/7] Registering provider with contract...")
+	// Step 3: Register with the smart contract (Curio's contract.FSRegister)
+	cmd.PrintErrln("[3/6] Registering provider with contract...")
 	providerID, err := registerWithContract(ctx, cmd, cfg.Identity.Issuer, pdpSvc)
 	if err != nil {
 		return err
@@ -1037,32 +1043,24 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	cmd.PrintErrf("✅ Node registered with contract ProviderID: %d\n", providerID)
 	cmd.PrintErrln()
 
-	// Step 4: Request approval to join contract from storacha
-	cmd.PrintErrln("[4/7] Requesting approval to join contract from Storacha...")
-	if err := requestContractApproval(ctx, cfg.Identity.Issuer, flags, ownerAddress); err != nil {
-		return err
-	}
-	cmd.PrintErrln("✅ Node approved to join contract by Storacha")
-	cmd.PrintErrln()
-
-	// Step 5: Create or find proof set (must be approved in step 4 to succeed here)
-	cmd.PrintErrln("[5/7] Setting up proof set...")
+	// Step 4: Create or find proof set
+	cmd.PrintErrln("[4/6] Setting up proof set...")
 	proofSetID, err := setupProofSet(ctx, cmd, pdpSvc)
 	if err != nil {
 		return err
 	}
 	cmd.PrintErrln()
 
-	// Step 6: Register with delegator service
-	cmd.PrintErrln("[6/7] Registering with delegator service...")
+	// Step 5: Register with delegator service
+	cmd.PrintErrln("[5/6] Registering with delegator service...")
 	indexerProof, egressTrackerProof, err := registerWithDelegator(ctx, cmd, cfg, flags, ownerAddress, proofSetID)
 	if err != nil {
 		return err
 	}
 	cmd.PrintErrln()
 
-	// Step 7: Generate configuration
-	cmd.PrintErrln("[7/7] Generating configuration file...")
+	// Step 6: Generate configuration
+	cmd.PrintErrln("[6/6] Generating configuration file...")
 	userConfig, err := generateConfig(cfg, flags, ownerAddress, proofSetID, indexerProof, egressTrackerProof)
 	if err != nil {
 		return err

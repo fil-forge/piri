@@ -51,9 +51,13 @@ Egress tracker for usage reporting.
 
 | Key | Default | Env | Dynamic |
 |-----|---------|-----|---------|
-| `ucan.services.etracker.max_batch_size_bytes` | `104857600` | `PIRI_UCAN_SERVICES_ETRACKER_MAX_BATCH_SIZE_BYTES` | No |
+| `ucan.services.etracker.max_batch_size_bytes` | `10485760` | `PIRI_UCAN_SERVICES_ETRACKER_MAX_BATCH_SIZE_BYTES` | No |
 
-Constraints: 10MiB - 1GiB
+Constraints: 10MiB - 1GiB. The key is optional: when omitted, `piri serve`
+applies the 10MiB default shown above, while an explicit `0` makes the
+retrieval journal fall back to its built-in batch size of 100MiB. Neither
+disables egress tracking — the integration is disabled by leaving `did` and
+`url` unset.
 
 ```toml
 [ucan.services.etracker]

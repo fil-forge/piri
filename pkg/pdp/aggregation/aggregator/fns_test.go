@@ -7,11 +7,11 @@ import (
 	"time"
 
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
+	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
 	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 )
 
 // Human-friendly byte sizes
@@ -40,21 +40,23 @@ func randomPiece(t *testing.T, unpaddedSize int64) libpiece.Piece {
 	return p
 }
 
-func TestAggregatePieces(t *testing.T) {
+func TestAppend(t *testing.T) {
 	tests := []struct {
-		name               string
-		pieceSizes         []int64 // unpadded sizes
-		expectedBufferSize uint64
-		expectedAggCount   int
+		name string
+		// unpadded sizes
+		pieceSizes []int64
+		// total padded size of pieces left in no aggregate (still buffered)
+		expectedLeftoverSize uint64
+		expectedAggCount     int
 	}{
 		//
 		// generally happy path
 		//
 		{
-			name:               "Single piece <128MB remains buffered (no aggregate)",
-			pieceSizes:         []int64{32 * MB},
-			expectedBufferSize: 64 * MB, // after rounding
-			expectedAggCount:   0,
+			name:                 "Single piece <128MB remains buffered (no aggregate)",
+			pieceSizes:           []int64{32 * MB},
+			expectedLeftoverSize: 64 * MB, // after rounding
+			expectedAggCount:     0,
 		},
 		{
 			name: "Two pieces together exceed 128MB => 1 aggregate, buffer cleared",
@@ -62,8 +64,8 @@ func TestAggregatePieces(t *testing.T) {
 				32 * MB, // ~64MB padded
 				32 * MB, // ~64MB padded => total ~128MB => triggers an aggregate
 			},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Three pieces => first two trigger an aggregate, third remains in buffer",
@@ -74,8 +76,8 @@ func TestAggregatePieces(t *testing.T) {
 			},
 			// By the time the 2nd piece is processed, we cross 128MB => an aggregate is created.
 			// The 3rd piece goes into a new empty buffer => 64MB remains there.
-			expectedBufferSize: 64 * MB,
-			expectedAggCount:   1,
+			expectedLeftoverSize: 64 * MB,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Four pieces => triggers two aggregates, ending with empty buffer",
@@ -85,8 +87,8 @@ func TestAggregatePieces(t *testing.T) {
 				32 * MB, // ~64MB padded
 				32 * MB, // ~64MB padded => triggers second aggregate
 			},
-			expectedBufferSize: 0,
-			expectedAggCount:   2,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     2,
 		},
 		{
 			name: "Two large pieces >128MB each => immediate aggregate per piece",
@@ -94,53 +96,53 @@ func TestAggregatePieces(t *testing.T) {
 				130 * MB, // > 128MB => triggers immediate
 				200 * MB, // also > 128MB => triggers immediate
 			},
-			expectedBufferSize: 0,
-			expectedAggCount:   2,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     2,
 		},
 		//
 		// edge cases.
 		//
 		{
-			name:               "No pieces => empty buffer, no aggregates",
-			pieceSizes:         []int64{},
-			expectedBufferSize: 0,
-			expectedAggCount:   0,
+			name:                 "No pieces => no leftovers, no aggregates",
+			pieceSizes:           []int64{},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     0,
 		},
 		{
 			name: "Single piece ==64MB => triggers immediate aggregate (exact threshold)",
 			// Exactly 64MB unpadded is already a power of two, so its padded size
-			// is 128MB. That hits the newSize >= 128MB path inside AggregatePiece.
-			pieceSizes:         []int64{64 * MB},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			// is 128MB. That hits the total >= 128MB path inside Append.
+			pieceSizes:           []int64{64 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Single piece just under 128MB => remains in buffer, no aggregates",
 			// 63MB unpadded rounds up to 64MB padded, but it's still a single piece.
-			pieceSizes:         []int64{63 * MB},
-			expectedBufferSize: 64 * MB, // after rounding
-			expectedAggCount:   0,
+			pieceSizes:           []int64{63 * MB},
+			expectedLeftoverSize: 64 * MB, // after rounding
+			expectedAggCount:     0,
 		},
 		{
 			name: "Single piece exactly 128MB => triggers immediate aggregate",
 			// A piece right at the threshold gets flushed immediately.
-			pieceSizes:         []int64{128 * MB},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			pieceSizes:           []int64{128 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Single piece >128MB but <256MB => triggers immediate aggregate",
-			// Because newPiece.PaddedSize() > 128MB => aggregator flushes right away.
-			pieceSizes:         []int64{200 * MB},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			// Because the piece's padded size > 128MB => aggregator flushes right away.
+			pieceSizes:           []int64{200 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Single piece 192MB => triggers immediate aggregate",
 			// By definition, a piece this large is also flushed right away as it pads to 256MB.
-			pieceSizes:         []int64{192 * MB},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			pieceSizes:           []int64{192 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Two small pieces that sum exactly 128MB => one aggregate, empty buffer",
@@ -149,8 +151,8 @@ func TestAggregatePieces(t *testing.T) {
 				63 * MB, // combined crosses threshold
 			},
 			// The aggregator hits >=128MB on the second piece => flushes => buffer resets.
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 		{
 			name: "Two small pieces slightly over 128MB => flush once, leftover in new buffer",
@@ -163,8 +165,8 @@ func TestAggregatePieces(t *testing.T) {
 			// flushes. The net effect is typically two immediate aggregates if 70MB
 			// rounds to 128MB. If you want them combined, pick sizes that together
 			// cross 128 but not individually.
-			expectedBufferSize: 0,
-			expectedAggCount:   2,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     2,
 		},
 		{
 			name: "Multiple pieces cause multiple flushes",
@@ -175,8 +177,8 @@ func TestAggregatePieces(t *testing.T) {
 				90 * MB, // once buffer + 90 crosses threshold => flush #2
 				70 * MB, // new buffer, triggers flush #3
 			},
-			expectedBufferSize: 0,
-			expectedAggCount:   3,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     3,
 		},
 		{
 			name: "Single piece >256MB (if code permits) => immediate flush or error",
@@ -184,9 +186,9 @@ func TestAggregatePieces(t *testing.T) {
 			// The aggregator code comment suggests >256MB is out-of-scope, but not
 			// strictly enforced. Some implementations could treat this
 			// as an error or just flush.
-			pieceSizes:         []int64{300 * MB},
-			expectedBufferSize: 0,
-			expectedAggCount:   1,
+			pieceSizes:           []int64{300 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
 		},
 	}
 
@@ -195,34 +197,42 @@ func TestAggregatePieces(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// NB(forrest): run these in parallel since creating MBs of data isn't exactly "fast".
 			t.Parallel()
-			var (
-				buf        types.Buffer
-				aggregates []types.Aggregate
-				err        error
-				pieces     []libpiece.Piece
-			)
 
 			// Build the input pieces
+			var pieces []libpiece.Piece
 			for _, size := range tc.pieceSizes {
 				pieces = append(pieces, randomPiece(t, size))
 			}
 
 			// Call the function under test
-			buf, aggregates, err = aggregator.AggregatePieces(buf, pieces)
-			require.NoError(t, err, "AggregatePieces returned an unexpected error")
-
-			// Check buffer size after all pieces are processed
-			require.EqualValues(t, tc.expectedBufferSize, buf.TotalSize,
-				"buffer size did not match expectation")
+			aggregates, err := aggregator.Append(pieces)
+			require.NoError(t, err, "Append returned an unexpected error")
 
 			// Check how many aggregates were formed
 			if tc.expectedAggCount == 0 {
-				require.Nil(t, aggregates,
+				require.Empty(t, aggregates,
 					"expected no aggregates but got some")
 			} else {
 				require.Len(t, aggregates, tc.expectedAggCount,
 					"number of aggregates does not match expectation")
 			}
+
+			// Pieces absent from every aggregate are still buffered; check
+			// their total padded size after all pieces are processed.
+			aggregated := make(map[cid.Cid]struct{})
+			for _, a := range aggregates {
+				for _, p := range a.Pieces {
+					aggregated[p.Link] = struct{}{}
+				}
+			}
+			var leftover uint64
+			for _, p := range pieces {
+				if _, ok := aggregated[p.CID()]; !ok {
+					leftover += p.PaddedSize()
+				}
+			}
+			require.EqualValues(t, tc.expectedLeftoverSize, leftover,
+				"leftover (buffered) size did not match expectation")
 		})
 	}
 }

@@ -120,6 +120,34 @@ func TestAllocate_BlobInOtherSpace(t *testing.T) {
 	require.Nil(t, resp.Address, "blob already on disk — no upload URL")
 }
 
+func TestAllocate_BlobPendingRemovalNoAllocations(t *testing.T) {
+	// Regression: the bytes are still in the piece store but NO space holds
+	// an allocation — the shape /blob/release leaves behind while the
+	// pending-removal sweep hasn't run (delete → immediate re-add of the
+	// same content). AllocatePiece finds the piece (Allocated=false, no
+	// upload ID); the receipt must carry no address at all — an address
+	// wrapping an empty URL sends the client a PUT to "". The allocation
+	// row written here is a claim, so the sweep cancels the queued removal.
+	deps, pieces, allocs := newAllocateDeps(t)
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+
+	pieces.Put(digest, []byte("data")) // bytes present, zero allocations
+
+	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: 256},
+		Cause: testutil.RandomCID(t),
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(256), resp.Size, "first allocation in this space")
+	require.Nil(t, resp.Address, "bytes already on disk — no upload URL, and never an empty one")
+
+	stored, err := allocs.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.Equal(t, space, stored.Space, "allocation recorded so the removal sweep sees a claim")
+}
+
 func TestAllocate_UnsupportedHashRejected(t *testing.T) {
 	deps, _, _ := newAllocateDeps(t)
 	// build a multihash with a function code not in HasherRegistry (e.g. blake2b-256)

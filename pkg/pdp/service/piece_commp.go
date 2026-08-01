@@ -2,17 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
-	"github.com/fil-forge/piri/pkg/pdp/types"
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	commp "github.com/filecoin-project/go-fil-commp-hashhash"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
-	"gorm.io/gorm/clause"
+	"github.com/yugabyte/pgx/v5"
+
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihash) (types.CalculateCommPResponse, error) {
@@ -21,21 +22,26 @@ func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihas
 	// use singleflight to prevent duplicate commp calculations
 	v, err, _ := p.commPGroup.Do(key, func() (interface{}, error) {
 		// 1. check if we have already calculated commp for this piece
-		var existing models.PDPPieceMHToCommp
-		if err := p.db.WithContext(ctx).First(&existing, "mhash = ?", blob).Error; err == nil {
-			pieceCID, err := cid.Parse(existing.Commp)
+		var existingSize int64
+		var existingCommp string
+		err := p.db.QueryRow(ctx, `SELECT size, commp FROM pdp_piece_mh_to_commp WHERE mhash = $1`, []byte(blob)).Scan(&existingSize, &existingCommp)
+		switch {
+		case err == nil:
+			pieceCID, err := cid.Parse(existingCommp)
 			if err != nil {
-				return types.CalculateCommPResponse{}, fmt.Errorf("failed to parse existing commp cid %s: %w", existing.Commp, err)
+				return types.CalculateCommPResponse{}, fmt.Errorf("failed to parse existing commp cid %s: %w", existingCommp, err)
 			}
-			treeHeight, _, err := commcid.PayloadSizeToV1TreeHeightAndPadding(uint64(existing.Size))
+			treeHeight, _, err := commcid.PayloadSizeToV1TreeHeightAndPadding(uint64(existingSize))
 			if err != nil {
 				return types.CalculateCommPResponse{}, err
 			}
 			return types.CalculateCommPResponse{
 				PieceCID:   pieceCID,
-				RawSize:    int64(existing.Size),
+				RawSize:    existingSize,
 				PaddedSize: int64(32) << treeHeight,
 			}, nil
+		case !errors.Is(err, pgx.ErrNoRows):
+			return types.CalculateCommPResponse{}, fmt.Errorf("failed to read pdp_piece_mh_to_commp: %w", err)
 		}
 		// 2. calculate commp since we don't have it yet
 		readObj, err := p.pieceReader.Read(ctx, blob)
@@ -51,13 +57,13 @@ func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihas
 
 		// 3. insert into pdp_piece_mh_to_commp to avoid recalculation
 		if pieceCID.Hash().HexString() != blob.HexString() {
-			mhToCommp := models.PDPPieceMHToCommp{
-				Mhash: blob,
-				Size:  int64(readObj.Size),
-				Commp: pieceCID.String(),
+			pv1, _, err := commcid.PieceCidV1FromV2(pieceCID)
+			if err != nil {
+				return types.CalculateCommPResponse{}, fmt.Errorf("failed to derive v1 piece CID from %s: %w", pieceCID, err)
 			}
-			if err := p.db.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&mhToCommp).Error; err != nil {
-				return types.CalculateCommPResponse{}, fmt.Errorf("failed to insert into %s: %w", mhToCommp.TableName(), err)
+			if _, err := p.db.Exec(ctx, `INSERT INTO pdp_piece_mh_to_commp (mhash, size, commp, commp_v1) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+				[]byte(blob), int64(readObj.Size), pieceCID.String(), pv1.String()); err != nil {
+				return types.CalculateCommPResponse{}, fmt.Errorf("failed to insert into pdp_piece_mh_to_commp: %w", err)
 			}
 		}
 

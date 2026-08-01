@@ -13,7 +13,8 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/require"
-	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
+
+	"github.com/fil-forge/piri/pkg/internal/testutil"
 )
 
 func TestBucketCreation(t *testing.T) {
@@ -52,7 +53,7 @@ func TestMain(m *testing.M) {
 	logging.SetDebugLogging()
 	ctx := context.Background()
 
-	container, err := tcminio.Run(ctx, "minio/minio:latest")
+	container, err := testutil.RunMinioContainer(ctx)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to start MinIO container: %v", err))
 	}

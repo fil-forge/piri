@@ -15,18 +15,16 @@ import (
 )
 
 type AdminRoutes struct {
-	jwtMiddleware  echo.MiddlewareFunc
-	paymentHandler *PaymentHandler
-	configHandler  *ConfigHandler
+	jwtMiddleware echo.MiddlewareFunc
+	configHandler *ConfigHandler
 }
 
 type AdminRoutesParams struct {
 	fx.In
 
-	Identity       app.IdentityConfig
-	PaymentHandler *PaymentHandler `optional:"true"`
-	Registry       *dynamic.Registry
-	Bridge         *dynamic.ViperBridge
+	Identity app.IdentityConfig
+	Registry *dynamic.Registry
+	Bridge   *dynamic.ViperBridge
 }
 
 func NewRoutes(params AdminRoutesParams) (echofx.RouteRegistrar, error) {
@@ -44,9 +42,8 @@ func NewRoutes(params AdminRoutesParams) (echofx.RouteRegistrar, error) {
 
 	}
 	return &AdminRoutes{
-		jwtMiddleware:  jwtMiddleware,
-		paymentHandler: params.PaymentHandler,
-		configHandler:  configHandler,
+		jwtMiddleware: jwtMiddleware,
+		configHandler: configHandler,
 	}, nil
 }
 
@@ -58,17 +55,6 @@ func (a *AdminRoutes) RegisterRoutes(e *echo.Echo) {
 	logGroup.GET("/list", listLogLevels)
 	logGroup.POST("/set", setLogLevel)
 	logGroup.POST("/set-regex", setLogLevelRegex)
-
-	if a.paymentHandler != nil {
-		paymentGroup := adminGroup.Group(httpapi.PaymentRoutePath)
-		paymentGroup.GET("/account", a.paymentHandler.GetAccountInfo)
-		paymentGroup.GET("/settle/:railId/estimate", a.paymentHandler.EstimateSettlement)
-		paymentGroup.GET("/settle/:railId/status", a.paymentHandler.GetSettlementStatus)
-		paymentGroup.POST("/settle/:railId", a.paymentHandler.SettleRail)
-		paymentGroup.POST("/withdraw/estimate", a.paymentHandler.EstimateWithdraw)
-		paymentGroup.POST("/withdraw", a.paymentHandler.Withdraw)
-		paymentGroup.GET("/withdraw/status", a.paymentHandler.GetWithdrawalStatus)
-	}
 
 	// Config routes (only if dynamic config is enabled)
 	if a.configHandler != nil {
