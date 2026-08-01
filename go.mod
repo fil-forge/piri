@@ -51,7 +51,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.24.1
 	github.com/pelletier/go-toml/v2 v2.3.1
 	github.com/samber/lo v1.53.0
-	github.com/schollz/progressbar/v3 v3.19.0
+	github.com/schollz/progressbar/v3 v3.19.1
 	github.com/shirou/gopsutil/v4 v4.26.6
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
