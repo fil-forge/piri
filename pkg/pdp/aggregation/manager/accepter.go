@@ -71,6 +71,7 @@ func GenerateReceipts(ctx context.Context, issuer ucan.Issuer, aggregate types.A
 				Blob: blob,
 			},
 			invocation.WithNoExpiration(),
+			invocation.WithNoNonce(),
 		)
 
 		if err != nil {

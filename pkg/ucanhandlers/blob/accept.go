@@ -154,6 +154,9 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		return nil, fmt.Errorf("creating retrieval URL for blob: %w", err)
 	}
 	// generate the invocation that will complete when aggregation is complete and the piece is accepted
+	// The task has no nonce so its link is deterministic: the aggregation
+	// pipeline issues the receipt against a rebuilt invocation and /pdp/info
+	// looks it up the same way — all three must derive the same task link.
 	pdpAcceptInv, err := pdp.Accept.Invoke(
 		deps.ID,
 		deps.ID.DID(),
@@ -161,6 +164,7 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 			Blob: req.Blob.Digest,
 		},
 		invocation.WithNoExpiration(),
+		invocation.WithNoNonce(),
 	)
 	if err != nil {
 		log.Error("creating piece accept invocation", "error", err)
