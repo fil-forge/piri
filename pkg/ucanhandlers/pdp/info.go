@@ -77,11 +77,12 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 		// aggregate and inclusion proof. We rebuild the /pdp/accept
 		// invocation deterministically; its Link() is the key the
 		// receipt store indexed under.
-		pdpAcceptInv, err := pdp.Accept.Invoke(
-			deps.ID, deps.ID.DID(),
-			&pdp.AcceptArguments{Blob: args.Blob},
-			invocation.WithNoNonce(),
-		)
+pdpAcceptInv, err := pdp.Accept.Invoke(
+	deps.ID, deps.ID.DID(),
+	&pdp.AcceptArguments{Blob: args.Blob},
+	invocation.WithNoExpiration(),
+	invocation.WithNoNonce(),
+)
 		if err != nil {
 			log.Errorw("building /pdp/accept invocation", "error", err)
 			return fmt.Errorf("building /pdp/accept invocation: %w", err)
