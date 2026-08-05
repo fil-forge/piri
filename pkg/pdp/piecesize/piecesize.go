@@ -55,9 +55,12 @@ const (
 	// configured limit may exceed it.
 	CurioMaxPaddedSize uint64 = proof.MaxMemtreeSize
 
-	// MinPaddedSize is the smallest configurable maximum. Below this a node
-	// could not store a piece worth aggregating.
-	MinPaddedSize uint64 = 1 << 20
+	// MinPaddedSize is the smallest configurable maximum, equal to
+	// DefaultMaxPaddedSize. The limit is raise-only: network clients shard
+	// uploads against a network-wide constant (libforge blob.MaxBlobSize), so
+	// a node configured below it would reject blobs every other node accepts.
+	// An operator may accept more than the network default, never less.
+	MinPaddedSize uint64 = 1 << 28
 
 	// DefaultMaxPaddedSize is the shipped default, 256 MiB, which yields a
 	// raw cap of 266338304 and a memtree peak around 768 MiB. It is
@@ -68,10 +71,14 @@ const (
 	DefaultMaxPaddedSize uint64 = 1 << 28
 )
 
-// Compile-time assertion that the default fits under Curio's ceiling. If
-// DefaultMaxPaddedSize ever exceeds CurioMaxPaddedSize this underflows and
-// fails to compile.
-const _ = CurioMaxPaddedSize - DefaultMaxPaddedSize
+// Compile-time assertions that the default fits under Curio's ceiling and
+// that the floor does not exceed the default (the zero config resolves to the
+// default, which must itself be configurable). Violations underflow and fail
+// to compile.
+const (
+	_ = CurioMaxPaddedSize - DefaultMaxPaddedSize
+	_ = DefaultMaxPaddedSize - MinPaddedSize
+)
 
 // minPaddedPiece is the smallest padded piece the merkle layout admits; it is
 // also the lower bound enforced by the aggregator.
@@ -119,7 +126,7 @@ func ValidatePaddedSize(padded uint64) error {
 	}
 	if padded > CurioMaxPaddedSize {
 		return fmt.Errorf(
-			"max padded piece size %d exceeds the proving limit %d: Curio's prove task builds a full memtree per challenged sub-piece and cannot exceed it",
+			"max padded piece size %d exceeds the proving limit %d: the prove task builds a full memtree per challenged sub-piece and cannot exceed it",
 			padded, CurioMaxPaddedSize,
 		)
 	}

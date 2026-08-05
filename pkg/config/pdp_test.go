@@ -36,7 +36,7 @@ func TestPieceConfig_ToAppConfig(t *testing.T) {
 	}{
 		{"above the curio ceiling", 1 << 31, "exceeds the proving limit"},
 		{"not a power of two", 3 << 27, "power of two"},
-		{"below the minimum", 1 << 19, "below the minimum"},
+		{"below the minimum", 1 << 27, "below the minimum"},
 	} {
 		t.Run("rejects "+tc.name, func(t *testing.T) {
 			_, err := PieceConfig{MaxPaddedSize: tc.size}.ToAppConfig()

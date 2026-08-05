@@ -43,8 +43,12 @@ type PDPServiceConfig struct {
 type PieceConfig struct {
 	// MaxPaddedSize is the largest padded (FR32 merkle tree) size a single
 	// piece may occupy, in bytes. It must be a power of two, because padded
-	// tree sizes always are, and it may not exceed the limit above which
-	// Curio's prove task cannot build a memtree.
+	// tree sizes always are, and it must lie within
+	// [piecesize.MinPaddedSize, piecesize.CurioMaxPaddedSize] — currently
+	// [256 MiB, 1 GiB]. The floor is the network default (the limit is
+	// raise-only; see piecesize.MinPaddedSize); the ceiling is derived from
+	// Curio's proof.MaxMemtreeSize, above which the prove task cannot build
+	// a memtree.
 	//
 	// The raw byte limit an uploader actually sees is derived from this and
 	// is smaller: a 268435456 (256 MiB) padded limit admits raw blobs up to

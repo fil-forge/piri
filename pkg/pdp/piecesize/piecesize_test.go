@@ -82,7 +82,7 @@ func TestValidatePaddedSize(t *testing.T) {
 		{name: "not a power of two", padded: 3 << 27, wantErr: "power of two"},
 		{name: "one over the ceiling", padded: (1 << 30) + 1, wantErr: "power of two"},
 		{name: "double the ceiling", padded: 1 << 31, wantErr: "exceeds the proving limit"},
-		{name: "below the minimum", padded: 1 << 19, wantErr: "below the minimum"},
+		{name: "below the minimum", padded: 1 << 27, wantErr: "below the minimum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := piecesize.ValidatePaddedSize(tc.padded)

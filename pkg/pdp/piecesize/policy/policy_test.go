@@ -74,7 +74,7 @@ func TestPolicy_RegistryRejectsUnprovableValues(t *testing.T) {
 	}{
 		{"above curio ceiling", 1 << 31, "outside valid range"},
 		{"not a power of two", 3 << 27, "power of two"},
-		{"below minimum", 1 << 19, "outside valid range"},
+		{"below minimum", 1 << 27, "outside valid range"},
 		{"zero", 0, "power of two"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
