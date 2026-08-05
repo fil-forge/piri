@@ -55,7 +55,11 @@ Wait time between retry attempts after a failure.
 ## Relationship to maximum piece size
 
 `min_aggregate_size` and [`pdp.piece.max_padded_size`](../piece.md) are independent, and neither is derived from the other.
-They bound different things:
+
+A note on terms: the on-chain PDP contract only knows the top-level piece it challenges — the aggregate.
+"Sub-piece" is the proving pipeline's off-chain bookkeeping for the individual blobs folded into it: when a challenge lands, the prove task looks up which sub-piece contains the challenged offset and builds its merkle tree over that sub-piece alone, assembling the rest of the aggregate root from stored commitments.
+
+The two knobs bound different things:
 
 - **`max_padded_size`** is a memory-safety bound.
   Proving builds a merkle tree over the challenged *sub-piece*, so a single piece's size determines how much memory a proof costs.

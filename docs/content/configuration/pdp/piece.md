@@ -36,6 +36,13 @@ So the 256 MiB default admits raw blobs up to `266338304` bytes.
 | `536870912` (512 MiB) | `532676608` | ~1.5 GiB |
 | `1073741824` (1 GiB) | `1065353216` | ~3 GiB |
 
+## The floor
+
+The minimum accepted value is the default itself: **256 MiB** (`268435456`).
+The limit is raise-only.
+Network clients decide how to shard an upload against a network-wide constant, before they know which node will store it, so a node configured below the network default would reject blobs every other node accepts.
+An operator may accept more than the default, never less.
+
 ## The ceiling
 
 The maximum accepted value is **1 GiB** (`1073741824`), and it is not adjustable.
@@ -60,7 +67,7 @@ Changes take effect immediately, with no restart:
 $ piri client admin config set pdp.piece.max_padded_size 536870912 --persist
 ```
 
-Values that are not a power of two, are below 1 MiB, or exceed 1 GiB are rejected.
+Values that are not a power of two, are below the 256 MiB default, or exceed 1 GiB are rejected.
 
 An upload already in flight when the limit is lowered is re-checked against the new limit and refused.
 
