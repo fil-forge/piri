@@ -223,7 +223,10 @@ func TestAllocate_SizeLimitBoundary(t *testing.T) {
 func TestAllocate_UsesConfiguredPolicy(t *testing.T) {
 	deps, _, _ := newAllocateDeps(t)
 
-	limits := piecesize.Limits{Padded: 1 << 21} // 2 MiB padded => 2080768 raw
+	// The limit is raise-only (piecesize.MinPaddedSize equals the default),
+	// so the test moves in the only direction an operator can: default
+	// rejects, a raised limit accepts.
+	limits := piecesize.Limits{Padded: 1 << 28} // the default: 266338304 raw
 	deps.PieceSize = piecesize.NewPolicy(func() piecesize.Limits { return limits })
 
 	alloc := func(size uint64) error {
@@ -235,9 +238,9 @@ func TestAllocate_UsesConfiguredPolicy(t *testing.T) {
 		return err
 	}
 
-	require.Error(t, alloc(4<<20), "4 MiB exceeds the tightened limit")
-	require.NoError(t, alloc(1<<20), "1 MiB is within it")
+	require.Error(t, alloc(300_000_000), "300 MB exceeds the default limit")
 
-	limits = piecesize.Limits{Padded: 1 << 28}
-	require.NoError(t, alloc(4<<20), "raising the limit at runtime must take effect")
+	limits = piecesize.Limits{Padded: 1 << 29} // 512 MiB padded => 532676608 raw
+	require.NoError(t, alloc(300_000_000), "raising the limit at runtime must take effect")
+	require.Error(t, alloc(532676609), "one byte past the raised cap still fails")
 }
