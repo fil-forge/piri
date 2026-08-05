@@ -37,6 +37,10 @@ This is a **cost-versus-latency** knob:
 | Higher | More pieces per `addRoots` transaction, so lower gas per blob — but each blob waits longer before it becomes provable |
 | Lower | Blobs become provable sooner, at higher gas per blob |
 
+There is **no time-based flush**: the buffer flushes only when arriving pieces reach the threshold.
+A threshold set above what the node's traffic actually accumulates leaves sub-threshold pieces waiting indefinitely — accepted and stored, but not yet posted on-chain and therefore not provable.
+Size the threshold to your real ingest rate, not to the structural maximum.
+
 ### `job_queue.workers`
 
 Number of concurrent aggregation operations. Defaults to the number of CPU cores.
