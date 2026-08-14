@@ -58,7 +58,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/testcontainers/testcontainers-go v0.44.0
-	github.com/testcontainers/testcontainers-go/modules/minio v0.39.0
+	github.com/testcontainers/testcontainers-go/modules/minio v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
