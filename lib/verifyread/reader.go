@@ -8,19 +8,48 @@ import (
 	"io"
 )
 
-var ErrHashMismatch = errors.New("hash validation failed")
+var (
+	ErrHashMismatch = errors.New("hash validation failed")
+	ErrSizeMismatch = errors.New("size validation failed")
+)
 
 type Reader struct {
 	src         io.Reader
 	h           hash.Hash
 	expectedSum []byte
 
+	// expectedSize, when non-zero, is the exact number of bytes the source
+	// must yield. Enforced in both directions.
+	expectedSize    uint64
+	hasExpectedSize bool
+
 	bytesRead uint64
 	done      bool  // reached EOF
 	finalErr  error // latched terminal error (e.g., mismatch)
 }
 
-func New(src io.Reader, h hash.Hash, expected []byte) (*Reader, error) {
+// Option configures a Reader.
+type Option func(*Reader)
+
+// WithExpectedSize makes the Reader enforce an exact byte count.
+//
+// Over-length is caught as soon as the source yields one byte too many,
+// without consuming the rest — the caller does not have to stream an
+// unbounded body to discover it is too big.
+//
+// Under-length is caught at EOF, and is checked before the digest compare so
+// a truncated transfer is reported as ErrSizeMismatch rather than
+// ErrHashMismatch. The digest of a short read never matches, so without this
+// a dropped connection looks like data corruption and sends operators
+// hunting in the wrong place.
+func WithExpectedSize(n uint64) Option {
+	return func(r *Reader) {
+		r.expectedSize = n
+		r.hasExpectedSize = true
+	}
+}
+
+func New(src io.Reader, h hash.Hash, expected []byte, opts ...Option) (*Reader, error) {
 	if src == nil {
 		return nil, fmt.Errorf("source reader cannot be nil")
 	}
@@ -30,7 +59,11 @@ func New(src io.Reader, h hash.Hash, expected []byte) (*Reader, error) {
 	if len(expected) == 0 {
 		return nil, fmt.Errorf("expected digest cannot be nil")
 	}
-	return &Reader{src: src, h: h, expectedSum: expected}, nil
+	r := &Reader{src: src, h: h, expectedSum: expected}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r, nil
 }
 
 func (r *Reader) Read(p []byte) (int, error) {
@@ -43,6 +76,13 @@ func (r *Reader) Read(p []byte) (int, error) {
 
 	n, err := r.src.Read(p)
 	if n > 0 {
+		// Stop at the first byte past the limit, before hashing the
+		// overflow, so an over-long body is cut off rather than drained.
+		if r.hasExpectedSize && r.bytesRead+uint64(n) > r.expectedSize {
+			r.finalErr = fmt.Errorf("%w: expected %d bytes, source has more",
+				ErrSizeMismatch, r.expectedSize)
+			return 0, r.finalErr
+		}
 		_, innErr := r.h.Write(p[:n])
 		if innErr != nil {
 			return 0, innErr
@@ -52,6 +92,13 @@ func (r *Reader) Read(p []byte) (int, error) {
 
 	if err == io.EOF {
 		r.done = true
+		// Size before digest: a short read never matches the digest, and
+		// "truncated" is the more actionable diagnosis than "corrupt".
+		if r.hasExpectedSize && r.bytesRead != r.expectedSize {
+			r.finalErr = fmt.Errorf("%w: expected %d bytes, got %d",
+				ErrSizeMismatch, r.expectedSize, r.bytesRead)
+			return n, r.finalErr
+		}
 		sum := r.h.Sum(nil)
 		if !bytes.Equal(sum, r.expectedSum) {
 			r.finalErr = fmt.Errorf("%w: expected %x, got %x", ErrHashMismatch, r.expectedSum, sum)
