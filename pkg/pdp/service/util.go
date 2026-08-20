@@ -6,11 +6,7 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
-
-	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
-
-var PieceSizeLimit = piecesize.DefaultLimits.MaxUnpadded()
 
 // asPieceCIDv1 normalizes a piece CID to its v1 (raw CommP) form.
 // v2 piece CIDs (fr32-sha256-trunc254-padbintree) are converted via
