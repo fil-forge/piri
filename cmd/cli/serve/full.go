@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/ucantone/did"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
@@ -19,8 +19,8 @@ import (
 	"github.com/fil-forge/piri/cmd/cliutil"
 	"github.com/fil-forge/piri/pkg/config"
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/app"
-	"github.com/fil-forge/piri/pkg/health"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/telemetry"
 )
@@ -53,6 +53,17 @@ func init() {
 
 	// Developer only: enable HTTP (instead of HTTPS) for did:web resolution
 	cobra.CheckErr(viper.BindEnv("ucan.insecure_did_resolution", "PIRI_INSECURE_DID_RESOLUTION"))
+
+	// The flag default is intentionally empty: an omitted or empty value falls
+	// back to the default PLC directory (https://plc.directory), so did:plc
+	// resolution is always available. Set a non-empty value to override it.
+	FullCmd.Flags().String(
+		"plc-directory",
+		"",
+		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
+	)
+	cobra.CheckErr(viper.BindPFlag("ucan.plc_directory", FullCmd.Flags().Lookup("plc-directory")))
+	cobra.CheckErr(viper.BindEnv("ucan.plc_directory", "PIRI_PLC_DIRECTORY"))
 
 	FullCmd.Flags().String(
 		"network",
@@ -125,7 +136,7 @@ func init() {
 	FullCmd.Flags().Int64(
 		"egress-tracker-service-max-batch-size-bytes",
 		config.DefaultMinimumEgressBatchSize,
-		"Maximum batch size in bytes for egress tracker service. It should be between 10MiB and 1GiB",
+		"Maximum batch size in bytes for egress tracker service, between 10MiB and 1GiB. An explicit 0 selects the retrieval journal's built-in default (100MiB) rather than this flag's default; it does not disable egress tracking (leave the egress tracker DID/URL empty to disable).",
 	)
 	cobra.CheckErr(FullCmd.Flags().MarkHidden("egress-tracker-service-max-batch-size-bytes"))
 	cobra.CheckErr(viper.BindPFlag("ucan.services.etracker.max_batch_size_bytes", FullCmd.Flags().Lookup("egress-tracker-service-max-batch-size-bytes")))
@@ -331,9 +342,13 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("parsing config: %w", err)
 	}
 
+	// Install Curio's PDP contract addresses from config before building the fx app;
+	// the pdpv0 task constructors resolve them eagerly during fx construction.
+	curiopdp.SetContractAddresses(appCfg.PDPService)
+
 	if err := initTelemetry(
 		cmd.Context(),
-		appCfg.Identity.Signer.DID().String(),
+		appCfg.Identity.Issuer.DID().String(),
 		userCfg.Network,
 		appCfg.Storage.DataDir,
 		appCfg.Telemetry,
@@ -355,36 +370,20 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 
 		fx.StopTimeout(setup.PiriServerShutdownTimeout),
 
-		// Supply server mode for health checks
-		fx.Supply(health.ModeFull),
-
-		// common dependencies of the PDP and UCAN module:
-		//   - identity
-		//   - http server
-		//   - databases & datastores
-		app.CommonModules(appCfg),
-
-		// ucan service dependencies:
-		//  - http handlers
-		//    - ucan specific handlers, blob allocate and accept, replicate, etc.
-		//  - blob, claim, publisher, replicator, and storage services
-		app.UCANModule,
-
-		// pdp service dependencies:
-		//  - lotus, eth, and contract clients
-		//  - piece aggregator
-		//  - task and chain scheduler w/ their related tasks
-		//  - http handlers
-		//    - create proof set, add root, upload piece, etc.
-		//  - address wallet
-		app.PDPModule,
+		// the complete full-server dependency graph:
+		//   - server mode for health checks
+		//   - common dependencies (identity, http server, databases & datastores)
+		//   - ucan service dependencies (http handlers, blob/claim/publisher/etc. services)
+		//   - pdp service dependencies (lotus/eth/contract clients, aggregator,
+		//     schedulers, http handlers, address wallet)
+		app.FullServerModule(appCfg),
 
 		// Post-startup operations: print server info and record telemetry
 		fx.Invoke(func(lc fx.Lifecycle) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					// Print server startup information
-					cliutil.PrintHero(cmd.OutOrStdout(), appCfg.Identity.Signer.DID())
+					cliutil.PrintHero(cmd.OutOrStdout(), appCfg.Identity.Issuer.DID())
 					cmd.Println("Piri Running on: " + appCfg.Server.Host + ":" + strconv.Itoa(int(appCfg.Server.Port)))
 					cmd.Println("Piri Public Endpoint: " + appCfg.Server.PublicURL.String())
 
@@ -393,7 +392,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 						"com/fil-forge/piri/cli/serve"),
 						ctx,
 						"full",
-						attribute.String("did", appCfg.Identity.Signer.DID().String()),
+						attribute.String("did", appCfg.Identity.Issuer.DID().String()),
 						attribute.String("owner_address", appCfg.PDPService.OwnerAddress.String()),
 						attribute.String("public_url", appCfg.Server.PublicURL.String()),
 						attribute.Int64("proof_set", int64(appCfg.UCANService.ProofSetID)),

@@ -4,56 +4,43 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/fil-forge/piri/pkg/pdp/types"
-	"gorm.io/datatypes"
-	"gorm.io/gorm"
 )
 
 func (p *PDPService) ParkPiece(ctx context.Context, params types.ParkPieceRequest) error {
-	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 1. Create a long-term parked piece entry (marked as complete immediately).
-		parkedPiece := models.ParkedPiece{
-			PieceCID:        params.PieceCID.String(),
-			PiecePaddedSize: int64(params.PaddedSize),
-			PieceRawSize:    int64(params.RawSize),
-			LongTerm:        true,
-			Complete:        true, // Mark as complete since it's already in PDPStore
-		}
-		if err := tx.Create(&parkedPiece).Error; err != nil {
-			return fmt.Errorf("failed to create %s entry: %w", parkedPiece.TableName(), err)
+	_, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// 1. Create a long-term parked piece entry (marked complete since it's already in PDPStore).
+		var pieceID int64
+		if err := tx.QueryRow(
+			`INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
+			 VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
+			params.PieceCID.String(), int64(params.PaddedSize), int64(params.RawSize)).Scan(&pieceID); err != nil {
+			return false, fmt.Errorf("failed to create parked_pieces entry: %w", err)
 		}
 
-		// 2. Create a parked piece ref pointing to PDPStore.
-		// NB this field is meaningless, but we might want to use the multihash for the value
-		// since that's the key in the store
+		// 2. Create a parked piece ref pointing at PDPStore.
 		dataURL := fmt.Sprintf("pdpstore://%s", params.Blob.String())
-
-		parkedPieceRef := models.ParkedPieceRef{
-			PieceID:     parkedPiece.ID,
-			DataURL:     dataURL,
-			LongTerm:    true,
-			DataHeaders: datatypes.JSON("{}"), // default empty JSON
-		}
-		if err := tx.Create(&parkedPieceRef).Error; err != nil {
-			return fmt.Errorf("failed to create %s entry: %w", parkedPieceRef.TableName(), err)
+		var refID int64
+		if err := tx.QueryRow(
+			`INSERT INTO parked_piece_refs (piece_id, data_url, long_term, data_headers)
+			 VALUES ($1, $2, TRUE, '{}'::jsonb) RETURNING ref_id`,
+			pieceID, dataURL).Scan(&refID); err != nil {
+			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 		}
 
-		// 3. Create a reference in pdp_piecerefs
-		ref := models.PDPPieceRef{
-			Service:  "storacha",
-			PieceCID: params.PieceCID.String(),
-			PieceRef: parkedPieceRef.RefID,
-		}
-		if err := tx.Create(&ref).Error; err != nil {
-			return fmt.Errorf("failed to create %s entry: %w", ref.TableName(), err)
+		// 3. Create a reference in pdp_piecerefs.
+		if _, err := tx.Exec(
+			`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref) VALUES ($1, $2, $3)`,
+			"storacha", params.PieceCID.String(), refID); err != nil {
+			return false, fmt.Errorf("failed to create pdp_piecerefs entry: %w", err)
 		}
 
-		// nil returns will commit the transaction.
-		return nil
-	}); err != nil {
+		return true, nil
+	})
+	if err != nil {
 		return fmt.Errorf("failed to park piece: %w", err)
 	}
-
 	return nil
 }

@@ -3,25 +3,25 @@ package client
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/principal"
+	"github.com/fil-forge/libforge/identity"
+	"github.com/fil-forge/ucantone/multikey"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/multiformats/go-multihash"
 
-	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config"
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 	"github.com/fil-forge/piri/pkg/pdp/types"
@@ -94,7 +94,7 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-func WithBearerFromSigner(id principal.Signer) Option {
+func WithBearerFromSigner(id multikey.Signer) Option {
 	return func(c *Client) error {
 		authHeader, err := createAuthBearerTokenFromID(id)
 		if err != nil {
@@ -146,14 +146,18 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing node URL: %w", err)
 	}
-	id, err := lib.SignerFromEd25519PEMFile(cfg.Identity.KeyFile)
+	pem, err := os.ReadFile(cfg.Identity.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("loading identity key file: %w", err)
+		return nil, fmt.Errorf("reading identity key file: %w", err)
+	}
+	id, err := identity.DecodeSignerFromPEM(pem)
+	if err != nil {
+		return nil, fmt.Errorf("decoding identity key file: %w", err)
 	}
 	return New(endpoint, WithBearerFromSigner(id))
 }
 
-func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
+func createAuthBearerTokenFromID(id multikey.Signer) (string, error) {
 	claims := jwt.MapClaims{
 		"service_name": "storacha",
 	}
@@ -162,7 +166,9 @@ func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 
 	// Sign the token
-	tokenString, err := token.SignedString(ed25519.PrivateKey(id.Raw()))
+	// ucantone signers expose Raw() as the 32-byte ed25519 seed; JWT
+	// EdDSA needs the full 64-byte key derived from the seed.
+	tokenString, err := token.SignedString(id.PrivateKey())
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}
@@ -353,51 +359,6 @@ func (c *Client) ListProofSet(ctx context.Context) ([]types.ProofSet, error) {
 		out = append(out, entry)
 	}
 	return out, nil
-}
-
-func (c *Client) RepairProofSet(ctx context.Context, proofSetID uint64) (*types.RepairResult, error) {
-	if !c.isPiriServer() {
-		return nil, fmt.Errorf("method requires piri server implementation: unsupported method")
-	}
-	route := c.endpoint.JoinPath(pdpRoutePath, proofSetsPath, strconv.FormatUint(proofSetID, 10), "repair").String()
-	res, err := c.postJson(ctx, route, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to repair proof set: %w", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, errFromResponse(res)
-	}
-	var resp httpapi.RepairProofSetResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("failed to decode repair response: %w", err)
-	}
-
-	result := &types.RepairResult{
-		TotalOnChain:      resp.TotalOnChain,
-		TotalInDB:         resp.TotalInDB,
-		TotalRepaired:     resp.TotalRepaired,
-		TotalUnrepaired:   resp.TotalUnrepaired,
-		RepairedEntries:   make([]types.RepairedEntry, len(resp.RepairedEntries)),
-		UnrepairedEntries: make([]types.UnrepairedEntry, len(resp.UnrepairedEntries)),
-	}
-
-	for i, entry := range resp.RepairedEntries {
-		result.RepairedEntries[i] = types.RepairedEntry{
-			RootCID:  entry.RootCID,
-			RootID:   entry.RootID,
-			Subroots: entry.Subroots,
-		}
-	}
-
-	for i, entry := range resp.UnrepairedEntries {
-		result.UnrepairedEntries[i] = types.UnrepairedEntry{
-			RootCID: entry.RootCID,
-			RootID:  entry.RootID,
-			Reason:  entry.Reason,
-		}
-	}
-
-	return result, nil
 }
 
 func (c *Client) AddRoots(ctx context.Context, proofSetID uint64, roots []types.RootAdd) (common.Hash, error) {

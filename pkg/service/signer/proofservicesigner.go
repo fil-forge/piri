@@ -7,128 +7,127 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp/sign"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/libforge/commands/pdp/sign"
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
 	signertypes "github.com/fil-forge/piri-signing-service/pkg/types"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+
 	"github.com/fil-forge/piri/pkg/service/proofs"
 )
 
-type Client struct {
-	signerclient.Client
+// proofServiceSigner wraps a remote signing-service client and obtains an
+// /access/grant delegation via the proof service before each call. The
+// delegation is attached to the resulting signing invocation as proof.
+type proofServiceSigner struct {
+	c            *signerclient.Client
+	serviceDID   did.DID
 	proofService proofs.ProofService
+	httpClient   *client.HTTPClient
 }
 
-// NewProofServiceSigner creates a new signing service that uses the proof service
-// to obtain delegations from the signing service via `access/grant` before
-// invoking signing requests.
-func NewProofServiceSigner(conn client.Connection, proofService proofs.ProofService) signertypes.SigningService {
-	sc := signerclient.Client{Connection: conn}
-	return &Client{
-		Client:       sc,
+// NewProofServiceSigner constructs a SigningService that fetches access
+// grants on demand and forwards signing requests to the remote signing
+// service via signerclient.Client.
+func NewProofServiceSigner(
+	c *signerclient.Client,
+	serviceDID did.DID,
+	httpClient *client.HTTPClient,
+	proofService proofs.ProofService,
+) signertypes.SigningService {
+	return &proofServiceSigner{
+		c:            c,
+		serviceDID:   serviceDID,
 		proofService: proofService,
+		httpClient:   httpClient,
 	}
 }
 
-func (c *Client) SignCreateDataSet(
+func (s *proofServiceSigner) grant(ctx context.Context, issuer ucan.Issuer, cmd ucan.Command) (ucan.Delegation, error) {
+	d, err := s.proofService.RequestAccess(
+		ctx,
+		issuer,
+		s.serviceDID,
+		cmd,
+		nil,
+		proofs.WithClient(s.httpClient),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("requesting access for %s: %w", cmd, err)
+	}
+	return d, nil
+}
+
+func (s *proofServiceSigner) SignCreateDataSet(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	payee common.Address,
 	metadata []eip712.MetadataEntry,
-	options ...delegation.Option,
+	proofsIn []ucan.Delegation,
+	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	dlg, err := c.proofService.RequestAccess(
-		ctx,
-		issuer,
-		c.Client.Connection.ID(),
-		sign.DataSetCreateAbility,
-		nil,
-		proofs.WithConnection(c.Client.Connection),
-	)
+	d, err := s.grant(ctx, issuer, sign.DataSetCreate.Command)
 	if err != nil {
-		return nil, fmt.Errorf("requesting access: %w", err)
+		return nil, err
 	}
-	var opts []delegation.Option
-	opts = append(append(opts, options...), delegation.WithProof(delegation.FromDelegation(dlg)))
-	return c.Client.SignCreateDataSet(ctx, issuer, dataSet, payee, metadata, opts...)
+	all := append([]ucan.Delegation{}, proofsIn...)
+	all = append(all, d)
+	return s.c.SignCreateDataSet(ctx, issuer, dataSet, payee, metadata, all, options...)
 }
 
-// SignAddPieces signs an AddPieces operation via UCAN invocation
-func (c *Client) SignAddPieces(
+func (s *proofServiceSigner) SignAddPieces(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
-	firstAdded *big.Int,
+	nonce *big.Int,
 	pieceData [][]byte,
 	metadata [][]eip712.MetadataEntry,
-	prfs [][]ipld.Link,
-	prfData [][]message.AgentMessage,
-	options ...delegation.Option,
+	pieceProofs []sign.PieceProofs,
+	proofContainer ucan.Container,
+	proofsIn []ucan.Delegation,
+	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	dlg, err := c.proofService.RequestAccess(
-		ctx,
-		issuer,
-		c.Client.Connection.ID(),
-		sign.PiecesAddAbility,
-		nil,
-		proofs.WithConnection(c.Client.Connection),
-	)
+	d, err := s.grant(ctx, issuer, sign.PiecesAdd.Command)
 	if err != nil {
-		return nil, fmt.Errorf("requesting access: %w", err)
+		return nil, err
 	}
-	var opts []delegation.Option
-	opts = append(append(opts, options...), delegation.WithProof(delegation.FromDelegation(dlg)))
-	return c.Client.SignAddPieces(ctx, issuer, dataSet, firstAdded, pieceData, metadata, prfs, prfData, opts...)
+	all := append([]ucan.Delegation{}, proofsIn...)
+	all = append(all, d)
+	return s.c.SignAddPieces(ctx, issuer, dataSet, nonce, pieceData, metadata, pieceProofs, proofContainer, all, options...)
 }
 
-// SignSchedulePieceRemovals signs a SchedulePieceRemovals operation via UCAN invocation
-func (c *Client) SignSchedulePieceRemovals(
+func (s *proofServiceSigner) SignSchedulePieceRemovals(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
 	pieceIds []*big.Int,
-	options ...delegation.Option,
+	proofsIn []ucan.Delegation,
+	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	dlg, err := c.proofService.RequestAccess(
-		ctx,
-		issuer,
-		c.Client.Connection.ID(),
-		sign.PiecesRemoveScheduleAbility,
-		nil,
-		proofs.WithConnection(c.Client.Connection),
-	)
+	d, err := s.grant(ctx, issuer, sign.PiecesRemoveSchedule.Command)
 	if err != nil {
-		return nil, fmt.Errorf("requesting access: %w", err)
+		return nil, err
 	}
-	var opts []delegation.Option
-	opts = append(append(opts, options...), delegation.WithProof(delegation.FromDelegation(dlg)))
-	return c.Client.SignSchedulePieceRemovals(ctx, issuer, dataSet, pieceIds, opts...)
+	all := append([]ucan.Delegation{}, proofsIn...)
+	all = append(all, d)
+	return s.c.SignSchedulePieceRemovals(ctx, issuer, dataSet, pieceIds, all, options...)
 }
 
-// SignDeleteDataSet signs a DeleteDataSet operation via UCAN invocation
-func (c *Client) SignDeleteDataSet(
+func (s *proofServiceSigner) SignDeleteDataSet(
 	ctx context.Context,
-	issuer ucan.Signer,
+	issuer ucan.Issuer,
 	dataSet *big.Int,
-	options ...delegation.Option,
+	proofsIn []ucan.Delegation,
+	options ...invocation.Option,
 ) (*eip712.AuthSignature, error) {
-	dlg, err := c.proofService.RequestAccess(
-		ctx,
-		issuer,
-		c.Client.Connection.ID(),
-		sign.DataSetDeleteAbility,
-		nil,
-		proofs.WithConnection(c.Client.Connection),
-	)
+	d, err := s.grant(ctx, issuer, sign.DataSetDelete.Command)
 	if err != nil {
-		return nil, fmt.Errorf("requesting access: %w", err)
+		return nil, err
 	}
-	var opts []delegation.Option
-	opts = append(append(opts, options...), delegation.WithProof(delegation.FromDelegation(dlg)))
-	return c.Client.SignDeleteDataSet(ctx, issuer, dataSet, opts...)
+	all := append([]ucan.Delegation{}, proofsIn...)
+	all = append(all, d)
+	return s.c.SignDeleteDataSet(ctx, issuer, dataSet, all, options...)
 }

@@ -3,8 +3,8 @@ package publisher
 import (
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/server"
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
+	"github.com/fil-forge/go-ipni-tools/pkg/server"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/labstack/echo/v4"
 
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"

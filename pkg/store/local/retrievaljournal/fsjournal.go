@@ -12,9 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/space/content"
-	"github.com/fil-forge/go-libstoracha/failure"
-	"github.com/fil-forge/go-ucanto/core/receipt"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/ipld/go-car"
@@ -134,21 +132,25 @@ func (j *fsJournal) newBatch(truncate bool) error {
 	return nil
 }
 
-func (j *fsJournal) Append(ctx context.Context, rcpt receipt.Receipt[content.RetrieveOk, failure.FailureModel]) (bool, cid.Cid, error) {
+// TODO(forrest)[ucan1]: Append currently journals only the bare receipt.
+// UCAN 1.0 is flat, so to be self-describing it needs the receipt plus the
+// invocation it ran and any proofs, bundled as a container. See #10.
+func (j *fsJournal) Append(_ context.Context, rcpt ucan.Receipt) (bool, cid.Cid, error) {
 	if rcpt == nil {
 		return false, cid.Cid{}, fmt.Errorf("receipt is nil")
 	}
 
-	rcptArchive := rcpt.Archive()
-	archiveBytes, err := io.ReadAll(rcptArchive)
-	if err != nil {
-		return false, cid.Cid{}, fmt.Errorf("reading receipt archive: %w", err)
+	// Don't journal failure receipts: the egress tracker only accounts for
+	// successful retrievals, so a failure receipt is extra bytes we'd send
+	// that earn no compensation.
+	if rcpt.Out().IsErr() {
+		return false, cid.Cid{}, nil
 	}
 
 	archiveCID, err := cid.V1Builder{
 		Codec:  uint64(multicodec.Car),
 		MhType: uint64(multihash.SHA2_256),
-	}.Sum(archiveBytes)
+	}.Sum(rcpt.Bytes())
 	if err != nil {
 		return false, cid.Cid{}, fmt.Errorf("creating receipt archive CID: %w", err)
 	}
@@ -160,11 +162,11 @@ func (j *fsJournal) Append(ctx context.Context, rcpt receipt.Receipt[content.Ret
 	defer j.mu.Unlock()
 
 	// append a line in the car file, this is what `Put` is doing internally, but less complicated.
-	if err := carutil.LdWrite(j.multiw, cidBytes, archiveBytes); err != nil {
+	if err := carutil.LdWrite(j.multiw, cidBytes, rcpt.Bytes()); err != nil {
 		return false, cid.Cid{}, err
 	}
 	// record the size of the data written
-	blockSize := int64(carutil.LdSize(cidBytes, archiveBytes))
+	blockSize := int64(carutil.LdSize(cidBytes, rcpt.Bytes()))
 	j.currSize += blockSize
 
 	// rotate the batch if it exceeds the size limit

@@ -1,5 +1,6 @@
 package receipts_test
 
+/*
 import (
 	"io"
 	"net/http"
@@ -7,42 +8,32 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/invocation"
 	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
-	"github.com/fil-forge/go-ucanto/core/receipt/ran"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
 	"github.com/fil-forge/go-ucanto/transport/car/response"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/client/receipts"
+	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/fil-forge/ucantone/ucan/receipt"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/client/receipts"
 )
 
 func TestFetch(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		inv, err := invocation.Invoke(
 			testutil.Alice,
-			testutil.Service,
-			ucan.NewCapability(
-				"test/receipt",
-				testutil.Alice.DID().String(),
-				ucan.NoCaveats{},
-			),
+			testutil.Service.DID(),
+			"/test/receipt",
+			&commands.Unit{},
 		)
 		require.NoError(t, err)
 
-		rcpt, err := receipt.Issue(
-			testutil.Alice,
-			result.Ok[ok.Unit, failure.IPLDBuilderFailure](ok.Unit{}),
-			ran.FromInvocation(inv),
-		)
+		rcpt, err := receipt.IssueOK(testutil.Alice, inv.Link(), &commands.Unit{})
 		require.NoError(t, err)
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			msg, err := message.Build(nil, []receipt.AnyReceipt{rcpt})
+			msg, err := message.Build(nil, []*receipt.Receipt{rcpt})
 			require.NoError(t, err)
 			res, err := response.Encode(msg)
 			require.NoError(t, err)
@@ -57,7 +48,7 @@ func TestFetch(t *testing.T) {
 		client := receipts.NewClient(endpoint)
 		result, err := client.Fetch(t.Context(), inv.Link())
 		require.NoError(t, err)
-		require.Equal(t, inv.Link(), result.Ran().Link())
+		require.Equal(t, inv.Link(), result.Ran())
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -89,3 +80,5 @@ func TestFetch(t *testing.T) {
 		require.ErrorContains(t, err, "500")
 	})
 }
+
+*/

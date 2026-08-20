@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/fil-forge/go-libstoracha/ipnipublisher/store"
-	"github.com/fil-forge/go-libstoracha/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/ipfs/go-datastore"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	"go.uber.org/fx"
@@ -16,9 +16,8 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
@@ -50,11 +49,7 @@ var Module = fx.Module("filesystem-store",
 		NewRetrievalJournal,
 		NewKeyStore,
 		NewConsolidationStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 	),
 )
 
@@ -199,7 +194,7 @@ func NewAcceptanceStore(cfg app.AcceptanceStorageConfig, lc fx.Lifecycle) (accep
 	return acceptancestore.NewDatastoreStore(ds), nil
 }
 
-func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (claimstore.ClaimStore, error) {
+func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (invocationstore.InvocationStore, error) {
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for claim store")
 	}
@@ -214,7 +209,7 @@ func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (claimstore.Clai
 		},
 	})
 
-	return delegationstore.NewDatastoreStore(ds), nil
+	return invocationstore.NewDatastoreStore(ds), nil
 }
 
 func NewPublisherStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (store.FullStore, error) {

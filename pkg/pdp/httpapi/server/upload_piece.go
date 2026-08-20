@@ -25,11 +25,15 @@ func (p *PDPHandler) handlePieceUpload(c echo.Context) error {
 
 	log.Debugw("Processing prepare piece request", "uploadID", uploadID)
 	start := time.Now()
+	// Return the error rather than flattening it: CustomHTTPErrorHandler maps
+	// the types.Kind to a status, so an over-long body reports 413 and an
+	// unknown upload ID reports 404, instead of everything collapsing to a
+	// bare 400 that tells the uploader nothing.
 	if err := p.Service.UploadPiece(ctx, types.PieceUpload{
 		ID:   uploadID,
 		Data: c.Request().Body,
 	}); err != nil {
-		return c.String(http.StatusBadRequest, "Failed to upload piece")
+		return err
 	}
 
 	log.Infow("Successfully uploaded piece",

@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	libpiece "github.com/fil-forge/libforge/piece"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
+	"github.com/yugabyte/pgx/v5"
 	"go.uber.org/fx"
-	"gorm.io/gorm"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -26,14 +29,14 @@ import (
 const DefaultResolverCacheSize = 100_000
 
 type StoreResolver struct {
-	db    *gorm.DB
+	db    *harmonydb.DB
 	cache *lru.Cache[string, multihash.Multihash]
 }
 
 type StoreResolverParams struct {
 	fx.In
 
-	DB *gorm.DB `name:"engine_db"`
+	DB *harmonydb.DB
 }
 
 func NewStoreResolver(params StoreResolverParams) (types.PieceResolverAPI, error) {
@@ -56,7 +59,8 @@ func (r *StoreResolver) Resolve(ctx context.Context, mh multihash.Multihash) (mu
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to decode multihash: %w", err)
 	}
-	if dmh.Code == uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
+	if dmh.Code == uint64(multicodec.Fr32Sha256Trunc254Padbintree) ||
+		dmh.Code == uint64(multicodec.Sha2_256Trunc254Padded) {
 		return r.ResolveToBlob(ctx, mh)
 	}
 
@@ -64,8 +68,10 @@ func (r *StoreResolver) Resolve(ctx context.Context, mh multihash.Multihash) (mu
 }
 
 // ResolveToBlob returns the blob multihash for the provided piece if it exists.
-// It accepts a piece multihash with the expected encoding of fr32-sha256-trunc254-padbintree and returns
-// the corresponding blob the piece was derived from.
+// It accepts a piece multihash in either commP form — v2
+// (fr32-sha256-trunc254-padbintree, sized) or v1 (sha2-256-trunc254-padded,
+// as Curio's pdpv0 tables and prove-task piece reader use) — and returns the
+// corresponding blob the piece was derived from.
 // If the piece does not exist it returns false and no error.
 func (r *StoreResolver) ResolveToBlob(ctx context.Context, piece multihash.Multihash) (multihash.Multihash, bool, error) {
 	if cached, hit := r.cache.Get(piece.String()); hit {
@@ -75,21 +81,30 @@ func (r *StoreResolver) ResolveToBlob(ctx context.Context, piece multihash.Multi
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to decode multihash: %w", err)
 	}
-	if dmh.Code != uint64(multicodec.Fr32Sha256Trunc254Padbintree) {
-		return nil, false, fmt.Errorf("cannot resolve piece with codec %s to blob", multicodec.Fr32Sha256Trunc254Padbintree.String())
-	}
 
-	var record models.PDPPieceMHToCommp
-	if err := r.db.WithContext(ctx).
-		Where("commp = ?", MultihashToCommpCID(piece).String()).
-		First(&record).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	var mhash []byte
+	switch dmh.Code {
+	case uint64(multicodec.Fr32Sha256Trunc254Padbintree):
+		err = r.db.QueryRow(ctx, `SELECT mhash FROM pdp_piece_mh_to_commp WHERE commp = $1`,
+			libpiece.MultihashToCommpCID(piece).String()).Scan(&mhash)
+	case uint64(multicodec.Sha2_256Trunc254Padded):
+		v1, cerr := commcid.DataCommitmentV1ToCID(dmh.Digest)
+		if cerr != nil {
+			return nil, false, fmt.Errorf("failed to build v1 piece CID: %w", cerr)
+		}
+		err = r.db.QueryRow(ctx, `SELECT mhash FROM pdp_piece_mh_to_commp WHERE commp_v1 = $1`,
+			v1.String()).Scan(&mhash)
+	default:
+		return nil, false, fmt.Errorf("cannot resolve piece with codec %s to blob", multicodec.Code(dmh.Code).String())
+	}
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to read database: %w", err)
 	}
-	r.cache.Add(piece.String(), record.Mhash)
-	return record.Mhash, true, nil
+	r.cache.Add(piece.String(), multihash.Multihash(mhash))
+	return multihash.Multihash(mhash), true, nil
 }
 
 // ResolveToPiece returns the piece multihash for the provided blob if it exists.
@@ -109,27 +124,20 @@ func (r *StoreResolver) ResolveToPiece(ctx context.Context, blob multihash.Multi
 		return nil, false, fmt.Errorf("cannot resolve blob with codec %s to commp", multicodec.Fr32Sha256Trunc254Padbintree.String())
 	}
 
-	var record models.PDPPieceMHToCommp
-	err = r.db.WithContext(ctx).
-		Where("mhash = ?", blob.String()).
-		First(&record).Error
+	var commp string
+	err = r.db.QueryRow(ctx, `SELECT commp FROM pdp_piece_mh_to_commp WHERE mhash = $1`, []byte(blob)).Scan(&commp)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			// not found isn't an error
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to read database: %w", err)
 	}
 
-	commpCID, err := cid.Decode(record.Commp)
+	commpCID, err := cid.Decode(commp)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to decode commp cid %s for blob %s: %w", record.Commp, blob.String(), err)
+		return nil, false, fmt.Errorf("failed to decode commp cid %s for blob %s: %w", commp, blob.String(), err)
 	}
 	r.cache.Add(blob.String(), commpCID.Hash())
 	return commpCID.Hash(), true, nil
-
-}
-
-func MultihashToCommpCID(mh multihash.Multihash) cid.Cid {
-	return cid.NewCidV1(cid.Raw, mh)
 }

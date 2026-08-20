@@ -9,14 +9,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
-	"github.com/fil-forge/go-ucanto/principal"
 	"github.com/golang-jwt/jwt/v4"
 
-	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/admin/httpapi"
 	"github.com/fil-forge/piri/pkg/config"
+	"github.com/fil-forge/ucantone/multikey"
 )
 
 type Client struct {
@@ -38,12 +39,12 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
-// WithBearerFromSigner configures the Authorization header using a JWT signed by the provided signer.
-func WithBearerFromSigner(id principal.Signer) Option {
+// WithBearerFromSigner configures the Authorization header using a JWT signed by the provided issuer.
+func WithBearerFromSigner(id multikey.Signer) Option {
 	return func(c *Client) error {
 		authHeader, err := createAuthBearerTokenFromID(id)
 		if err != nil {
-			return fmt.Errorf("creating auth header from signer: %w", err)
+			return fmt.Errorf("creating auth header from issuer: %w", err)
 		}
 		c.authHeader = authHeader
 		return nil
@@ -83,7 +84,12 @@ func NewFromConfig(cfg config.Client) (*Client, error) {
 		return nil, fmt.Errorf("parsing admin api endpoint: %w", err)
 	}
 
-	id, err := lib.SignerFromEd25519PEMFile(cfg.Identity.KeyFile)
+	pem, err := os.ReadFile(cfg.Identity.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading identity key file: %w", err)
+	}
+
+	id, err := identity.DecodeSignerFromPEM(pem)
 	if err != nil {
 		return nil, fmt.Errorf("loading identity key file: %w", err)
 	}
@@ -137,130 +143,6 @@ func (c *Client) SetLogLevelRegex(ctx context.Context, expression, level string)
 	}
 
 	return c.verifySuccess(c.postJSON(ctx, route, req))
-}
-
-// GetAccountInfo fetches the payment account information for the storage operator.
-func (c *Client) GetAccountInfo(ctx context.Context) (*httpapi.GetAccountInfoResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/account").String()
-
-	var resp httpapi.GetAccountInfoResponse
-	if err := c.getJSON(ctx, route, &resp); err != nil {
-		return nil, err
-	}
-
-	return &resp, nil
-}
-
-// EstimateSettlement returns estimated gas and fees for settling a rail.
-func (c *Client) EstimateSettlement(ctx context.Context, railID string) (*httpapi.EstimateSettlementResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/settle/" + railID + "/estimate").String()
-
-	var resp httpapi.EstimateSettlementResponse
-	if err := c.getJSON(ctx, route, &resp); err != nil {
-		return nil, err
-	}
-
-	return &resp, nil
-}
-
-// SettleRail submits a settlement transaction for a rail.
-func (c *Client) SettleRail(ctx context.Context, railID string) (*httpapi.SettleRailResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/settle/" + railID).String()
-
-	res, err := c.postJSON(ctx, route, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return nil, errFromResponse(res)
-	}
-
-	var resp httpapi.SettleRailResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding response JSON: %w", err)
-	}
-
-	return &resp, nil
-}
-
-// GetSettlementStatus returns the status of a pending settlement for a rail.
-func (c *Client) GetSettlementStatus(ctx context.Context, railID string) (*httpapi.SettlementStatusResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/settle/" + railID + "/status").String()
-
-	var resp httpapi.SettlementStatusResponse
-	if err := c.getJSON(ctx, route, &resp); err != nil {
-		return nil, err
-	}
-
-	return &resp, nil
-}
-
-// EstimateWithdraw returns estimated gas and fees for a withdrawal.
-func (c *Client) EstimateWithdraw(ctx context.Context, recipient, amount string) (*httpapi.EstimateWithdrawResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/withdraw/estimate").String()
-
-	req := httpapi.EstimateWithdrawRequest{
-		Recipient: recipient,
-		Amount:    amount,
-	}
-
-	res, err := c.postJSON(ctx, route, req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return nil, errFromResponse(res)
-	}
-
-	var resp httpapi.EstimateWithdrawResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding response JSON: %w", err)
-	}
-
-	return &resp, nil
-}
-
-// Withdraw submits a withdrawal transaction.
-func (c *Client) Withdraw(ctx context.Context, recipient, amount string) (*httpapi.WithdrawResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/withdraw").String()
-
-	req := httpapi.WithdrawRequest{
-		Recipient: recipient,
-		Amount:    amount,
-	}
-
-	res, err := c.postJSON(ctx, route, req)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-
-	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
-		return nil, errFromResponse(res)
-	}
-
-	var resp httpapi.WithdrawResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		return nil, fmt.Errorf("decoding response JSON: %w", err)
-	}
-
-	return &resp, nil
-}
-
-// GetWithdrawalStatus returns the status of a pending withdrawal.
-func (c *Client) GetWithdrawalStatus(ctx context.Context) (*httpapi.WithdrawalStatusResponse, error) {
-	route := c.endpoint.JoinPath(httpapi.AdminRoutePath + httpapi.PaymentRoutePath + "/withdraw/status").String()
-
-	var resp httpapi.WithdrawalStatusResponse
-	if err := c.getJSON(ctx, route, &resp); err != nil {
-		return nil, err
-	}
-
-	return &resp, nil
 }
 
 // GetConfig retrieves the current dynamic configuration values.
@@ -321,14 +203,16 @@ func (c *Client) ReloadConfig(ctx context.Context) (*httpapi.ConfigResponse, err
 	return &resp, nil
 }
 
-func createAuthBearerTokenFromID(id principal.Signer) (string, error) {
+func createAuthBearerTokenFromID(id multikey.Signer) (string, error) {
 	claims := jwt.MapClaims{
 		"service_name": "storacha",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 
-	tokenString, err := token.SignedString(ed25519.PrivateKey(id.Raw()))
+	// ucantone signers expose Raw() as the 32-byte ed25519 seed; JWT
+	// EdDSA needs the full 64-byte key derived from the seed.
+	tokenString, err := token.SignedString(ed25519.NewKeyFromSeed(id.Raw()))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign token: %v", err)
 	}

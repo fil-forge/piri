@@ -7,14 +7,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	ed25519 "github.com/fil-forge/go-ucanto/principal/ed25519/signer"
-	"github.com/fil-forge/piri/pkg/build"
+	"github.com/fil-forge/ucantone/testutil"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/build"
 )
 
 func TestVersionInfoHandler(t *testing.T) {
-	id, err := ed25519.Generate()
-	require.NoError(t, err)
+	id := testutil.RandomIssuer(t)
 
 	ts := httptest.NewServer(NewHandler(id))
 	defer ts.Close()

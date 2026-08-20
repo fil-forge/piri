@@ -196,31 +196,15 @@ const (
 	// as an enum, so it's value is 0
 )
 
-// RepairResult contains the result of a proof set repair operation
-type RepairResult struct {
-	// State comparison
-	TotalOnChain int // Active pieces on chain
-	TotalInDB    int // Roots in pdp_proofset_roots
-
-	// Repair results
-	TotalRepaired     int
-	TotalUnrepaired   int
-	RepairedEntries   []RepairedEntry
-	UnrepairedEntries []UnrepairedEntry
-}
-
-// RepairedEntry represents a successfully repaired root
-type RepairedEntry struct {
-	RootCID  string
-	RootID   uint64
-	Subroots int
-}
-
-// UnrepairedEntry represents a root that could not be repaired
-type UnrepairedEntry struct {
-	RootCID string
-	RootID  uint64
-	Reason  string
+// PieceRemoverAPI queues blob byte-release requests. RemovePiece never
+// deletes inline: classification (parked vs mid-pipeline vs proven) races
+// a concurrently-advancing pipeline, so requests are recorded in
+// pdp_pending_piece_removals and advanced asynchronously by the removal
+// machinery, which re-verifies claims before every destructive step.
+type PieceRemoverAPI interface {
+	// RemovePiece records a request to release a blob's bytes once nothing
+	// references them. Idempotent.
+	RemovePiece(ctx context.Context, blob multihash.Multihash) error
 }
 
 type ProofSetAPI interface {
@@ -229,7 +213,6 @@ type ProofSetAPI interface {
 	GetProofSet(ctx context.Context, proofSetID uint64) (*ProofSet, error)
 	AddRoots(ctx context.Context, proofSetID uint64, roots []RootAdd) (common.Hash, error)
 	RemoveRoot(ctx context.Context, proofSetID uint64, rootID uint64) (common.Hash, error)
-	RepairProofSet(ctx context.Context, proofSetID uint64) (*RepairResult, error)
 }
 
 type Range struct {

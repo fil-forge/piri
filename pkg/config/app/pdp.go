@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/fil-forge/go-ucanto/client"
+	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 )
 
 type ContractAddresses struct {
@@ -33,10 +35,20 @@ type PDPServiceConfig struct {
 	ChainID *big.Int
 	// PayerAddress is the Storacha Owned address that pays SPs
 	PayerAddress common.Address
+	// Piece bounds the size of a single piece this node will accept
+	Piece PieceConfig
 	// Aggregation contains aggregation manager configuration
 	Aggregation AggregationConfig
 	// Gas contains gas fee limit configuration
 	Gas GasConfig
+}
+
+// PieceConfig bounds the size of a single piece this node will accept.
+type PieceConfig struct {
+	// MaxPaddedSize is the largest padded (FR32 merkle tree) size a single
+	// piece may occupy, in bytes; always a power of two. Zero means the
+	// default, so the zero value is usable.
+	MaxPaddedSize uint64
 }
 
 // GasConfig configures per-message-type gas fee limits.
@@ -64,10 +76,11 @@ func DefaultGasConfig() GasConfig {
 
 // SigningServiceConfig configures the signing service for PDP operations
 type SigningServiceConfig struct {
-	// Connection to the signing service backend.
-	Connection client.Connection
-	// Private key for in-process signing (if using local signer)
-	// NB: this should only be used for development purposes
+	// Client is the ucantone-backed signing-service client. Exactly one of
+	// Client and PrivateKey must be set.
+	Client *signerclient.Client
+	// PrivateKey for in-process signing (if using local signer).
+	// NB: this should only be used for development purposes.
 	PrivateKey *ecdsa.PrivateKey
 }
 
@@ -83,7 +96,10 @@ type CommpConfig struct {
 }
 
 type AggregatorConfig struct {
-	JobQueue JobQueueConfig
+	// MinAggregateSize is the padded size at which buffered pieces are
+	// folded into an aggregate; a power of two. Zero means the default.
+	MinAggregateSize uint64
+	JobQueue         JobQueueConfig
 }
 
 type AggregateManagerConfig struct {
@@ -127,8 +143,11 @@ func DefaultAggregateManagerConfig() AggregateManagerConfig {
 // DefaultAggregationConfig returns an AggregationConfig with sensible defaults.
 func DefaultAggregationConfig() AggregationConfig {
 	return AggregationConfig{
-		CommP:      CommpConfig{JobQueue: DefaultJobQueueConfig()},
-		Aggregator: AggregatorConfig{JobQueue: DefaultJobQueueConfig()},
-		Manager:    DefaultAggregateManagerConfig(),
+		CommP: CommpConfig{JobQueue: DefaultJobQueueConfig()},
+		Aggregator: AggregatorConfig{
+			MinAggregateSize: aggregator.DefaultMinAggregateSize,
+			JobQueue:         DefaultJobQueueConfig(),
+		},
+		Manager: DefaultAggregateManagerConfig(),
 	}
 }

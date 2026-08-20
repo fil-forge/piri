@@ -5,14 +5,14 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"gorm.io/gorm"
 
 	"github.com/fil-forge/filecoin-services/go/eip712"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 )
 
@@ -26,8 +26,8 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		}
 	}()
 
-	// Check if the provider is both registered and approved
-	if err := p.RequireProviderApproved(ctx); err != nil {
+	// Check if the provider is registered
+	if err := p.RequireProviderRegistered(ctx); err != nil {
 		return common.Hash{}, err
 	}
 
@@ -44,6 +44,7 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		nonce,
 		p.address, // Use the nodes address as the address receiving payment for storage
 		metadataEntries,
+		nil, // proofs: signing service obtains its own access/grant
 	)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("failed to sign CreateDataSet: %w", err)
@@ -88,27 +89,36 @@ func (p *PDPService) CreateProofSet(ctx context.Context) (res common.Hash, retEr
 		return common.Hash{}, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
-	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		msgWait := models.MessageWaitsEth{
-			SignedTxHash: txHash.Hex(),
-			TxStatus:     "pending",
+	txHashLower := strings.ToLower(txHash.Hex())
+	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		n, err := tx.Exec(`
+            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+            VALUES ($1, $2)
+        `, txHashLower, "pending")
+		if err != nil {
+			return false, fmt.Errorf("insert message_waits_eth: %w", err)
 		}
-		if err := tx.Create(&msgWait).Error; err != nil {
-			return fmt.Errorf("failed to insert into %s: %w", msgWait.TableName(), err)
-		}
-
-		proofsetCreate := models.PDPProofsetCreate{
-			CreateMessageHash: txHash.Hex(),
-			Service:           p.name,
-		}
-		if err := tx.Create(&proofsetCreate).Error; err != nil {
-			return fmt.Errorf("failed to insert into %s: %w", proofsetCreate.TableName(), err)
+		if n != 1 {
+			return false, fmt.Errorf("expected 1 row in message_waits_eth, got %d", n)
 		}
 
-		// Return nil to commit the transaction.
-		return nil
-	}); err != nil {
+		n, err = tx.Exec(`
+            INSERT INTO pdp_data_set_creates (create_message_hash, service)
+            VALUES ($1, $2)
+        `, txHashLower, p.name)
+		if err != nil {
+			return false, fmt.Errorf("insert pdp_data_set_creates: %w", err)
+		}
+		if n != 1 {
+			return false, fmt.Errorf("expected 1 row in pdp_data_set_creates, got %d", n)
+		}
+		return true, nil
+	}, harmonydb.OptionRetry())
+	if err != nil {
 		return common.Hash{}, err
+	}
+	if !comm {
+		return common.Hash{}, fmt.Errorf("failed to commit create data set tracking")
 	}
 
 	return txHash, nil

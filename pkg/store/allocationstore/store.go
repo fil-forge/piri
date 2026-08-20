@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fil-forge/go-libstoracha/digestutil"
-	"github.com/fil-forge/go-ucanto/did"
+	"github.com/fil-forge/libforge/digestutil"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
 
@@ -29,11 +30,17 @@ type AllocationStore interface {
 	// GetAnyNonExpired retrieves any allocation for a blob that has not expired.
 	// The now parameter should be the current unix timestamp in seconds.
 	// Returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if no non-expired allocation exists.
-	GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now uint64) (allocation.Allocation, error)
+	GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now ucan.UnixTimestamp) (allocation.Allocation, error)
 	// Exists checks if any allocation exists for a blob (digest).
 	Exists(context.Context, multihash.Multihash) (bool, error)
 	// Put adds or replaces allocation data in the store.
 	Put(context.Context, allocation.Allocation) error
+	// Delete removes the allocation for a blob (digest) in a space.
+	// Deleting a missing allocation succeeds (idempotent).
+	Delete(context.Context, multihash.Multihash, did.DID) error
+	// ListSpaces returns the DID of every space holding an allocation for
+	// the digest. An unknown digest yields an empty list.
+	ListSpaces(context.Context, multihash.Multihash) ([]did.DID, error)
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -53,7 +60,7 @@ var _ AllocationStore = (*Store)(nil)
 // New creates an AllocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New[allocation.Allocation](backend, allocation.Codec{}),
+		store:   genericstore.New(backend, allocation.Codec{}),
 		encoder: encoder,
 	}
 }
@@ -74,7 +81,8 @@ func (s *Store) GetAny(ctx context.Context, digest multihash.Multihash) (allocat
 	return alloc, nil
 }
 
-func (s *Store) GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now uint64) (allocation.Allocation, error) {
+func (s *Store) GetAnyNonExpired(ctx context.Context, digest multihash.Multihash, now ucan.UnixTimestamp) (allocation.Allocation,
+	error) {
 	alloc, err := s.store.GetAnyMatching(ctx, s.encoder.EncodeKeyPrefix(digest), func(a allocation.Allocation) bool {
 		return a.Expires > now
 	})
@@ -90,6 +98,21 @@ func (s *Store) Exists(ctx context.Context, digest multihash.Multihash) (bool, e
 
 func (s *Store) Put(ctx context.Context, alloc allocation.Allocation) error {
 	return s.store.Put(ctx, s.encoder.EncodeKey(alloc.Blob.Digest, alloc.Space), alloc)
+}
+
+func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	return s.store.Delete(ctx, s.encoder.EncodeKey(digest, space))
+}
+
+func (s *Store) ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error) {
+	var spaces []did.DID
+	for alloc, err := range s.store.ListPrefix(ctx, s.encoder.EncodeKeyPrefix(digest)) {
+		if err != nil {
+			return nil, fmt.Errorf("listing allocations for %s: %w", digestutil.Format(digest), err)
+		}
+		spaces = append(spaces, alloc.Space)
+	}
+	return spaces, nil
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).

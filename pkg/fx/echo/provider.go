@@ -65,8 +65,8 @@ type EchoServer struct {
 }
 
 // StartEchoServer runs a Echo server with lifecycle management
-func StartEchoServer(cfg app.AppConfig, e *echo.Echo, lc fx.Lifecycle) (*EchoServer, error) {
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+func StartEchoServer(cfg app.ServerConfig, e *echo.Echo, lc fx.Lifecycle) (*EchoServer, error) {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	server := &EchoServer{
 		echo: e,

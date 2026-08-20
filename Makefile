@@ -2,9 +2,25 @@ VERSION=$(shell awk -F'"' '/"version":/ {print $$4}' version.json)
 COMMIT=$(shell git rev-parse --short HEAD)
 DATE=$(shell date -u -Iseconds)
 GOFLAGS=-ldflags="-X github.com/fil-forge/piri/pkg/build.version=$(VERSION) -X github.com/fil-forge/piri/pkg/build.Commit=$(COMMIT) -X github.com/fil-forge/piri/pkg/build.Date=$(DATE) -X github.com/fil-forge/piri/pkg/build.BuiltBy=make"
-TAGS?=
+# Curio's vendored PDP code selects on-chain contract addresses by its build tag:
+# `2k` (or `debug`) makes it resolve addresses from CURIO_DEVNET_* env vars
+# (devnet/smelt); with NO network tag it uses hardcoded MAINNET addresses. Default
+# to the 2k devnet build so `make build` works against smelt out of the box;
+# `skiff` selects Curio's FFI-free variants (no filecoin-ffi, no supraseal),
+# which lets Piri build CGO-free. Network build tags (2k/calibnet) are NOT
+# needed: contract addresses are installed from config (curiopdp.SetContractAddresses)
+# and the only other network-gated constant Piri's paths touch (BlockGasLimit)
+# is network-invariant. Verified by the smelt proving-loop e2e on a skiff-only binary.
+TAGS?=-tags "skiff"
+# gosigar (via curio→lotus) has a pure-Go path on linux but needs cgo on darwin.
+# Default to CGO-free builds on non-darwin platforms; override with CGO_ENABLED=1 if needed.
+ifeq ($(shell uname -s),Darwin)
+CGO_ENABLED?=1
+else
+CGO_ENABLED?=0
+endif
 
-.PHONY: all build install test clean calibnet mockgen check-docs-links
+.PHONY: all build test clean
 
 all: build
 
@@ -15,49 +31,13 @@ piri: FORCE
 	@if [ ! -f piri ] || \
 	   [ -n "$$(find cmd pkg internal -name '*.go' -type f -newer piri 2>/dev/null)" ]; then \
 		echo "Building piri..."; \
-		go build $(GOFLAGS) $(TAGS) -o ./piri github.com/fil-forge/piri/cmd; \
+		CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) $(TAGS) -o ./piri github.com/fil-forge/piri/cmd; \
 	fi
 
 FORCE:
 
-install:
-	go install ./cmd/storage
-
 test:
-	go test ./...
+	CGO_ENABLED=$(CGO_ENABLED) go test $(TAGS) ./...
 
 clean:
 	rm -f ./piri
-
-mockgen:
-	mockgen -source=./pkg/pdp/aggregator/interface.go -destination=./internal/mocks/aggregator.go -package=mocks
-	mockgen -source=./pkg/pdp/types/api.go -destination=./internal/mocks/pdp_api.go -package=mocks
-	mockgen -source=./internal/ipldstore/ipldstore.go -destination=./internal/mocks/ipldstore.go -package=mocks
-	mockgen -source=./pkg/pdp/aggregator/steps.go -destination=./internal/mocks/steps.go -package=mocks
-	mockgen -destination=./internal/mocks/sender_eth_client.go -package=mocks github.com/fil-forge/piri/pkg/pdp/tasks SenderETHClient
-	mockgen -destination=./internal/mocks/message_watcher_eth_client.go -package=mocks github.com/fil-forge/piri/pkg/pdp/tasks MessageWatcherEthClient
-	mockgen -destination=./internal/mocks/contract_backend.go -package=mocks github.com/ethereum/go-ethereum/accounts/abi/bind ContractBackend
-	mockgen -source=./pkg/pdp/smartcontracts/contract.go -destination=./pkg/pdp/smartcontracts/mocks/pdp.go -package=mocks
-
-# Contract generation targets
-.PHONY: generate-contracts clean-contracts
-
-generate-contracts:
-	cd pkg/pdp/smartcontracts && ./generate.sh
-
-clean-contracts:
-	rm -rf pkg/pdp/smartcontracts/abis
-	rm -rf pkg/pdp/smartcontracts/bindings
-	rm -f pkg/pdp/smartcontracts/mocks/*.go
-
-mockgen-contracts: generate-contracts
-	mockgen -source=./pkg/pdp/smartcontracts/contract.go -destination=./pkg/pdp/smartcontracts/mocks/pdp.go -package=mocks
-
-
-# special target that sets the calibnet tag and invokes build
-calibnet: TAGS=-tags calibnet
-calibnet: build
-
-# Check for broken links in documentation
-check-docs-links:
-	@./scripts/check-docs-links.sh

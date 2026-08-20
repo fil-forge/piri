@@ -5,28 +5,25 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/labstack/echo/v4"
 	"github.com/multiformats/go-multihash"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
-	"github.com/fil-forge/piri/pkg/pdp/proof"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
-var PieceSizeLimit = abi.PaddedPieceSize(proof.MaxMemtreeSize).Unpadded()
-
 // handlePreparePiece -> POST /pdp/piece
+//
+// The piece size limit is enforced by AllocatePiece, not here: it is the
+// single choke point every allocation path reaches, and its KindInvalidInput
+// already maps to 400. A pre-check here would be a second copy of the limit
+// that could drift from it.
 func (p *PDPHandler) handlePreparePiece(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	var req httpapi.AddPieceRequest
 	if err := c.Bind(&req); err != nil {
 		return types.WrapError(types.KindInvalidInput, "invalid request body", err)
-	}
-
-	if abi.UnpaddedPieceSize(req.Check.Size) > PieceSizeLimit {
-		return types.NewErrorf(types.KindInvalidInput, "piece size too large. expected: %d actual: %d", PieceSizeLimit, req.Check.Size)
 	}
 
 	log.Debugw("Processing prepare piece request",

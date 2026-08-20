@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -21,8 +18,8 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 			log.Infow("allocated piece", "request", allocation, "response", res)
 		}
 	}()
-	if abi.UnpaddedPieceSize(allocation.Piece.Size) > PieceSizeLimit {
-		return nil, types.NewErrorf(types.KindInvalidInput, "piece size %d exceeds limit %d", allocation.Piece.Size, PieceSizeLimit)
+	if err := p.pieceSize.CheckRaw(uint64(allocation.Piece.Size)); err != nil {
+		return nil, types.WrapError(types.KindInvalidInput, "piece too large", err)
 	}
 
 	// check if we already have this piece
@@ -40,34 +37,18 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 
 	}
 
-	// Variables to hold information outside the transaction
-	var uploadUUID uuid.UUID
+	uploadUUID := uuid.New()
 
-	if err := p.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Piece does not exist, proceed to create a new upload request
-		uploadUUID = uuid.New()
+	notifyURL := ""
+	if allocation.Notify != nil {
+		notifyURL = allocation.Notify.String()
+	}
 
-		notifyURL := ""
-		if allocation.Notify != nil {
-			notifyURL = allocation.Notify.String()
-		}
-
-		newUpload := &models.PDPPieceUpload{
-			ID:             uploadUUID.String(),
-			Service:        "storacha",
-			NotifyURL:      notifyURL,
-			CheckHashCodec: allocation.Piece.Name,
-			CheckHash:      allocation.Piece.Hash,
-			CheckSize:      allocation.Piece.Size,
-		}
-		if createErr := tx.Create(&newUpload).Error; createErr != nil {
-			return fmt.Errorf("failed to store upload request in database: %w", createErr)
-		}
-
-		return nil // Commit the transaction
-
-	}); err != nil {
-		return nil, err
+	if _, err := p.db.Exec(ctx,
+		`INSERT INTO pdp_piece_uploads (id, service, notify_url, check_hash_codec, check_hash, check_size)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		uploadUUID.String(), "storacha", notifyURL, allocation.Piece.Name, allocation.Piece.Hash, allocation.Piece.Size); err != nil {
+		return nil, fmt.Errorf("failed to store upload request in database: %w", err)
 	}
 
 	return &types.AllocatedPiece{

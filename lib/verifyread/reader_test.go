@@ -173,3 +173,96 @@ func BenchmarkHashValidatingReader(b *testing.B) {
 		}
 	})
 }
+
+// countingReader reports how much of the source was actually consumed, so an
+// over-length test can assert the body was cut off rather than drained.
+type countingReader struct {
+	src  io.Reader
+	read int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.src.Read(p)
+	c.read += n
+	return n, err
+}
+
+func TestVerifyRead_ExpectedSize(t *testing.T) {
+	data := []byte("Hello, World!")
+	sum := sha256.Sum256(data)
+
+	t.Run("exact size still validates", func(t *testing.T) {
+		reader, err := New(bytes.NewReader(data), sha256.New(), sum[:],
+			WithExpectedSize(uint64(len(data))))
+		require.NoError(t, err)
+
+		got, err := io.ReadAll(reader)
+		assert.NoError(t, err)
+		assert.Equal(t, data, got)
+		assert.True(t, reader.Validated())
+	})
+
+	t.Run("over-length aborts without draining the source", func(t *testing.T) {
+		// 1 MiB of body behind a declared size of 13 bytes: the read must
+		// stop almost immediately rather than stream the whole thing.
+		src := &countingReader{src: bytes.NewReader(bytes.Repeat([]byte("x"), 1<<20))}
+		reader, err := New(src, sha256.New(), sum[:], WithExpectedSize(uint64(len(data))))
+		require.NoError(t, err)
+
+		_, err = io.ReadAll(reader)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrSizeMismatch)
+		assert.NotErrorIs(t, err, ErrHashMismatch, "size is the actionable diagnosis")
+		assert.Less(t, src.read, 1<<20, "must not consume the whole over-long body")
+	})
+
+	t.Run("under-length reports size, not hash", func(t *testing.T) {
+		// Before WithExpectedSize a truncated transfer surfaced as
+		// ErrHashMismatch, which reads as data corruption rather than a
+		// dropped connection.
+		truncated := data[:5]
+		reader, err := New(bytes.NewReader(truncated), sha256.New(), sum[:],
+			WithExpectedSize(uint64(len(data))))
+		require.NoError(t, err)
+
+		_, err = io.ReadAll(reader)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrSizeMismatch)
+		assert.NotErrorIs(t, err, ErrHashMismatch)
+		assert.Contains(t, err.Error(), "got 5")
+	})
+
+	t.Run("correct size but wrong bytes still fails the digest", func(t *testing.T) {
+		wrong := []byte("Goodbye,World")
+		require.Len(t, wrong, len(data))
+
+		reader, err := New(bytes.NewReader(wrong), sha256.New(), sum[:],
+			WithExpectedSize(uint64(len(data))))
+		require.NoError(t, err)
+
+		_, err = io.ReadAll(reader)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, ErrHashMismatch)
+	})
+
+	t.Run("without the option size is unenforced", func(t *testing.T) {
+		// The pre-existing three-arg call site must keep its old behavior.
+		reader, err := New(bytes.NewReader(data), sha256.New(), sum[:])
+		require.NoError(t, err)
+
+		_, err = io.ReadAll(reader)
+		assert.NoError(t, err)
+	})
+
+	t.Run("error is latched across subsequent reads", func(t *testing.T) {
+		reader, err := New(bytes.NewReader(data), sha256.New(), sum[:], WithExpectedSize(2))
+		require.NoError(t, err)
+
+		buf := make([]byte, 8)
+		_, first := reader.Read(buf)
+		require.ErrorIs(t, first, ErrSizeMismatch)
+
+		_, second := reader.Read(buf)
+		assert.ErrorIs(t, second, ErrSizeMismatch, "terminal error must stay latched")
+	})
+}

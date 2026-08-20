@@ -11,9 +11,8 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/claimstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/delegationstore"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -30,11 +29,7 @@ var Module = fx.Module("s3-store",
 		NewAcceptanceStore,
 		NewClaimStore,
 		NewReceiptStore,
-		fx.Annotate(
-			NewPDPStore,
-			fx.As(fx.Self()),
-			fx.As(new(blobstore.BlobGetter)),
-		),
+		NewPDPStore,
 		NewConsolidationStore,
 	),
 )
@@ -135,15 +130,15 @@ func NewAcceptanceStore(stores *Stores) acceptancestore.AcceptanceStore {
 	return acceptancestore.NewS3Store(stores.Acceptances)
 }
 
-func NewClaimStore(stores *Stores) claimstore.ClaimStore {
-	return delegationstore.NewS3Store(stores.Claims)
+func NewClaimStore(stores *Stores) invocationstore.InvocationStore {
+	return invocationstore.NewS3Store(stores.Claims)
 }
 
 func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {
 	return receiptstore.NewS3Store(stores.Receipts)
 }
 
-// NewPDPStore provides the blob store. It also satisfies blobstore.BlobGetter.
+// NewPDPStore provides the blob store backing PDP piece storage.
 func NewPDPStore(stores *Stores) blobstore.Blobstore {
 	return blobstore.NewS3Store(stores.PDP)
 }

@@ -3,33 +3,21 @@ package app
 import (
 	"go.uber.org/fx"
 
-	"github.com/fil-forge/piri/pkg/fx/blobs"
-	"github.com/fil-forge/piri/pkg/fx/claims"
-	"github.com/fil-forge/piri/pkg/fx/claimvalidation"
-	"github.com/fil-forge/piri/pkg/fx/presigner"
-	"github.com/fil-forge/piri/pkg/fx/principalresolver"
-	"github.com/fil-forge/piri/pkg/fx/publisher"
-	"github.com/fil-forge/piri/pkg/fx/replicator"
-	"github.com/fil-forge/piri/pkg/fx/retrieval"
-	retrievalucan "github.com/fil-forge/piri/pkg/fx/retrieval/ucan"
 	"github.com/fil-forge/piri/pkg/fx/root"
-	"github.com/fil-forge/piri/pkg/fx/storage"
-	storageucan "github.com/fil-forge/piri/pkg/fx/storage/ucan"
-	"github.com/fil-forge/piri/pkg/service/egresstracker"
+	"github.com/fil-forge/piri/pkg/service/claims"
+	"github.com/fil-forge/piri/pkg/service/publisher"
+	ucanhandlersfx "github.com/fil-forge/piri/pkg/ucanhandlers/ucanfx"
 )
 
 var UCANModule = fx.Module("ucan",
-	presigner.Module,         // Provides presigner.RequestPresigner
-	root.Module,              // Provides root http handler
-	blobs.Module,             // Provides blob service and handler
-	claims.Module,            // Provides claims service and handler
-	claimvalidation.Module,   // Provides context for validating UCANs
-	publisher.Module,         // Provides publisher service and handler
-	egresstracker.Module,     // Provides egress tracker service
-	replicator.Module,        // Provides replicator service (works with or without PDP)
-	storage.Module,           // Provides storage service wrapper
-	retrieval.Module,         // Provides retrieval service wrapper
-	principalresolver.Module, // Provides principal resolver for UCAN
-	storageucan.Module,       // Provides storage UCAN handler
-	retrievalucan.Module,     // Provides retrieval UCAN handler
+	root.Module,      // Provides root http handler
+	claims.Module,    // Provides claims service and handler
+	publisher.Module, // Provides publisher service and handler
+	ucanhandlersfx.Module,
+	//egresstracker.Module,     // Provides egress tracker service — re-enable: see #14
+	//replicator.Module,        // Provides replicator service — re-enable: see #15
+	//storage.Module, // Wires upload connection + consumer-side interface bindings
+	//principalresolver.Module, // Provides principal resolver for UCAN
+	//storageucan.Module,   // Provides storage UCAN handler
+	//retrievalucan.Module, // Provides retrieval UCAN handler
 )

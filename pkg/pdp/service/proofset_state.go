@@ -7,9 +7,8 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"gorm.io/gorm"
+	"github.com/yugabyte/pgx/v5"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -31,13 +30,22 @@ func (p *PDPService) GetProofSetState(ctx context.Context, id uint64) (res types
 	currentEpoch := int64(head.Height())
 
 	// get the proof set details
-	var ps models.PDPProofSet
-	if err := p.db.
-		WithContext(ctx).
-		Where("service = ?", p.name).
-		Where("id = ?", id).
-		First(&ps).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	var ps struct {
+		ID                        int64   `db:"id"`
+		InitReady                 bool    `db:"init_ready"`
+		ProveAtEpoch              *int64  `db:"prove_at_epoch"`
+		PrevChallengeRequestEpoch *int64  `db:"prev_challenge_request_epoch"`
+		ProvingPeriod             *int64  `db:"proving_period"`
+		ChallengeWindow           *int64  `db:"challenge_window"`
+		ChallengeRequestMsgHash   *string `db:"challenge_request_msg_hash"`
+	}
+	if err := p.db.QueryRow(ctx, `
+		SELECT id, init_ready, prove_at_epoch, prev_challenge_request_epoch,
+		       proving_period, challenge_window, challenge_request_msg_hash
+		FROM pdp_data_sets WHERE service = $1 AND id = $2
+	`, p.name, id).Scan(&ps.ID, &ps.InitReady, &ps.ProveAtEpoch,
+		&ps.PrevChallengeRequestEpoch, &ps.ProvingPeriod, &ps.ChallengeWindow, &ps.ChallengeRequestMsgHash); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return types.ProofSetState{}, types.NewErrorf(types.KindNotFound, "no proof set found")
 		}
 		return types.ProofSetState{}, fmt.Errorf("failed to retrieve proof set: %w", err)
@@ -45,15 +53,10 @@ func (p *PDPService) GetProofSetState(ctx context.Context, id uint64) (res types
 
 	// check if we are actively proving
 	var provingTasks int64
-	if err := p.db.WithContext(ctx).
-		Model(&models.PDPProveTask{}).
-		Where("proofset_id = ?", id).
-		Count(&provingTasks).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			provingTasks = 0
-		} else {
-			return types.ProofSetState{}, fmt.Errorf("failed to retrieve proof set tasks: %w", err)
-		}
+	if err := p.db.QueryRow(ctx, `
+		SELECT COUNT(*) FROM pdp_prove_tasks WHERE data_set = $1
+	`, id).Scan(&provingTasks); err != nil {
+		return types.ProofSetState{}, fmt.Errorf("failed to retrieve proof set tasks: %w", err)
 	}
 
 	// don't get contract state if ps isn't initialized since it will fail

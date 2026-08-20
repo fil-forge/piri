@@ -1,17 +1,13 @@
 package replicator
 
+// TODO(forrest)[ucan1]: will do this later maybe
+/*
+
 import (
 	"context"
 
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/principal"
-
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/pkg/pdp"
-	"github.com/fil-forge/piri/pkg/service/blobs"
-	"github.com/fil-forge/piri/pkg/service/claims"
 	replicahandler "github.com/fil-forge/piri/pkg/service/storage/handlers/replica"
-	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 type Replicator interface {
@@ -20,52 +16,8 @@ type Replicator interface {
 
 type Service struct {
 	queue   *jobqueue.JobQueue[*replicahandler.TransferRequest]
-	adapter *adapter
+	deps    replicahandler.TransferDeps
 	metrics *replicahandler.Metrics
-}
-
-type adapter struct {
-	id         principal.Signer
-	pdp        pdp.PDP
-	blobs      blobs.Blobs
-	claims     claims.Claims
-	receipts   receiptstore.ReceiptStore
-	uploadConn client.Connection
-}
-
-func (a adapter) ID() principal.Signer                { return a.id }
-func (a adapter) PDP() pdp.PDP                        { return a.pdp }
-func (a adapter) Blobs() blobs.Blobs                  { return a.blobs }
-func (a adapter) Claims() claims.Claims               { return a.claims }
-func (a adapter) Receipts() receiptstore.ReceiptStore { return a.receipts }
-func (a adapter) UploadConnection() client.Connection { return a.uploadConn }
-
-func New(
-	id principal.Signer,
-	p pdp.PDP,
-	b blobs.Blobs,
-	c claims.Claims,
-	rstore receiptstore.ReceiptStore,
-	uploadConn client.Connection,
-	queue *jobqueue.JobQueue[*replicahandler.TransferRequest],
-) (*Service, error) {
-	metrics, err := replicahandler.NewMetrics()
-	if err != nil {
-		return nil, err
-	}
-	svc := &Service{
-		queue: queue,
-		adapter: &adapter{
-			id:         id,
-			pdp:        p,
-			blobs:      b,
-			claims:     c,
-			receipts:   rstore,
-			uploadConn: uploadConn,
-		},
-		metrics: metrics,
-	}
-	return svc, nil
 }
 
 const TransferTaskName = "transfer-task"
@@ -76,8 +28,10 @@ func (r *Service) Replicate(ctx context.Context, task *replicahandler.TransferRe
 
 func (r *Service) RegisterTransferTask(queue *jobqueue.JobQueue[*replicahandler.TransferRequest]) error {
 	return queue.Register(TransferTaskName, func(ctx context.Context, request *replicahandler.TransferRequest) error {
-		return replicahandler.Transfer(ctx, r.adapter, request, r.metrics)
+		return replicahandler.Transfer(ctx, r.deps, request, r.metrics)
 	}, jobqueue.WithOnFailure(func(ctx context.Context, msg *replicahandler.TransferRequest, err error) error {
-		return replicahandler.SendFailureReceipt(ctx, r.adapter, msg, err)
+		return replicahandler.SendFailureReceipt(ctx, r.deps, msg, err)
 	}))
 }
+
+*/

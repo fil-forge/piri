@@ -5,7 +5,6 @@ import (
 
 	"github.com/fil-forge/piri/cmd/cli/client/admin/config"
 	"github.com/fil-forge/piri/cmd/cli/client/admin/log"
-	"github.com/fil-forge/piri/cmd/cli/client/admin/payment"
 )
 
 var Cmd = &cobra.Command{
@@ -15,6 +14,5 @@ var Cmd = &cobra.Command{
 
 func init() {
 	Cmd.AddCommand(log.Cmd)
-	Cmd.AddCommand(payment.Cmd)
 	Cmd.AddCommand(config.Cmd)
 }

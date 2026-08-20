@@ -1,79 +1,85 @@
 package signer_test
 
 import (
-	"context"
 	"encoding/hex"
-	"io"
 	"math/big"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-libstoracha/capabilities/access"
-	"github.com/fil-forge/go-libstoracha/capabilities/pdp/sign"
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/invocation"
-	"github.com/fil-forge/go-ucanto/core/ipld"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt/fx"
-	"github.com/fil-forge/go-ucanto/core/result"
-	"github.com/fil-forge/go-ucanto/core/result/failure"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucan_server "github.com/fil-forge/go-ucanto/server"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/fil-forge/piri/pkg/service/proofs"
-	signerclient "github.com/fil-forge/piri/pkg/service/signer"
+	"github.com/fil-forge/libforge/commands/access"
+	libforgesign "github.com/fil-forge/libforge/commands/pdp/sign"
+	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
+	"github.com/fil-forge/ucantone/binding"
+	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/testutil"
+	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/container"
+	"github.com/fil-forge/ucantone/ucan/delegation"
+	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/service/proofs"
+	piriSigner "github.com/fil-forge/piri/pkg/service/signer"
 )
 
 func TestProofServiceSigner(t *testing.T) {
-	signerServiceID := testutil.WebService
-	server := mockSigningServiceServer(t, signerServiceID)
+	signerServiceID := testutil.RandomIssuer(t)
+	srv := mockSigningServiceServer(t, signerServiceID)
 
-	conn, err := client.NewConnection(signerServiceID, server)
+	endpoint, err := url.Parse("http://test")
+	require.NoError(t, err)
+	httpClient, err := client.NewHTTP(endpoint, client.WithHTTPClient(&http.Client{Transport: srv}))
 	require.NoError(t, err)
 
+	sc := &signerclient.Client{ServiceDID: signerServiceID.DID(), HTTP: httpClient}
 	proofService := proofs.NewCachingProofService()
-	signingService := signerclient.NewProofServiceSigner(conn, proofService)
+	signingService := piriSigner.NewProofServiceSigner(sc, signerServiceID.DID(), httpClient, proofService)
+
+	alice := testutil.RandomIssuer(t)
 
 	t.Run("pdp/sign/dataset/create", func(t *testing.T) {
 		payee := common.HexToAddress("0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb")
 		_, err := signingService.SignCreateDataSet(
 			t.Context(),
-			testutil.Alice,
-			testutil.RandomBigInt(t),
+			alice,
+			randomBigInt(),
 			payee,
 			[]eip712.MetadataEntry{
 				{Key: "name", Value: "test-dataset"},
 				{Key: "version", Value: "1.0"},
 			},
+			nil,
 		)
 		require.NoError(t, err)
 	})
 
 	t.Run("pdp/sign/dataset/delete", func(t *testing.T) {
-		_, err := signingService.SignDeleteDataSet(t.Context(), testutil.Alice, testutil.RandomBigInt(t))
+		_, err := signingService.SignDeleteDataSet(t.Context(), alice, randomBigInt(), nil)
 		require.NoError(t, err)
 	})
 
 	t.Run("pdp/sign/pieces/add", func(t *testing.T) {
 		_, err := signingService.SignAddPieces(
 			t.Context(),
-			testutil.Alice,
-			testutil.RandomBigInt(t),
+			alice,
+			randomBigInt(),
 			big.NewInt(0),
 			[][]byte{
-				testutil.Must(hex.DecodeString("0001020304"))(t),
-				testutil.Must(hex.DecodeString("0506070809"))(t),
+				mustHex(t, "0001020304"),
+				mustHex(t, "0506070809"),
 			},
 			[][]eip712.MetadataEntry{
 				{{Key: "size", Value: "1024"}},
 				{{Key: "size", Value: "2048"}},
 			},
-			[][]ipld.Link{},
-			[][]message.AgentMessage{},
+			nil, // pieceProofs
+			nil, // proofContainer
+			nil, // proofs (the wrapper obtains its own access grant)
 		)
 		require.NoError(t, err)
 	})
@@ -81,119 +87,91 @@ func TestProofServiceSigner(t *testing.T) {
 	t.Run("pdp/sign/pieces/remove/schedule", func(t *testing.T) {
 		_, err := signingService.SignSchedulePieceRemovals(
 			t.Context(),
-			testutil.Alice,
-			testutil.RandomBigInt(t),
+			alice,
+			randomBigInt(),
 			[]*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3)},
+			nil,
 		)
 		require.NoError(t, err)
 	})
 }
 
-func mockSigningServiceServer(t *testing.T, id principal.Signer) ucan_server.ServerView[ucan_server.Service] {
-	mockSignature := mockSignature()
-	server, err := ucan_server.NewServer(
+func mockSigningServiceServer(t *testing.T, id ucan.Issuer) *server.HTTPServer {
+	mock := mockLibforgeSignature()
+	srv := server.NewHTTP(
 		id,
-		ucan_server.WithServiceMethod(
-			access.GrantAbility,
-			ucan_server.Provide(
-				access.Grant,
-				func(
-					ctx context.Context,
-					capability ucan.Capability[access.GrantCaveats],
-					invocation invocation.Invocation,
-					context ucan_server.InvocationContext,
-				) (result.Result[access.GrantOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					nb := capability.Nb()
-					dlg, err := delegation.Delegate(
-						id,
-						invocation.Issuer(),
-						[]ucan.Capability[ucan.NoCaveats]{
-							ucan.NewCapability(nb.Att[0].Can, id.DID().String(), ucan.NoCaveats{}),
-						},
-						delegation.WithExpiration(ucan.Now()+30),
-						delegation.WithNonce(testutil.RandomCID(t).String()),
-					)
-					require.NoError(t, err)
-
-					dlgArchive := testutil.Must(io.ReadAll(dlg.Archive()))(t)
-
-					return result.Ok[access.GrantOk, failure.IPLDBuilderFailure](
-						access.GrantOk{
-							Delegations: access.DelegationsModel{
-								Keys:   []string{dlg.Link().String()},
-								Values: map[string][]byte{dlg.Link().String(): dlgArchive},
-							},
-						},
-					), nil, nil
-				},
-			),
-		),
-		ucan_server.WithServiceMethod(
-			sign.DataSetCreateAbility,
-			ucan_server.Provide(
-				sign.DataSetCreate,
-				func(
-					ctx context.Context,
-					cap ucan.Capability[sign.DataSetCreateCaveats],
-					inv invocation.Invocation,
-					ictx ucan_server.InvocationContext,
-				) (result.Result[sign.DataSetCreateOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					return result.Ok[sign.DataSetCreateOk, failure.IPLDBuilderFailure](sign.DataSetCreateOk(*mockSignature)), nil, nil
-				},
-			),
-		),
-		ucan_server.WithServiceMethod(
-			sign.DataSetDeleteAbility,
-			ucan_server.Provide(
-				sign.DataSetDelete,
-				func(
-					ctx context.Context,
-					cap ucan.Capability[sign.DataSetDeleteCaveats],
-					inv invocation.Invocation,
-					ictx ucan_server.InvocationContext,
-				) (result.Result[sign.DataSetDeleteOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					return result.Ok[sign.DataSetDeleteOk, failure.IPLDBuilderFailure](sign.DataSetDeleteOk(*mockSignature)), nil, nil
-				},
-			),
-		),
-		ucan_server.WithServiceMethod(
-			sign.PiecesAddAbility,
-			ucan_server.Provide(
-				sign.PiecesAdd,
-				func(
-					ctx context.Context,
-					cap ucan.Capability[sign.PiecesAddCaveats],
-					inv invocation.Invocation,
-					ictx ucan_server.InvocationContext,
-				) (result.Result[sign.PiecesAddOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					return result.Ok[sign.PiecesAddOk, failure.IPLDBuilderFailure](sign.PiecesAddOk(*mockSignature)), nil, nil
-				},
-			),
-		),
-		ucan_server.WithServiceMethod(
-			sign.PiecesRemoveScheduleAbility,
-			ucan_server.Provide(
-				sign.PiecesRemoveSchedule,
-				func(
-					ctx context.Context,
-					cap ucan.Capability[sign.PiecesRemoveScheduleCaveats],
-					inv invocation.Invocation,
-					ictx ucan_server.InvocationContext,
-				) (result.Result[sign.PiecesRemoveScheduleOk, failure.IPLDBuilderFailure], fx.Effects, error) {
-					return result.Ok[sign.PiecesRemoveScheduleOk, failure.IPLDBuilderFailure](sign.PiecesRemoveScheduleOk(*mockSignature)), nil, nil
-				},
-			),
-		),
 	)
-	require.NoError(t, err)
-	return server
+	/*
+		server.WithValidationOptions(validator.WithCanIssue(func(_ ucan.Capability, _ did.DID) bool {
+			return true
+		})),
+
+	*/
+
+	srv.Handle(access.Grant.Command, binding.NewHandler(
+		func(req *binding.Request[*access.GrantArguments], res *binding.Response[*access.GrantOK]) error {
+			args := req.Task().Arguments()
+			require.NotEmpty(t, args.Attenuations)
+			cmd := args.Attenuations[0].Command
+
+			dlg, err := delegation.Delegate(
+				id,
+				req.Invocation().Issuer(),
+				id.DID(),
+				cmd,
+				delegation.WithExpiration(ucan.Now()+30),
+				delegation.WithNonce(testutil.RandomBytes(t, 16)),
+			)
+			require.NoError(t, err)
+
+			if err := res.SetMetadata(container.New(container.WithDelegations(dlg))); err != nil {
+				return err
+			}
+			return res.SetSuccess(&access.GrantOK{Delegations: []cid.Cid{dlg.Link()}})
+		},
+	))
+
+	srv.Handle(libforgesign.DataSetCreate.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.DataSetCreateArguments], res *binding.Response[*libforgesign.DataSetCreateOK]) error {
+			return res.SetSuccess(&mock)
+		},
+	))
+	srv.Handle(libforgesign.DataSetDelete.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.DataSetDeleteArguments], res *binding.Response[*libforgesign.DataSetDeleteOK]) error {
+			return res.SetSuccess(&mock)
+		},
+	))
+	srv.Handle(libforgesign.PiecesAdd.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.PiecesAddArguments], res *binding.Response[*libforgesign.PiecesAddOK]) error {
+			return res.SetSuccess(&mock)
+		},
+	))
+	srv.Handle(libforgesign.PiecesRemoveSchedule.Command, binding.NewHandler(
+		func(_ *binding.Request[*libforgesign.PiecesRemoveScheduleArguments], res *binding.Response[*libforgesign.PiecesRemoveScheduleOK]) error {
+			return res.SetSuccess(&mock)
+		},
+	))
+
+	return srv
 }
 
-func mockSignature() *eip712.AuthSignature {
-	return &eip712.AuthSignature{
-		Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
-		R:      common.BigToHash(big.NewInt(12345)),
-		S:      common.BigToHash(big.NewInt(67890)),
-		V:      27,
+func mockLibforgeSignature() libforgesign.AuthSignature {
+	return libforgesign.AuthSignature{
+		Signature:  []byte{0x01, 0x02, 0x03},
+		V:          27,
+		R:          common.BigToHash(big.NewInt(12345)).Bytes(),
+		S:          common.BigToHash(big.NewInt(67890)).Bytes(),
+		SignedData: []byte{0xaa, 0xbb},
+		Signer:     common.HexToAddress("0x1234567890123456789012345678901234567890").Bytes(),
 	}
+}
+
+func randomBigInt() *big.Int {
+	return new(big.Int).SetInt64(int64(rand.Uint32()) + 1)
+}
+
+func mustHex(t *testing.T, s string) []byte {
+	b, err := hex.DecodeString(s)
+	require.NoError(t, err)
+	return b
 }

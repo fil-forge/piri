@@ -28,10 +28,11 @@ type ErrorResponse struct {
 
 // typeErrorStatusMap maps types.Error kinds to HTTP status codes
 var typeErrorStatusMap = map[types.Kind]int{
-	types.KindNotFound:     http.StatusNotFound,
-	types.KindInvalidInput: http.StatusBadRequest,
-	types.KindUnauthorized: http.StatusUnauthorized,
-	types.KindConflict:     http.StatusConflict,
+	types.KindNotFound:        http.StatusNotFound,
+	types.KindInvalidInput:    http.StatusBadRequest,
+	types.KindUnauthorized:    http.StatusUnauthorized,
+	types.KindConflict:        http.StatusConflict,
+	types.KindPayloadTooLarge: http.StatusRequestEntityTooLarge,
 }
 
 // HandleError converts any error to an HTTP response

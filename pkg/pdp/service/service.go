@@ -7,23 +7,27 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/filecoin-services/go/eip712"
-	"github.com/fil-forge/go-ucanto/ucan"
 	signer "github.com/fil-forge/piri-signing-service/pkg/types"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api"
 	filtypes "github.com/filecoin-project/lotus/chain/types"
 	logging "github.com/ipfs/go-log/v2"
 	"golang.org/x/sync/singleflight"
-	"gorm.io/gorm"
+
+	// curio infra
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
+	"github.com/filecoin-project/curio/tasks/message"
 
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/pdp/chainsched"
-	"github.com/fil-forge/piri/pkg/pdp/ethereum"
-	"github.com/fil-forge/piri/pkg/pdp/scheduler"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/fil-forge/piri/pkg/pdp/tasks"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -46,23 +50,32 @@ type EthClient interface {
 
 type PDPService struct {
 	cfg             appconfig.PDPServiceConfig
-	id              ucan.Signer
+	id              ucan.Issuer
 	endpoint        url.URL
 	address         common.Address
-	blobstore       blobstore.PDPStore
+	blobstore       blobstore.Blobstore
 	acceptanceStore acceptancestore.AcceptanceStore
+	allocationStore allocationstore.AllocationStore
 	receiptStore    receiptstore.ReceiptStore
-	sender          ethereum.Sender
 	chainClient     ChainClient
 
-	db   *gorm.DB
+	// ethClient lets Curio's contract.FSRegister sign/send the registerProvider
+	// tx and read the wallet balance (via BalanceAt) — no Lotus node required.
+	ethClient ethchain.EthClient
+
+	// db is the single DB surface — Curio harmonydb (Postgres), backing every
+	// PDP table (pipeline + piece/commP mapping + parked pieces).
+	db *harmonydb.DB
+
 	name string
 
 	pieceResolver types.PieceResolverAPI
 	pieceReader   types.PieceReaderAPI
 
-	chainScheduler *chainsched.Scheduler
-	engine         *scheduler.TaskEngine
+	// curio infra (replaces piri sender/engine/chainScheduler)
+	sender         *message.SenderETH
+	chainScheduler *chainsched.CurioChainSched
+
 	signingService signer.SigningService
 
 	commPGroup singleflight.Group
@@ -73,27 +86,34 @@ type PDPService struct {
 	registryContract smartcontracts.Registry
 
 	maxPieceSizeLog2Cache bigIntCache
+
+	// pieceSize is the read-through piece size limit. It is a Policy rather
+	// than a resolved value so an operator retuning
+	// pdp.piece.max_padded_size takes effect without a restart.
+	pieceSize piecesize.Policy
 }
 
 func New(
 	cfg appconfig.PDPServiceConfig,
-	id ucan.Signer,
+	id ucan.Issuer,
 	endpoint url.URL,
-	db *gorm.DB,
-	bs blobstore.PDPStore,
+	db *harmonydb.DB, // curio harmonydb — single DB surface
+	bs blobstore.Blobstore,
 	acceptanceStore acceptancestore.AcceptanceStore,
+	allocationStore allocationstore.AllocationStore,
 	receiptStore receiptstore.ReceiptStore,
 	resolver types.PieceResolverAPI,
 	reader types.PieceReaderAPI,
-	sender ethereum.Sender,
-	engine *scheduler.TaskEngine,
-	chainScheduler *chainsched.Scheduler,
+	sender *message.SenderETH,
+	chainScheduler *chainsched.CurioChainSched,
 	chainClient ChainClient,
+	ethClient ethchain.EthClient,
 	signingService signer.SigningService,
 	edc *eip712.ExtraDataEncoder,
 	verifier smartcontracts.Verifier,
 	serviceContract smartcontracts.Service,
 	registryContract smartcontracts.Registry,
+	pieceSize piecesize.Policy,
 ) (*PDPService, error) {
 	return &PDPService{
 		cfg:              cfg,
@@ -106,15 +126,17 @@ func New(
 		pieceReader:      reader,
 		blobstore:        bs,
 		acceptanceStore:  acceptanceStore,
+		allocationStore:  allocationStore,
 		receiptStore:     receiptStore,
 		sender:           sender,
-		engine:           engine,
 		chainScheduler:   chainScheduler,
 		chainClient:      chainClient,
+		ethClient:        ethClient,
 		signingService:   signingService,
 		edc:              edc,
 		verifierContract: verifier,
 		serviceContract:  serviceContract,
 		registryContract: registryContract,
+		pieceSize:        pieceSize,
 	}, nil
 }

@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"gorm.io/gorm"
+	"github.com/yugabyte/pgx/v5"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
@@ -21,41 +21,55 @@ func (p *PDPService) GetProofSetStatus(ctx context.Context, txHash common.Hash) 
 			log.Infow("got proof set status", "tx", txHash.String(), "response", res)
 		}
 	}()
-	var proofSetCreate models.PDPProofsetCreate
-	if err := p.db.WithContext(ctx).
-		Preload("MessageWait").
-		Where("create_message_hash = ?", txHash.Hex()).
-		First(&proofSetCreate).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+
+	txHashLower := strings.ToLower(txHash.Hex())
+	var create struct {
+		CreateMessageHash string `db:"create_message_hash"`
+		Ok                *bool  `db:"ok"`
+		DataSetCreated    bool   `db:"data_set_created"`
+		Service           string `db:"service"`
+	}
+	err := p.db.QueryRow(ctx, `
+		SELECT create_message_hash, ok, data_set_created, service
+		FROM pdp_data_set_creates WHERE create_message_hash = $1
+	`, txHashLower).Scan(&create.CreateMessageHash, &create.Ok, &create.DataSetCreated, &create.Service)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, types.NewErrorf(types.KindNotFound, "proof set with transaction hash %s not found", txHash.String())
 		}
 		return nil, fmt.Errorf("failed to retrieve proof set creation: %w", err)
 	}
 
-	if proofSetCreate.Service != p.name {
+	if create.Service != p.name {
 		return nil, fmt.Errorf("proof set creation not for given service")
 	}
 
+	var txStatus string
+	err = p.db.QueryRow(ctx, `
+		SELECT tx_status FROM message_waits_eth WHERE signed_tx_hash = $1
+	`, txHashLower).Scan(&txStatus)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve message wait status: %w", err)
+	}
+
 	var id uint64
-	if proofSetCreate.ProofsetCreated {
-		// The proof set has been created, get the proofSetId from pdp_proof_sets
-		var proofSet models.PDPProofSet
-		if err := p.db.WithContext(ctx).
-			Where("create_message_hash = ?", txHash.Hex()).
-			Find(&proofSet).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, fmt.Errorf("proof set not found despite proofset_created = true")
+	if create.DataSetCreated {
+		// The data set has been created, get the id from pdp_data_sets
+		err = p.db.QueryRow(ctx, `
+			SELECT id FROM pdp_data_sets WHERE create_message_hash = $1
+		`, txHashLower).Scan(&id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("proof set not found despite data_set_created = true")
 			}
 			return nil, fmt.Errorf("failed to retrieve proof set: %w", err)
 		}
-		id = uint64(proofSet.ID)
-
 	}
 
 	return &types.ProofSetStatus{
-		TxHash:   common.HexToHash(proofSetCreate.CreateMessageHash),
-		TxStatus: proofSetCreate.MessageWait.TxStatus,
-		Created:  proofSetCreate.ProofsetCreated,
+		TxHash:   common.HexToHash(create.CreateMessageHash),
+		TxStatus: txStatus,
+		Created:  create.DataSetCreated,
 		ID:       id,
 	}, nil
 }

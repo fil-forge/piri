@@ -253,6 +253,12 @@ func TestUintSchema_ParseAndValidate(t *testing.T) {
 			want:   50,
 		},
 		{
+			name:   "parses uint64",
+			schema: UintSchema{Min: 0, Max: 100},
+			input:  uint64(50),
+			want:   50,
+		},
+		{
 			name:   "parses positive int",
 			schema: UintSchema{Min: 0, Max: 100},
 			input:  50,
@@ -374,4 +380,168 @@ func TestUintSchema_TypeDescription(t *testing.T) {
 	require.Contains(t, desc, "unsigned integer")
 	require.Contains(t, desc, "1")
 	require.Contains(t, desc, "500")
+}
+
+func TestPowerOfTwoSchema_ParseAndValidate(t *testing.T) {
+	// Bounds mirroring the piece-size knob, the first real consumer:
+	// [1 MiB, 1 GiB].
+	pieceBounds := PowerOfTwoSchema{Min: 1 << 20, Max: 1 << 30}
+
+	tests := []struct {
+		name    string
+		schema  PowerOfTwoSchema
+		input   any
+		want    uint
+		wantErr bool
+		errType any
+	}{
+		// Input shapes: same set UintSchema accepts, since both share
+		// coerceUint.
+		{
+			name:   "parses uint directly",
+			schema: pieceBounds,
+			input:  uint(1 << 28),
+			want:   1 << 28,
+		},
+		{
+			// Byte-size config values are uint64 in Go, so this shape must
+			// round-trip rather than fall through to the type error.
+			name:   "parses uint64",
+			schema: pieceBounds,
+			input:  uint64(1 << 28),
+			want:   1 << 28,
+		},
+		{
+			name:   "parses int",
+			schema: pieceBounds,
+			input:  1 << 28,
+			want:   1 << 28,
+		},
+		{
+			name:   "parses int64",
+			schema: pieceBounds,
+			input:  int64(1 << 28),
+			want:   1 << 28,
+		},
+		{
+			name:   "parses float64 from a JSON API request",
+			schema: pieceBounds,
+			input:  float64(1 << 28),
+			want:   1 << 28,
+		},
+		{
+			name:   "parses string from the CLI",
+			schema: pieceBounds,
+			input:  "268435456",
+			want:   1 << 28,
+		},
+
+		// The power-of-two constraint itself.
+		{
+			name:    "rejects a non-power-of-two in range",
+			schema:  pieceBounds,
+			input:   uint(3 << 27), // 384 MiB
+			wantErr: true,
+			errType: &ParseError{},
+		},
+		{
+			name:    "rejects zero even when min is zero",
+			schema:  PowerOfTwoSchema{Min: 0, Max: 1 << 30},
+			input:   uint(0),
+			wantErr: true,
+			errType: &ParseError{},
+		},
+		{
+			name:    "rejects one past a power of two",
+			schema:  pieceBounds,
+			input:   uint(1<<28) + 1,
+			wantErr: true,
+			errType: &ParseError{},
+		},
+
+		// Bounds.
+		{
+			name:   "accepts value at min boundary",
+			schema: pieceBounds,
+			input:  uint(1 << 20),
+			want:   1 << 20,
+		},
+		{
+			name:   "accepts value at max boundary",
+			schema: pieceBounds,
+			input:  uint(1 << 30),
+			want:   1 << 30,
+		},
+		{
+			name:    "rejects below min",
+			schema:  pieceBounds,
+			input:   uint(1 << 19),
+			wantErr: true,
+			errType: &RangeError[uint]{},
+		},
+		{
+			name:    "rejects above max",
+			schema:  pieceBounds,
+			input:   uint(1 << 31),
+			wantErr: true,
+			errType: &RangeError[uint]{},
+		},
+		{
+			name:   "zero max means unbounded",
+			schema: PowerOfTwoSchema{Min: 1 << 20},
+			input:  uint(1 << 40),
+			want:   1 << 40,
+		},
+
+		// Coercion failures propagate unchanged.
+		{
+			name:    "rejects negative int",
+			schema:  pieceBounds,
+			input:   -1,
+			wantErr: true,
+			errType: &ParseError{},
+		},
+		{
+			name:    "rejects float64 with decimal",
+			schema:  pieceBounds,
+			input:   268435456.5,
+			wantErr: true,
+			errType: &ParseError{},
+		},
+		{
+			name:    "rejects bool type",
+			schema:  pieceBounds,
+			input:   true,
+			wantErr: true,
+			errType: &TypeError{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.schema.ParseAndValidate(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errType != nil {
+					require.IsType(t, tt.errType, err)
+				}
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPowerOfTwoSchema_TypeDescription(t *testing.T) {
+	bounded := PowerOfTwoSchema{Min: 1 << 20, Max: 1 << 30}
+	desc := bounded.TypeDescription()
+	require.Contains(t, desc, "power-of-two")
+	require.Contains(t, desc, "1048576")
+	require.Contains(t, desc, "1073741824")
+
+	unbounded := PowerOfTwoSchema{Min: 1 << 20}.TypeDescription()
+	require.Contains(t, unbounded, "power-of-two")
+	require.Contains(t, unbounded, "minimum")
+	require.NotContains(t, unbounded, "range")
 }

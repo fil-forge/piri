@@ -1,39 +1,25 @@
-package consolidation
+package consolidation_test
 
 import (
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/core/delegation"
-	"github.com/fil-forge/go-ucanto/core/result/ok"
-	"github.com/fil-forge/go-ucanto/ucan"
-	"github.com/ipfs/go-cid"
-	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/fil-forge/libforge/commands"
+	"github.com/fil-forge/libforge/commands/space/egress"
+	"github.com/fil-forge/ucantone/testutil"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
 )
 
 func TestConsolidation(t *testing.T) {
 	t.Run("encode/decode roundtrip", func(t *testing.T) {
 		c := createTestConsolidation(t)
 
-		encoded, err := Encode(c)
+		encoded, err := consolidation.Encode(c)
 		require.NoError(t, err)
 		require.NotEmpty(t, encoded)
 
-		decoded, err := Decode(encoded)
-		require.NoError(t, err)
-
-		requireEqualConsolidation(t, c, decoded)
-	})
-
-	t.Run("ToIPLD/FromIPLD roundtrip", func(t *testing.T) {
-		c := createTestConsolidation(t)
-
-		node, err := c.ToIPLD()
-		require.NoError(t, err)
-		require.NotNil(t, node)
-
-		decoded, err := FromIPLD(node)
+		decoded, err := consolidation.Decode(encoded)
 		require.NoError(t, err)
 
 		requireEqualConsolidation(t, c, decoded)
@@ -41,7 +27,7 @@ func TestConsolidation(t *testing.T) {
 
 	t.Run("codec roundtrip", func(t *testing.T) {
 		c := createTestConsolidation(t)
-		codec := Codec{}
+		codec := consolidation.Codec{}
 
 		encoded, err := codec.Encode(c)
 		require.NoError(t, err)
@@ -51,40 +37,51 @@ func TestConsolidation(t *testing.T) {
 
 		requireEqualConsolidation(t, c, decoded)
 	})
+
+	t.Run("Track accessor decodes the persisted envelope", func(t *testing.T) {
+		c := createTestConsolidation(t)
+		inv, err := c.Track()
+		require.NoError(t, err)
+		require.NotNil(t, inv)
+		require.Equal(t, egress.Track.Command, inv.Command())
+	})
+
+	t.Run("Track on empty bytes errors", func(t *testing.T) {
+		_, err := consolidation.Consolidation{}.Track()
+		require.Error(t, err)
+	})
 }
 
-func createTestConsolidation(t *testing.T) Consolidation {
+func createTestConsolidation(t *testing.T) consolidation.Consolidation {
 	t.Helper()
 
-	signer := testutil.RandomSigner(t)
+	signer := testutil.RandomIssuer(t)
 	audience := testutil.RandomDID(t)
 
-	inv, err := delegation.Delegate(
+	inv, err := egress.Track.Invoke(
 		signer,
 		audience,
-		[]ucan.Capability[ok.Unit]{
-			ucan.NewCapability("space/egress/track", audience.String(), ok.Unit{}),
+		&egress.TrackArguments{
+			Receipts: testutil.RandomCID(t),
+			Endpoint: commands.CborURL{},
 		},
 	)
 	require.NoError(t, err)
 
-	return Consolidation{
-		TrackInvocation:          inv,
-		ConsolidateInvocationCID: randomCID(t),
-	}
+	return consolidation.New(inv, testutil.RandomCID(t))
 }
 
-func randomCID(t *testing.T) cid.Cid {
-	t.Helper()
-	link := testutil.RandomCID(t)
-	return link.(cidlink.Link).Cid
-}
-
-func requireEqualConsolidation(t *testing.T, expected, actual Consolidation) {
+func requireEqualConsolidation(t *testing.T, expected, actual consolidation.Consolidation) {
 	t.Helper()
 
-	// Compare invocation links (the canonical identifier)
-	require.Equal(t, expected.TrackInvocation.Link(), actual.TrackInvocation.Link())
-	// Compare consolidate CIDs
+	// The persisted bytes round-trip exactly.
+	require.Equal(t, expected.TrackInvocationBytes, actual.TrackInvocationBytes)
 	require.Equal(t, expected.ConsolidateInvocationCID, actual.ConsolidateInvocationCID)
+
+	// And the decoded invocation links match.
+	expectedInv, err := expected.Track()
+	require.NoError(t, err)
+	actualInv, err := actual.Track()
+	require.NoError(t, err)
+	require.Equal(t, expectedInv.Link(), actualInv.Link())
 }

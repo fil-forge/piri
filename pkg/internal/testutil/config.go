@@ -5,11 +5,9 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/fil-forge/go-libstoracha/testutil"
-	"github.com/fil-forge/go-ucanto/client"
-	"github.com/fil-forge/go-ucanto/did"
-	"github.com/fil-forge/go-ucanto/principal"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
+	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/multikey"
+	utestutil "github.com/fil-forge/ucantone/testutil"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 
@@ -32,7 +30,7 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 	// Start with sensible defaults for testing
 	cfg := app.AppConfig{
 		Identity: app.IdentityConfig{
-			Signer: testutil.Alice, // Default test signer
+			Issuer: utestutil.RandomMultikeyIssuer(t), // per-test random signer
 		},
 		Server: app.ServerConfig{
 			Host:      "localhost",
@@ -45,18 +43,11 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 		},
 		UCANService: app.UCANServiceConfig{
 			Services: app.ExternalServicesConfig{
-				PrincipalMapping: map[string]string{},
-				Upload: app.UploadServiceConfig{
-					Connection: testutil.Must(
-						client.NewConnection(
-							testutil.Must(did.Parse("did:web:up.test.storacha.network"))(t),
-							ucanhttp.NewChannel(testutil.Must(url.Parse("http://up.test.storacha.network"))(t)),
-						),
-					)(t),
-				},
+				// Upload.Connection is intentionally left zero until Phase 5
+				// migrates the service config types to ucantone.
 				Publisher: app.PublisherServiceConfig{
-					PublicMaddr:   testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
-					AnnounceMaddr: testutil.Must(multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)))(t),
+					PublicMaddr:   mustMaddr(t, fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)),
+					AnnounceMaddr: mustMaddr(t, fmt.Sprintf("/ip4/127.0.0.1/tcp/%d/http", port)),
 					AnnounceURLs:  []url.URL{}, // Empty by default for tests
 				},
 			},
@@ -73,22 +64,26 @@ func NewTestConfig(t *testing.T, opts ...TestConfigOption) app.AppConfig {
 	return cfg
 }
 
-// WithSigner sets the identity signer
-func WithSigner(signer principal.Signer) TestConfigOption {
+// WithIssuer sets the identity signer
+func WithIssuer(issuer multikey.Issuer) TestConfigOption {
 	return func(_ *testing.T, cfg *app.AppConfig) {
-		cfg.Identity.Signer = signer
+		cfg.Identity.Issuer = issuer
 	}
 }
 
-// WithUploadServiceConfig sets the upload service configuration
-func WithUploadServiceConfig(id did.DID, url *url.URL) TestConfigOption {
-	return func(t *testing.T, cfg *app.AppConfig) {
-		if id == did.Undef {
-			// Use Alice as a fallback for tests
-			id = testutil.Alice.DID()
-		}
-		cfg.UCANService.Services.Upload.Connection = testutil.Must(
-			client.NewConnection(id, ucanhttp.NewChannel(url)),
-		)(t)
+// WithUploadServiceConfig sets the upload service DID on the test config.
+// The Client field is left nil — handlers that only read the DID (e.g.
+// access/grant) don't need a working client; tests exercising flows that
+// dispatch back to the upload service must wire one explicitly.
+func WithUploadServiceConfig(uploadDID did.DID, _ *url.URL) TestConfigOption {
+	return func(_ *testing.T, cfg *app.AppConfig) {
+		cfg.UCANService.Services.Upload.DID = uploadDID
 	}
+}
+
+func mustMaddr(t *testing.T, s string) multiaddr.Multiaddr {
+	t.Helper()
+	m, err := multiaddr.NewMultiaddr(s)
+	require.NoError(t, err)
+	return m
 }

@@ -2,6 +2,8 @@ package dynamic
 
 import (
 	"fmt"
+	"math"
+	"math/bits"
 	"strconv"
 	"time"
 )
@@ -125,59 +127,118 @@ func (s UintSchema) TypeDescription() string {
 }
 
 func (s UintSchema) ParseAndValidate(raw any) (any, error) {
-	var u uint
-
-	switch v := raw.(type) {
-	case uint:
-		u = v
-	case int:
-		if v < 0 {
-			return nil, &ParseError{
-				Value:    v,
-				Expected: "unsigned integer (got negative value)",
-			}
-		}
-		u = uint(v)
-	case int64:
-		if v < 0 {
-			return nil, &ParseError{
-				Value:    v,
-				Expected: "unsigned integer (got negative value)",
-			}
-		}
-		u = uint(v)
-	case float64:
-		// JSON unmarshals numbers as float64
-		if v != float64(int(v)) {
-			return nil, &ParseError{
-				Value:    v,
-				Expected: "unsigned integer (got floating point)",
-			}
-		}
-		if v < 0 {
-			return nil, &ParseError{
-				Value:    v,
-				Expected: "unsigned integer (got negative value)",
-			}
-		}
-		u = uint(v)
-	case string:
-		parsed, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			return nil, &ParseError{Value: v, Expected: "unsigned integer", Cause: err}
-		}
-		u = uint(parsed)
-	default:
-		return nil, &TypeError{
-			Expected: "unsigned integer",
-			Got:      fmt.Sprintf("%T", raw),
-		}
+	u, err := coerceUint(raw)
+	if err != nil {
+		return nil, err
 	}
 
 	if u < s.Min {
 		return nil, &RangeError[uint]{Value: u, Min: s.Min, Max: s.Max}
 	}
 	if u > s.Max {
+		return nil, &RangeError[uint]{Value: u, Min: s.Min, Max: s.Max}
+	}
+
+	return u, nil
+}
+
+// coerceUint converts a raw configuration value to uint, accepting every
+// shape one can arrive in: already typed from Go, float64 from a JSON API
+// request, or a string from the CLI or a TOML file.
+func coerceUint(raw any) (uint, error) {
+	switch v := raw.(type) {
+	case uint:
+		return v, nil
+	case uint64:
+		// Byte-size config values are naturally uint64 in Go. On a 32-bit
+		// platform uint is narrower, so reject rather than silently truncate.
+		if v > math.MaxUint {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (value too large for this platform)",
+			}
+		}
+		return uint(v), nil
+	case int:
+		if v < 0 {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (got negative value)",
+			}
+		}
+		return uint(v), nil
+	case int64:
+		if v < 0 {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (got negative value)",
+			}
+		}
+		return uint(v), nil
+	case float64:
+		// JSON unmarshals numbers as float64
+		if v != float64(int(v)) {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (got floating point)",
+			}
+		}
+		if v < 0 {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (got negative value)",
+			}
+		}
+		return uint(v), nil
+	case string:
+		parsed, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			return 0, &ParseError{Value: v, Expected: "unsigned integer", Cause: err}
+		}
+		return uint(parsed), nil
+	default:
+		return 0, &TypeError{
+			Expected: "unsigned integer",
+			Got:      fmt.Sprintf("%T", raw),
+		}
+	}
+}
+
+// PowerOfTwoSchema parses and validates unsigned integers that must be an
+// exact power of two within [Min, Max]. Accepts the same input shapes as
+// UintSchema.
+//
+// Unlike UintSchema, a zero Max means unbounded, matching DurationSchema.
+// Zero is never valid: it has no bits set and so fails the power-of-two check.
+type PowerOfTwoSchema struct {
+	Min uint
+	Max uint
+}
+
+func (s PowerOfTwoSchema) TypeDescription() string {
+	if s.Max == 0 {
+		return fmt.Sprintf("power-of-two unsigned integer, minimum %d", s.Min)
+	}
+	return fmt.Sprintf("power-of-two unsigned integer, range [%d, %d]", s.Min, s.Max)
+}
+
+func (s PowerOfTwoSchema) ParseAndValidate(raw any) (any, error) {
+	u, err := coerceUint(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	if bits.OnesCount64(uint64(u)) != 1 {
+		return nil, &ParseError{
+			Value:    u,
+			Expected: "power of two",
+		}
+	}
+
+	if u < s.Min {
+		return nil, &RangeError[uint]{Value: u, Min: s.Min, Max: s.Max}
+	}
+	if s.Max > 0 && u > s.Max {
 		return nil, &RangeError[uint]{Value: u, Min: s.Min, Max: s.Max}
 	}
 

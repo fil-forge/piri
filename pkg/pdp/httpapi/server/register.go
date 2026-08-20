@@ -1,7 +1,6 @@
 package server
 
 import (
-	"crypto/ed25519"
 	"fmt"
 	"path"
 
@@ -11,7 +10,9 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 var log = logging.Logger("pdp/api")
@@ -25,22 +26,44 @@ const (
 type PDPHandler struct {
 	Service       *service.PDPService
 	jwtMiddleware echo.MiddlewareFunc
+	pieceSize     piecesize.Policy
 }
 
-func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig) (*PDPHandler, error) {
-	if identity.Signer == nil {
+func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig, pieceSize piecesize.Policy) (*PDPHandler, error) {
+	if identity.Issuer == nil {
 		return nil, fmt.Errorf("missing identity signer for jwt auth")
 	}
-	publicKey := ed25519.PublicKey(identity.Signer.Verifier().Raw())
 	jwtMiddleware := echojwt.WithConfig(echojwt.Config{
-		SigningKey:    publicKey,
+		SigningKey:    identity.Issuer.PublicKey(),
 		SigningMethod: jwt.SigningMethodEdDSA.Alg(),
 	})
 
 	return &PDPHandler{
 		Service:       service,
 		jwtMiddleware: jwtMiddleware,
+		pieceSize:     pieceSize,
 	}, nil
+}
+
+// limitUploadBody rejects an upload whose declared Content-Length already
+// exceeds the piece size limit, before the handler does any database work.
+//
+// This is a cheap early exit, not the real enforcement: a chunked request
+// declares no length (ContentLength < 0), so the authoritative check remains
+// the per-upload verifyread bound, which cuts the stream off at the first
+// byte past the size the allocation declared.
+//
+// The limit is read per request rather than baked in at registration so that
+// retuning pdp.piece.max_padded_size takes effect without a restart.
+func (p *PDPHandler) limitUploadBody(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if declared := c.Request().ContentLength; declared > 0 {
+			if err := p.pieceSize.CheckRaw(uint64(declared)); err != nil {
+				return types.WrapError(types.KindPayloadTooLarge, "upload body too large", err)
+			}
+		}
+		return next(c)
+	}
 }
 
 func (p *PDPHandler) RegisterRoutes(e *echo.Echo) {
@@ -57,7 +80,6 @@ func (p *PDPHandler) RegisterRoutes(e *echo.Echo) {
 	proofSets.DELETE("/:proofSetID", p.handleDeleteProofSet)
 	proofSets.GET("", p.handleListProofSet)
 	proofSets.GET("/:proofSetID/state", p.handleGetProofSetState)
-	proofSets.POST("/:proofSetID/repair", p.handleRepairProofSet)
 
 	// /pdp/proof-sets/:proofSetID/roots
 	roots := proofSets.Group("/:proofSetID/roots")
@@ -70,7 +92,7 @@ func (p *PDPHandler) RegisterRoutes(e *echo.Echo) {
 
 	// /pdp/piece
 	authenticated.POST(PiecePrefix, p.handlePreparePiece)
-	pdpGroup.PUT(path.Join(PiecePrefix, "/upload/:uploadUUID"), p.handlePieceUpload)
+	pdpGroup.PUT(path.Join(PiecePrefix, "/upload/:uploadUUID"), p.handlePieceUpload, p.limitUploadBody)
 	authenticated.GET(PiecePrefix, p.handleFindPiece)
 
 	// /pdp/provider

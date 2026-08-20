@@ -5,13 +5,25 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
 // DefaultMinimumEgressBatchSize is the minimum allowed egress tracker batch size (10 MiB).
 const DefaultMinimumEgressBatchSize int64 = 10 * 1024 * 1024
 
+// DefaultPLCDirectory is the did:plc directory endpoint used when none is
+// configured (an omitted or empty ucan.plc_directory value falls back to it).
+const DefaultPLCDirectory = "https://plc.directory"
+
 // Key is a configuration key path used with Viper.
 type Key string
+
+// PDP Piece (dynamic - can change at runtime)
+const (
+	PieceMaxPaddedSize Key = "pdp.piece.max_padded_size"
+)
 
 // PDP Aggregation - CommP
 const (
@@ -25,6 +37,8 @@ const (
 	AggregatorJobQueueWorkers    Key = "pdp.aggregation.aggregator.job_queue.workers"
 	AggregatorJobQueueRetries    Key = "pdp.aggregation.aggregator.job_queue.retries"
 	AggregatorJobQueueRetryDelay Key = "pdp.aggregation.aggregator.job_queue.retry_delay"
+	// AggregatorMinAggregateSize is dynamic - can change at runtime.
+	AggregatorMinAggregateSize Key = "pdp.aggregation.aggregator.min_aggregate_size"
 )
 
 // PDP Aggregation - Manager (these are dynamic - can change at runtime)
@@ -34,6 +48,11 @@ const (
 	ManagerJobQueueWorkers    Key = "pdp.aggregation.manager.job_queue.workers"
 	ManagerJobQueueRetries    Key = "pdp.aggregation.manager.job_queue.retries"
 	ManagerJobQueueRetryDelay Key = "pdp.aggregation.manager.job_queue.retry_delay"
+)
+
+// UCAN service
+const (
+	UCANPLCDirectory Key = "ucan.plc_directory"
 )
 
 // PDP Gas Fee Limits (dynamic - can change at runtime)
@@ -47,6 +66,8 @@ const (
 )
 
 var defaultValues = map[Key]any{
+	PieceMaxPaddedSize: piecesize.DefaultMaxPaddedSize,
+
 	CommPJobQueueWorkers:    runtime.NumCPU(),
 	CommPJobQueueRetries:    50,
 	CommPJobQueueRetryDelay: 10 * time.Second,
@@ -54,12 +75,15 @@ var defaultValues = map[Key]any{
 	AggregatorJobQueueWorkers:    runtime.NumCPU(),
 	AggregatorJobQueueRetries:    50,
 	AggregatorJobQueueRetryDelay: 10 * time.Second,
+	AggregatorMinAggregateSize:   aggregator.DefaultMinAggregateSize,
 
 	ManagerPollInterval:       30 * time.Second,
 	ManagerBatchSize:          10,
 	ManagerJobQueueWorkers:    3,
 	ManagerJobQueueRetries:    50,
 	ManagerJobQueueRetryDelay: time.Minute,
+
+	UCANPLCDirectory: DefaultPLCDirectory,
 }
 
 // SetDefaults sets all viper defaults for configuration.

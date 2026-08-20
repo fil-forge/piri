@@ -1,20 +1,18 @@
 package receipts
 
+/*
+
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/fil-forge/go-libstoracha/capabilities/types"
-	"github.com/fil-forge/go-ucanto/core/message"
-	"github.com/fil-forge/go-ucanto/core/receipt"
 	"github.com/fil-forge/go-ucanto/transport"
 	"github.com/fil-forge/go-ucanto/transport/car"
-	ucanhttp "github.com/fil-forge/go-ucanto/transport/http"
-	"github.com/fil-forge/go-ucanto/ucan"
+	"github.com/fil-forge/ucantone/ucan/receipt"
+	"github.com/ipfs/go-cid"
 )
 
 var ErrNotFound = errors.New("receipt not found")
@@ -26,18 +24,6 @@ type Client struct {
 }
 
 type Option func(c *Client)
-
-func WithCodec(codec transport.ResponseDecoder) Option {
-	return func(c *Client) {
-		c.codec = codec
-	}
-}
-
-func WithHTTPClient(client *http.Client) Option {
-	return func(c *Client) {
-		c.client = client
-	}
-}
 
 func NewClient(endpoint *url.URL, options ...Option) *Client {
 	c := Client{
@@ -57,37 +43,14 @@ func NewClient(endpoint *url.URL, options ...Option) *Client {
 
 // Fetch a receipt from the receipt API. Returns [ErrNotFound] if the API
 // responds with [http.StatusNotFound].
-func (c *Client) Fetch(ctx context.Context, lnk ucan.Link) (receipt.AnyReceipt, error) {
-	receiptURL := c.endpoint.JoinPath(lnk.String())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, receiptURL.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating get request: %w", err)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("doing receipts request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var msg message.AgentMessage
-	switch resp.StatusCode {
-	case http.StatusOK:
-		msg, err = c.codec.Decode(ucanhttp.NewResponse(resp.StatusCode, resp.Body, resp.Header))
-		if err != nil {
-			return nil, fmt.Errorf("decoding message: %w", err)
-		}
-	case http.StatusNotFound:
-		return nil, ErrNotFound
-	default:
-		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-
-	rcptlnk, ok := msg.Get(lnk)
-	if !ok {
-		return nil, errors.New("receipt not found in agent message")
-	}
-
-	reader := receipt.NewAnyReceiptReader(types.Converters...)
-	return reader.Read(rcptlnk, msg.Blocks())
+func (c *Client) Fetch(ctx context.Context, lnk cid.Cid) (*receipt.Receipt, error) {
+	// TODO(forrest)[ucan1]: I'd expect the etracker to work with ucan, not plain http fetch...
+	// not that this fetch even matters, the only caller of this method fetches receipt
+	// then does approximately nothing with them, passing them to validateConsolidateReceipt
+	// which previously was stubbed, now it panics as a stubbed validation method
+	// smells like a trash fire.
+	panic("FIX ME FORREST - MIGRATE THE ETRACKER")
 }
+
+
+*/

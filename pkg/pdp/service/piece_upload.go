@@ -8,93 +8,112 @@ import (
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/multiformats/go-multicodec"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
-
-	"github.com/fil-forge/piri/lib/verifyread"
-	"github.com/fil-forge/piri/pkg/pdp/piece"
-	"github.com/fil-forge/piri/pkg/presets"
-
 	"github.com/multiformats/go-multihash"
+	"github.com/yugabyte/pgx/v5"
 
-	"github.com/fil-forge/piri/pkg/pdp/service/models"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
+
+	libpiece "github.com/fil-forge/libforge/piece"
+	"github.com/fil-forge/piri/lib/verifyread"
 	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/presets"
 )
 
 func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpload) (retErr error) {
-	var upload models.PDPPieceUpload
-	if err := p.db.First(&upload, "id = ?", pieceUpload.ID.String()).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	var checkHash []byte
+	var checkSize int64
+	var checkHashCodec string
+	if err := p.db.QueryRow(ctx,
+		`SELECT check_hash, check_size, check_hash_codec FROM pdp_piece_uploads WHERE id = $1`,
+		pieceUpload.ID.String()).Scan(&checkHash, &checkSize, &checkHashCodec); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return types.NewErrorf(types.KindNotFound, "upload ID %s not found", pieceUpload.ID)
 		}
 		return types.WrapError(types.KindInternal, "failed to query for piece upload", err)
 	}
-	lg := log.With("upload_id", pieceUpload.ID, "digest", multihash.Multihash(upload.CheckHash).String(), "size", upload.CheckSize)
+	lg := log.With("upload_id", pieceUpload.ID, "digest", multihash.Multihash(checkHash).String(), "size", checkSize)
 
-	hasher, ok := presets.HasherRegistry[upload.CheckHashCodec]
-	if !ok {
-		return types.NewErrorf(types.KindInvalidInput, "unknown hash code: %s", upload.CheckHashCodec)
+	// Re-check the declared size against current policy. The allocation that
+	// created this row passed the limit in force at the time; the operator
+	// may have lowered it since, and an upload in flight across that change
+	// must not slip through.
+	if err := p.pieceSize.CheckRaw(uint64(checkSize)); err != nil {
+		lg.Warnw("rejecting upload whose allocated size exceeds the current limit",
+			"max", p.pieceSize.MaxRaw(), "err", err)
+		return types.WrapError(types.KindPayloadTooLarge, "allocated piece exceeds the current size limit", err)
 	}
 
-	mh, err := multihash.Decode(upload.CheckHash)
+	hasher, ok := presets.HasherRegistry[checkHashCodec]
+	if !ok {
+		return types.NewErrorf(types.KindInvalidInput, "unknown hash code: %s", checkHashCodec)
+	}
+
+	mh, err := multihash.Decode(checkHash)
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to decode check hash", err)
 	}
 
-	vr, err := verifyread.New(pieceUpload.Data, hasher(), mh.Digest)
+	// Bound the body by the size the allocation declared, so an over-long
+	// upload is cut off mid-stream instead of being written to the blobstore
+	// in full and only then rejected by the digest compare.
+	vr, err := verifyread.New(pieceUpload.Data, hasher(), mh.Digest,
+		verifyread.WithExpectedSize(uint64(checkSize)))
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to create verification reader", err)
 	}
 
-	if err := p.blobstore.Put(ctx, upload.CheckHash, uint64(upload.CheckSize), vr); err != nil {
+	if err := p.blobstore.Put(ctx, checkHash, uint64(checkSize), vr); err != nil {
 		lg.Errorw("failed to write upload to blobstore", "err", err)
+		if errors.Is(err, verifyread.ErrSizeMismatch) {
+			return types.WrapError(types.KindPayloadTooLarge, "upload does not match its allocated size", err)
+		}
 		return types.WrapError(types.KindInvalidInput, "failed to put piece", err)
 	}
 
-	if err := p.db.Transaction(func(tx *gorm.DB) error {
+	_, err = p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		// transaction since we only want to remove the upload entry if we can write to the store
-		if err := tx.Delete(&models.PDPPieceUpload{}, "id = ?", upload.ID).Error; err != nil {
-			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s from pdp_piece_uploads", upload.ID), err)
+		if _, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, pieceUpload.ID.String()); err != nil {
+			return false, types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s from pdp_piece_uploads", pieceUpload.ID), err)
 		}
 
 		// if the upload was done with commp create a mapping for it now
-		if upload.CheckHashCodec == multicodec.Fr32Sha256Trunc254Padbintree.String() {
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).
-				Create(&models.PDPPieceMHToCommp{
-					Mhash: upload.CheckHash,
-					Size:  upload.CheckSize,
-					Commp: piece.MultihashToCommpCID(upload.CheckHash).String(),
-				}).Error; err != nil {
-				return types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
+		if checkHashCodec == multicodec.Fr32Sha256Trunc254Padbintree.String() {
+			v2CID := libpiece.MultihashToCommpCID(checkHash)
+			pv1, _, err := commcid.PieceCidV1FromV2(v2CID)
+			if err != nil {
+				return false, fmt.Errorf("failed to derive v1 piece CID from %s: %w", v2CID, err)
 			}
-		} else if upload.CheckHashCodec == multicodec.Sha2_256Trunc254Padded.String() {
+			if _, err := tx.Exec(
+				`INSERT INTO pdp_piece_mh_to_commp (mhash, size, commp, commp_v1) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+				checkHash, checkSize, v2CID.String(), pv1.String()); err != nil {
+				return false, types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
+			}
+		} else if checkHashCodec == multicodec.Sha2_256Trunc254Padded.String() {
 			pv1, err := commcid.DataCommitmentV1ToCID(mh.Digest)
 			if err != nil {
-				return err
+				return false, err
 			}
-			pieceCID, err := commcid.PieceCidV2FromV1(pv1, uint64(upload.CheckSize))
+			pieceCID, err := commcid.PieceCidV2FromV1(pv1, uint64(checkSize))
 			if err != nil {
-				return fmt.Errorf("failed to convert pieceCid %s from v1 to v2: %w", pv1, err)
+				return false, fmt.Errorf("failed to convert pieceCid %s from v1 to v2: %w", pv1, err)
 			}
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).
-				Create(&models.PDPPieceMHToCommp{
-					Mhash: upload.CheckHash,
-					Size:  upload.CheckSize,
-					Commp: piece.MultihashToCommpCID(pieceCID.Hash()).String(),
-				}).Error; err != nil {
-				return types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
+			if _, err := tx.Exec(
+				`INSERT INTO pdp_piece_mh_to_commp (mhash, size, commp, commp_v1) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+				checkHash, checkSize, libpiece.MultihashToCommpCID(pieceCID.Hash()).String(), pv1.String()); err != nil {
+				return false, types.WrapError(types.KindInternal, "failed to create pieceMH to commp", err)
 			}
 		}
 
-		return nil
-	}); err != nil {
+		return true, nil
+	})
+	if err != nil {
 		merr := new(multierror.Error)
 		merr = multierror.Append(merr, err)
 
 		lg.Errorw("failed to persist database records for piece upload", "err", err)
-		// we write the data to the blobstore before the transaction that records its metadata in the task engineDB
-		// if the transaction fails for whatever reason then we need to delete it from the blobstore
-		if delErr := p.blobstore.Delete(ctx, upload.CheckHash); delErr != nil {
+		// data is written to the blobstore before the metadata transaction; if the
+		// transaction fails we must delete it from the blobstore.
+		if delErr := p.blobstore.Delete(ctx, checkHash); delErr != nil {
 			lg.Errorw("failed to delete data from blobstore for failed upload", "err", delErr)
 			merr = multierror.Append(merr, delErr)
 		}
