@@ -9,6 +9,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
+
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 )
 
 type ContractAddresses struct {
@@ -94,7 +96,10 @@ type CommpConfig struct {
 }
 
 type AggregatorConfig struct {
-	JobQueue JobQueueConfig
+	// MinAggregateSize is the padded size at which buffered pieces are
+	// folded into an aggregate; a power of two. Zero means the default.
+	MinAggregateSize uint64
+	JobQueue         JobQueueConfig
 }
 
 type AggregateManagerConfig struct {
@@ -138,8 +143,11 @@ func DefaultAggregateManagerConfig() AggregateManagerConfig {
 // DefaultAggregationConfig returns an AggregationConfig with sensible defaults.
 func DefaultAggregationConfig() AggregationConfig {
 	return AggregationConfig{
-		CommP:      CommpConfig{JobQueue: DefaultJobQueueConfig()},
-		Aggregator: AggregatorConfig{JobQueue: DefaultJobQueueConfig()},
-		Manager:    DefaultAggregateManagerConfig(),
+		CommP: CommpConfig{JobQueue: DefaultJobQueueConfig()},
+		Aggregator: AggregatorConfig{
+			MinAggregateSize: aggregator.DefaultMinAggregateSize,
+			JobQueue:         DefaultJobQueueConfig(),
+		},
+		Manager: DefaultAggregateManagerConfig(),
 	}
 }

@@ -253,6 +253,12 @@ func TestUintSchema_ParseAndValidate(t *testing.T) {
 			want:   50,
 		},
 		{
+			name:   "parses uint64",
+			schema: UintSchema{Min: 0, Max: 100},
+			input:  uint64(50),
+			want:   50,
+		},
+		{
 			name:   "parses positive int",
 			schema: UintSchema{Min: 0, Max: 100},
 			input:  50,
@@ -395,6 +401,14 @@ func TestPowerOfTwoSchema_ParseAndValidate(t *testing.T) {
 			name:   "parses uint directly",
 			schema: pieceBounds,
 			input:  uint(1 << 28),
+			want:   1 << 28,
+		},
+		{
+			// Byte-size config values are uint64 in Go, so this shape must
+			// round-trip rather than fall through to the type error.
+			name:   "parses uint64",
+			schema: pieceBounds,
+			input:  uint64(1 << 28),
 			want:   1 << 28,
 		},
 		{

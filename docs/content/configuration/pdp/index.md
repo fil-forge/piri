@@ -25,6 +25,10 @@ owner_address = "0x1234..."
 lotus_endpoint = "wss://lotus.example.com/rpc/v1"
 ```
 
+### [piece](piece.md)
+
+Maximum piece size. Bounds how large a blob this node accepts, and how much memory a proof costs.
+
 ### [gas](gas.md)
 
 Gas fee limit configuration. Set per-message-type maximums to defer on-chain messages during congestion.

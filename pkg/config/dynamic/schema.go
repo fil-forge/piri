@@ -2,6 +2,7 @@ package dynamic
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 	"strconv"
 	"time"
@@ -148,6 +149,16 @@ func coerceUint(raw any) (uint, error) {
 	switch v := raw.(type) {
 	case uint:
 		return v, nil
+	case uint64:
+		// Byte-size config values are naturally uint64 in Go. On a 32-bit
+		// platform uint is narrower, so reject rather than silently truncate.
+		if v > math.MaxUint {
+			return 0, &ParseError{
+				Value:    v,
+				Expected: "unsigned integer (value too large for this platform)",
+			}
+		}
+		return uint(v), nil
 	case int:
 		if v < 0 {
 			return 0, &ParseError{

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/viper"
 
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
@@ -36,6 +37,8 @@ const (
 	AggregatorJobQueueWorkers    Key = "pdp.aggregation.aggregator.job_queue.workers"
 	AggregatorJobQueueRetries    Key = "pdp.aggregation.aggregator.job_queue.retries"
 	AggregatorJobQueueRetryDelay Key = "pdp.aggregation.aggregator.job_queue.retry_delay"
+	// AggregatorMinAggregateSize is dynamic - can change at runtime.
+	AggregatorMinAggregateSize Key = "pdp.aggregation.aggregator.min_aggregate_size"
 )
 
 // PDP Aggregation - Manager (these are dynamic - can change at runtime)
@@ -72,6 +75,7 @@ var defaultValues = map[Key]any{
 	AggregatorJobQueueWorkers:    runtime.NumCPU(),
 	AggregatorJobQueueRetries:    50,
 	AggregatorJobQueueRetryDelay: 10 * time.Second,
+	AggregatorMinAggregateSize:   aggregator.DefaultMinAggregateSize,
 
 	ManagerPollInterval:       30 * time.Second,
 	ManagerBatchSize:          10,

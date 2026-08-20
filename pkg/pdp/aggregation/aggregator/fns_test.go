@@ -48,6 +48,10 @@ func TestAppend(t *testing.T) {
 		// total padded size of pieces left in no aggregate (still buffered)
 		expectedLeftoverSize uint64
 		expectedAggCount     int
+		// minAggregate overrides the fold threshold; zero uses the default
+		// (128 MiB), which every case below the "configurable threshold"
+		// group relies on.
+		minAggregate uint64
 	}{
 		//
 		// generally happy path
@@ -181,12 +185,44 @@ func TestAppend(t *testing.T) {
 			expectedAggCount:     3,
 		},
 		{
-			name: "Single piece >256MB (if code permits) => immediate flush or error",
-			// TODO(forrest): do we expect this to be an error case?
-			// The aggregator code comment suggests >256MB is out-of-scope, but not
-			// strictly enforced. Some implementations could treat this
-			// as an error or just flush.
+			name: "Single piece over the threshold flushes immediately",
+			// Not an error. Append deliberately does not re-check piece
+			// sizes: that is enforced at ingest by blob/allocate and
+			// AllocatePiece, so a piece this large cannot reach the fold in
+			// production. Here it simply exceeds the threshold and becomes
+			// its own single-piece aggregate.
 			pieceSizes:           []int64{300 * MB},
+			expectedLeftoverSize: 0,
+			expectedAggCount:     1,
+		},
+		//
+		// configurable threshold
+		//
+		{
+			name: "Lowered threshold splits what the default would buffer",
+			// Two 32 MB pieces pad to 64 MB each. Under the 128 MiB default
+			// this is exactly one aggregate; at 64 MiB each piece crosses
+			// the threshold on its own.
+			pieceSizes:           []int64{32 * MB, 32 * MB},
+			minAggregate:         64 * MB,
+			expectedLeftoverSize: 0,
+			expectedAggCount:     2,
+		},
+		{
+			name: "Raised threshold keeps buffering what the default would flush",
+			// Same input as the default-threshold case that yields one
+			// aggregate; at 512 MiB the 128 MB of padded data stays buffered.
+			pieceSizes:           []int64{32 * MB, 32 * MB},
+			minAggregate:         512 * MB,
+			expectedLeftoverSize: 128 * MB,
+			expectedAggCount:     0,
+		},
+		{
+			name: "Raised threshold merges pieces the default would split",
+			// Four 32 MB pieces pad to 256 MB total: two aggregates at the
+			// 128 MiB default, one at 256 MiB.
+			pieceSizes:           []int64{32 * MB, 32 * MB, 32 * MB, 32 * MB},
+			minAggregate:         256 * MB,
 			expectedLeftoverSize: 0,
 			expectedAggCount:     1,
 		},
@@ -205,7 +241,12 @@ func TestAppend(t *testing.T) {
 			}
 
 			// Call the function under test
-			aggregates, err := aggregator.Append(pieces)
+			policy := aggregator.Policy{}
+			if tc.minAggregate != 0 {
+				policy = aggregator.NewPolicy(func() uint64 { return tc.minAggregate })
+			}
+
+			aggregates, err := aggregator.Append(pieces, policy)
 			require.NoError(t, err, "Append returned an unexpected error")
 
 			// Check how many aggregates were formed
