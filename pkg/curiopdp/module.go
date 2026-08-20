@@ -125,7 +125,19 @@ func provideS3PieceReader(store blobstore.Blobstore, resolver types.PieceResolve
 	return NewS3PieceReader(store, resolver)
 }
 
-func provideProofCache() pdpv0.ProofCacheStore { return NullProofCache{} }
+// provideProofCache returns a nil store: Piri has no proof cache yet, and the
+// prove task gates its cached-proof branch on `p.idx != nil` alone. A non-nil
+// no-op store therefore reads as "cache available" — for every sub-piece above
+// MinSizeForCache (32 MiB padded) the task would call GenerateCachedProof, get
+// (nil, nil) back, treat that as a cache failure, and write
+// `needs_save_cache = TRUE, cached_proofgen_failure_count = n+1` to
+// pdp_piecerefs on *every* proof, with no SaveCache task registered to drain
+// it. Returning nil skips the branch entirely and goes straight to the
+// full-memtree path, which is what Piri actually proves with today.
+//
+// Replace this with a real ProofCacheStore (and register pdpv0's SaveCache
+// task) to pick up the proving optimization.
+func provideProofCache() pdpv0.ProofCacheStore { return nil }
 
 // --- pdpv0 pipeline tasks ---
 

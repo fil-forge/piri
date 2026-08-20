@@ -12,7 +12,6 @@ import (
 	"github.com/multiformats/go-multihash"
 
 	"github.com/filecoin-project/curio/lib/storiface"
-	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
 
 	"github.com/fil-forge/piri/pkg/store/blobstore"
@@ -20,8 +19,7 @@ import (
 
 // Compile-time proof that Piri's adapters satisfy Curio's pdpv0 storage seams.
 var (
-	_ pdpv0.PieceReader     = (*S3PieceReader)(nil)
-	_ pdpv0.ProofCacheStore = NullProofCache{}
+	_ pdpv0.PieceReader = (*S3PieceReader)(nil)
 )
 
 // blobResolver resolves a piece (commP) multihash to the underlying blob multihash
@@ -134,26 +132,3 @@ func (r *s3SectionReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (r *s3SectionReader) Close() error { return nil }
-
-// NullProofCache implements pdpv0.ProofCacheStore as a no-op: GetPDPLayerIndex
-// always reports "not cached", so the prove task takes its full-read memtree
-// fallback (genSubPieceMemtree) — i.e. Piri's current proving behavior. The
-// save_cache task should simply not be registered. Back this with a real store
-// (e.g. Postgres) later to pick up the proving optimization.
-type NullProofCache struct{}
-
-func (NullProofCache) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.Cid) (bool, int, error) {
-	return false, 0, nil
-}
-
-func (NullProofCache) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int) ([]indexstore.NodeDigest, error) {
-	return nil, nil
-}
-
-func (NullProofCache) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, layerIdx int, index int64) (bool, *indexstore.NodeDigest, error) {
-	return false, nil, nil
-}
-
-func (NullProofCache) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, layer []indexstore.NodeDigest) error {
-	return nil
-}
