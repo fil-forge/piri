@@ -11,8 +11,8 @@ What's Piri? It's the _**P**rovable **I**nformation **R**etention **I**nterface_
 
 Get started with Piri by exploring our comprehensive documentation:
 
-- **[🚀 Getting Started](https://storacha.github.io/piri/)** - Complete setup guide to deploy Piri
-- **[⭐️ Best Practices](https://storacha.github.io/piri/operations/best-practices/)** - A checklist of things you should be doing as a Piri node operator
+- **[🚀 Getting Started](https://fil-forge.github.io/piri/)** - Complete setup guide to deploy Piri
+- **[⭐️ Best Practices](https://fil-forge.github.io/piri/operations/best-practices/)** - A checklist of things you should be doing as a Piri node operator
 
 ### Setup Guides
 
