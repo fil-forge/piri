@@ -12,8 +12,8 @@ GOFLAGS=-ldflags="-X github.com/fil-forge/piri/pkg/build.version=$(VERSION) -X g
 # and the only other network-gated constant Piri's paths touch (BlockGasLimit)
 # is network-invariant. Verified by the smelt proving-loop e2e on a skiff-only binary.
 TAGS?=-tags "skiff"
-# gosigar (via curio→lotus) has a pure-Go path on linux but needs cgo on
-# darwin, so builds stay CGO-free on linux only.
+# gosigar (via curio→lotus) has a pure-Go path on linux but needs cgo on darwin.
+# Default to CGO-free builds on non-darwin platforms; override with CGO_ENABLED=1 if needed.
 ifeq ($(shell uname -s),Darwin)
 CGO_ENABLED?=1
 else
