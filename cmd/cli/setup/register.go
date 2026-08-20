@@ -727,8 +727,7 @@ func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issue
 	if _, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
 		Name:        id.DID().String(),
 		Description: "Forge Service Operator",
-	})
-	if err != nil {
+	}); err != nil {
 		return 0, fmt.Errorf("registering provider: %w", err)
 	}
 
