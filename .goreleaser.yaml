@@ -2,8 +2,11 @@ version: 2
 
 project_name: piri
 
+# The linux binaries are pure-Go cross-compiles, so the whole release can run
+# on a macOS runner; darwin needs cgo (gosigar, via curio→lotus, has no
+# pure-Go path on darwin) and therefore cannot be cross-compiled from linux.
 builds:
-  - id: piri
+  - id: piri-linux
     main: ./cmd
     binary: piri
     ldflags:
@@ -12,17 +15,36 @@ builds:
       - -s -w -X github.com/fil-forge/piri/pkg/build.version=v{{.Version}} -X github.com/fil-forge/piri/pkg/build.Commit={{.Commit}} -X github.com/fil-forge/piri/pkg/build.Date={{.CommitDate}} -X github.com/fil-forge/piri/pkg/build.BuiltBy=goreleaser
     goos:
       - linux
-      - darwin
     goarch:
       - 'amd64'
       - 'arm64'
     # Change to a static date for checksum verification. See https://goreleaser.com/customization/builds/#reproducible-builds.
     mod_timestamp: '{{.CommitTimestamp}}'
+    # Curio's FFI-free variants — matches the Makefile build (see its TAGS comment).
+    flags:
+      - '-tags=skiff'
     env:
       - CGO_ENABLED=0
+  - id: piri-darwin
+    main: ./cmd
+    binary: piri
+    ldflags:
+      - -s -w -X github.com/fil-forge/piri/pkg/build.version=v{{.Version}} -X github.com/fil-forge/piri/pkg/build.Commit={{.Commit}} -X github.com/fil-forge/piri/pkg/build.Date={{.CommitDate}} -X github.com/fil-forge/piri/pkg/build.BuiltBy=goreleaser
+    goos:
+      - darwin
+    goarch:
+      - 'amd64'
+      - 'arm64'
+    mod_timestamp: '{{.CommitTimestamp}}'
+    flags:
+      - '-tags=skiff'
+    env:
+      - CGO_ENABLED=1
 
 universal_binaries:
-  - replace: true
+  - ids:
+      - piri-darwin
+    replace: true
 
 archives:
   - format_overrides:

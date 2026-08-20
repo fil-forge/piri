@@ -13,7 +13,9 @@ permissions:
 jobs:
   bin-releaser:
     name: Release Binaries
-    runs-on: ubuntu-latest
+    # The darwin builds need cgo (see .goreleaser.yaml), so they must be
+    # built on a mac; the cgo-free linux builds cross-compile fine from here.
+    runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -22,7 +24,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: "1.23.x"
+          go-version-file: go.mod
       - name: Release Binaries
         uses: goreleaser/goreleaser-action@v7
         with:

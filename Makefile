@@ -12,6 +12,13 @@ GOFLAGS=-ldflags="-X github.com/fil-forge/piri/pkg/build.version=$(VERSION) -X g
 # and the only other network-gated constant Piri's paths touch (BlockGasLimit)
 # is network-invariant. Verified by the smelt proving-loop e2e on a skiff-only binary.
 TAGS?=-tags "skiff"
+# gosigar (via curio→lotus) has a pure-Go path on linux but needs cgo on darwin.
+# Default to CGO-free builds on non-darwin platforms; override with CGO_ENABLED=1 if needed.
+ifeq ($(shell uname -s),Darwin)
+CGO_ENABLED?=1
+else
+CGO_ENABLED?=0
+endif
 
 .PHONY: all build test clean
 
@@ -24,13 +31,13 @@ piri: FORCE
 	@if [ ! -f piri ] || \
 	   [ -n "$$(find cmd pkg internal -name '*.go' -type f -newer piri 2>/dev/null)" ]; then \
 		echo "Building piri..."; \
-		CGO_ENABLED=0 go build $(GOFLAGS) $(TAGS) -o ./piri github.com/fil-forge/piri/cmd; \
+		CGO_ENABLED=$(CGO_ENABLED) go build $(GOFLAGS) $(TAGS) -o ./piri github.com/fil-forge/piri/cmd; \
 	fi
 
 FORCE:
 
 test:
-	CGO_ENABLED=0 go test $(TAGS) ./...
+	CGO_ENABLED=$(CGO_ENABLED) go test $(TAGS) ./...
 
 clean:
 	rm -f ./piri

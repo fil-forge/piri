@@ -9,12 +9,12 @@ require (
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/ethereum/go-ethereum v1.17.5
-	github.com/fil-forge/delegator v0.0.0-20260619085531-c96197bec34c
+	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
-	github.com/fil-forge/go-ipni-tools v0.0.0-20260519194815-545b9421aec0
-	github.com/fil-forge/libforge v0.0.0-20260730113809-b13386bc395a
-	github.com/fil-forge/piri-signing-service v0.0.0-20260619151844-6c3d40a4bf54
-	github.com/fil-forge/ucantone v0.0.0-20260727203046-ccb77059de44
+	github.com/fil-forge/go-ipni-tools v0.0.0-20260820094424-9b93692d1895
+	github.com/fil-forge/libforge v0.0.0-20260807225550-3e6895b41be5
+	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
+	github.com/fil-forge/ucantone v0.0.0-20260817170631-3a20cd59fabc
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
