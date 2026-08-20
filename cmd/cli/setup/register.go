@@ -66,11 +66,11 @@ func init() {
 	InitCmd.Flags().Uint("port", 3000, "Port Piri listens for connections on")
 	InitCmd.Flags().String("data-dir", "", "Path to a data directory Piri will maintain its permanent state in")
 	InitCmd.Flags().String("temp-dir", "", "Path to a temporary directory Piri will maintain ephemeral state in")
-	InitCmd.Flags().String("key-file", "", "Path to a PEM file containing ed25519 private key used as Piri's identity on the Storacha network")
+	InitCmd.Flags().String("key-file", "", "Path to a PEM file containing ed25519 private key used as Piri's identity on the Forge network")
 	InitCmd.Flags().String("wallet-file", "", "Path to a file containing a delegated filecoin address private key in hex format")
 	InitCmd.Flags().String("lotus-endpoint", "", "API endpoint of the Lotus node Piri will use to interact with the blockchain")
-	InitCmd.Flags().String("operator-email", "", "Email address of the piri operator (your email address for contact with the Storacha team)")
-	InitCmd.Flags().String("public-url", "", "URL Piri will advertise to the Storacha network")
+	InitCmd.Flags().String("operator-email", "", "Email address of the piri operator (your email address for contact with the Forge team)")
+	InitCmd.Flags().String("public-url", "", "URL Piri will advertise to the Forge network")
 
 	cobra.CheckErr(InitCmd.MarkFlagRequired("data-dir"))
 	cobra.CheckErr(InitCmd.MarkFlagRequired("temp-dir"))
@@ -112,7 +112,7 @@ func init() {
 
 	// base-config provides an alternative to --network for custom or local development environments.
 	// It defines the network identity: which blockchain (chain ID), which smart contracts to interact
-	// with, and which Storacha services (signing, upload, indexer, etc.) to connect to.
+	// with, and which Forge services (signing, upload, indexer, etc.) to connect to.
 	// It may also optionally include storage backend configuration (database type, S3 settings)
 	// which will be used unless overridden by explicit flags.
 	InitCmd.Flags().String(
@@ -726,7 +726,7 @@ func registerWithContract(ctx context.Context, cmd *cobra.Command, id ucan.Issue
 	// else we need to register
 	if _, err := pdpSvc.RegisterProvider(ctx, types.RegisterProviderParams{
 		Name:        id.DID().String(),
-		Description: "Storacha Service Operator",
+		Description: "Forge Service Operator",
 	}); err != nil {
 		return 0, fmt.Errorf("registering provider: %w", err)
 	}
@@ -1009,7 +1009,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	logging.SetAllLoggers(initLevel)
 	ctx := context.Background()
 
-	cmd.PrintErrln("🚀 Initializing your Piri node on the Storacha Network...")
+	cmd.PrintErrln("🚀 Initializing your Piri node on the Forge Network...")
 	cmd.PrintErrln()
 
 	// Step 1: Parse and validate flags

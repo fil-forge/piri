@@ -12,7 +12,7 @@ How Piri uses databases for operational state, the difference between SQLite and
 
 ### [Networks](networks.md)
 
-Storacha networks that Piri operates on, including service endpoints, smart contract addresses, and chain configuration.
+Forge networks that Piri operates on, including service endpoints, smart contract addresses, and chain configuration.
 
 ### [Telemetry](telemetry.md)
 

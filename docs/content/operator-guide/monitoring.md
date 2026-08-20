@@ -91,7 +91,7 @@ publish_interval = "30s"
 
 Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 
-To disable metrics reporting to Storacha, see [Telemetry > How to Opt Out](../operations/telemetry.md#how-to-opt-out).
+To disable metrics reporting to Forge Development Team, see [Telemetry > How to Opt Out](../operations/telemetry.md#how-to-opt-out).
 
 ## Logs
 

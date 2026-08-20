@@ -24,7 +24,7 @@ Internet → Your Domain → Nginx (HTTPS) → Piri Server (HTTP)
 
 - **Security**: Protects data sent between clients and your server
 - **Trust**: Needed for browsers and APIs to connect
-- **Network Requirements**: Storacha Network needs HTTPS endpoints
+- **Network Requirements**: Forge Network needs HTTPS endpoints
 - **Certificate Management**: Handles SSL certificates in one place
 
 ## DNS Configuration

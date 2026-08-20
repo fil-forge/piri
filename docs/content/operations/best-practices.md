@@ -8,10 +8,10 @@ Always update Lotus to the [latest release](https://github.com/filecoin-project/
 
 ## Keep your Piri node up to date
 
-Running the latest Piri release keeps you protocol-compatible with the Storacha network, pulls in bug fixes and security patches, and ensures your node understands the current proof and API expectations. 
+Running the latest Piri release keeps you protocol-compatible with the Forge network, pulls in bug fixes and security patches, and ensures your node understands the current proof and API expectations. 
 Watch the [latest releases](https://github.com/fil-forge/piri/releases/latest) and upgrade promptly when a new version is published; release notes will call out any operator actions or migrations needed.
 
-Join the Storacha Discord for announcements and operator guidance: [invite](https://discord.gg/pqa6Dn6RnP).
+Join the Filecoin Slack for announcements and operator guidance: [invite](https://filecoin.io/slack).
 
 Announcements related to Piri and the Forge network are made in:
 
@@ -99,7 +99,7 @@ WantedBy=multi-user.target
 
 ## Tune your Kernel
 
-Many kernel defaults are not suited for running a performant Piri node. Below is a set of recommendations for tuning your node for optimal performance when operating on the Storacha network.
+Many kernel defaults are not suited for running a performant Piri node. Below is a set of recommendations for tuning your node for optimal performance when operating on the Forge network.
 
 ```bash
 # Piri Storage Node - Network Tuning

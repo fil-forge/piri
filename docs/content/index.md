@@ -44,4 +44,4 @@ This guide covers both the **Forge Production** and **Forge Staging** networks. 
 
 ---
 
-After following this guide, you will have Piri running and ready to work with the Storacha network.
+After following this guide, you will have Piri running and ready to work with the Forge network.

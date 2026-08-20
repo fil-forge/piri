@@ -54,4 +54,4 @@ If you encounter issues after upgrading:
 1. Check server logs for error messages
 2. Verify your configuration file is intact
 3. Ensure your Lotus node is still synced and accessible
-4. Contact the Storacha team in the [Storacha Discord server](https://discord.gg/pqa6Dn6RnP) if problems persist
+4. Contact the Forge Development team in the [Filecoin Slack](https://filecoin.io/slack) if problems persist

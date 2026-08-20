@@ -1,6 +1,6 @@
 # network
 
-Network selection for connecting to Storacha.
+Network selection for connecting to Forge.
 
 | Key | Default | Env | Dynamic |
 |-----|---------|-----|---------|
@@ -8,7 +8,7 @@ Network selection for connecting to Storacha.
 
 ## Overview
 
-The `network` field selects which Storacha network to connect to. This automatically configures service URLs, contract addresses, and chain IDs.
+The `network` field selects which Forge network to connect to. This automatically configures service URLs, contract addresses, and chain IDs.
 
 ## Values
 

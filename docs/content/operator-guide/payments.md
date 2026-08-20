@@ -12,7 +12,7 @@ Storage payments compensate you for storing data and generating proofs.
 
 Payments flow through smart contracts on Filecoin:
 
-1. **Payment rails** are established between Storacha (payer) and you (payee)
+1. **Payment rails** are established between TODO (payer) and you (payee)
 2. **Funds accrue** continuously based on your storage rate
 3. **You settle** when you want to claim accumulated payments
 4. **You withdraw** after the lockup period to move funds to your wallet
@@ -96,7 +96,7 @@ Your node automatically:
 
 - Records each retrieval event
 - Batches events into journal files
-- Submits batches to Storacha's egress tracker service
+- Submits batches to Forge's egress tracker service
 - Tracks which batches have been consolidated
 
 You don't need to manage this directly. The egress tracker service handles it in the background.

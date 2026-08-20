@@ -254,9 +254,9 @@ The module now ignores volume size changes to allow manual resizing without data
 
 ## 🛟 Support
 
-- **Storacha Discord**: Join for community support
+- **Filecoin Slack**: [Join](https://filecoin.io/slack) for community support
 - **Issues**: Report bugs in the [Piri repository](https://github.com/fil-forge/piri)
-- **Lotus Gateway Access**: Contact the Storacha team for access to their Lotus gateway
+- **Lotus Gateway Access**: Contact the Forge team for access to their Lotus gateway
 
 ## 🔧 Troubleshooting
 
@@ -310,7 +310,7 @@ sudo journalctl -u cloud-init | grep -i mount
 
 1. **Secrets Security**: Never commit secrets to version control
 2. **Region Consistency**: Ensure secrets are in the same region as your deployment
-3. **SSH Keys**: The default `warm-storage-staging` key is in the Storacha 1Password vault
+3. **SSH Keys**: The default `warm-storage-staging` key is in the Forge 1Password vault
 4. **Domain Management**: The default `pdp.storacha.network` zone is managed by Storacha
 5. **Instance Replacement**: Changing certain parameters (like user-data) will replace the instance, but volumes are preserved
 6. **Volume Protection**: Production volumes are protected from `tofu destroy`; other environments allow destruction

@@ -29,7 +29,7 @@ Follow these guides in order to set up Piri:
 
 ## Contributing
 
-All welcome! Forge is open-source. Please feel empowered to open a PR or an issue.
+All welcome! Piri is open-source. Please feel empowered to open a PR or an issue.
 
 ### Reporting Issues
 

@@ -10,7 +10,7 @@ Observability configuration for metrics and distributed tracing.
 
 ### `disable_storacha_analytics`
 
-Disable sending analytics to Storacha. See [Operations > Telemetry](../operations/telemetry.md) for details on what data is collected.
+Disable sending analytics to Forge Development Team. See [Operations > Telemetry](../operations/telemetry.md) for details on what data is collected.
 
 ### `metrics`
 

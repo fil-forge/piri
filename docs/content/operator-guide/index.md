@@ -4,11 +4,12 @@ This guide explains what the Forge network is, what it means to operate a Piri n
 
 ## What is Forge?
 
-Forge is Storacha's decentralized storage network built on Filecoin. It connects users who need reliable, verifiable storage with operators who provide that capacity. Unlike traditional cloud storage, Forge requires cryptographic proofs that data remains intact and available—you can't just claim to store something, you have to prove it.
+Forge is a decentralized storage network built on Filecoin. It connects users who need reliable, verifiable storage 
+with operators who provide that capacity. Unlike traditional cloud storage, Forge requires cryptographic proofs that data remains intact and available—you can't just claim to store something, you have to prove it.
 
 As an operator, you run a Piri node that:
 
-- **Stores data** replicated from Storacha's upload service
+- **Stores data** replicated from Forge's upload service
 - **Serves retrievals** when users request their content
 - **Generates proofs** demonstrating you still hold the data you committed to store
 

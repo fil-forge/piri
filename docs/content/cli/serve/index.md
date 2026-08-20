@@ -1,6 +1,6 @@
 # serve
 
-Start the Piri server and begin participating in the Storacha network.
+Start the Piri server and begin participating in the Forge network.
 
 This is a **long-running process** that operates your storage node. Once started, Piri will:
 
