@@ -1,7 +1,6 @@
-<div align="center">
-  <h1>Piri</h1>
-  <p>A storage node that runs on the Forge network.</p>
-</div>
+# Piri
+
+A storage node that runs on the Forge network.
 
 ## What is Piri?
 
