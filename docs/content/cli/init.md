@@ -47,6 +47,21 @@ All flags are required:
 | `--operator-email <email>` | Contact email for the Forge team to reach you |
 | `--public-url <url>` | Public HTTPS URL where your node will be accessible |
 
+## Authenticated Lotus endpoints
+
+A Lotus node or hosted RPC provider that requires a bearer token reads it from
+the environment:
+
+```bash
+export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
+```
+
+There is no CLI flag for the token, which keeps it out of shell history and `ps`
+output. `piri init` uses the token for its own on-chain calls and writes it into
+the generated config as `pdp.lotus_auth_token`, so `piri serve` picks it up with
+no further setup. The generated config is printed to stdout, so redirect it to a
+file with restricted permissions.
+
 ## Example
 
 ```bash

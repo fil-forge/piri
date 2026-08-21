@@ -149,6 +149,10 @@ export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
 Piri prepends `Bearer ` to the token. There is no CLI flag for it, which keeps
 it out of shell history and `ps` output.
 
+`piri init` reads `PIRI_PDP_LOTUS_AUTH_TOKEN` from the environment and writes it
+into the config file it generates, so export the variable before running the
+initial setup.
+
 ## Resources
 
 - [Lotus Prerequisites](https://lotus.filecoin.io/lotus/install/prerequisites/) — Hardware requirements and installation
