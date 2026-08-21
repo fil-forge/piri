@@ -40,7 +40,7 @@ require (
 	github.com/labstack/echo/v4 v4.15.4
 	github.com/labstack/gommon v0.5.0
 	github.com/libp2p/go-libp2p v0.49.0
-	github.com/minio/minio-go/v7 v7.2.1
+	github.com/minio/minio-go/v7 v7.3.0
 	github.com/minio/selfupdate v0.6.0
 	github.com/multiformats/go-multiaddr v0.16.1
 	github.com/multiformats/go-multibase v0.3.0
@@ -204,7 +204,7 @@ require (
 	github.com/jellydator/ttlcache/v2 v2.11.1 // indirect
 	github.com/jessevdk/go-flags v1.5.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -284,7 +284,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.16 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
-	github.com/tinylib/msgp v1.6.1 // indirect
+	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/triplewz/poseidon v0.0.2 // indirect
@@ -309,15 +309,15 @@ require (
 	go.uber.org/dig v1.19.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
-	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d // indirect
@@ -325,7 +325,7 @@ require (
 	google.golang.org/grpc v1.83.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	gopkg.in/ini.v1 v1.67.2 // indirect
+	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	howett.net/plist v1.0.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
