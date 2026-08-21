@@ -60,7 +60,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
-	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.63.0
+	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.70.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
@@ -218,7 +218,7 @@ require (
 	github.com/magefile/mage v1.17.1 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
-	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
