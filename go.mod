@@ -36,7 +36,7 @@ require (
 	github.com/ipld/go-car v0.6.3
 	github.com/ipni/go-libipni v0.8.2
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/labstack/echo-jwt/v4 v4.2.0
+	github.com/labstack/echo-jwt/v4 v4.4.0
 	github.com/labstack/echo/v4 v4.15.4
 	github.com/labstack/gommon v0.5.0
 	github.com/libp2p/go-libp2p v0.49.0
