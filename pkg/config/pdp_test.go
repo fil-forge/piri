@@ -46,3 +46,38 @@ func TestPieceConfig_ToAppConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestPDPServiceConfig_ToAppConfig(t *testing.T) {
+	validConfig := func() PDPServiceConfig {
+		return PDPServiceConfig{
+			OwnerAddress: "0x0000000000000000000000000000000000000001",
+			ChainID:      "314159",
+			PayerAddress: "0x0000000000000000000000000000000000000002",
+			SigningService: SigningServiceConfig{
+				DID: "did:web:signer.example.com",
+				URL: "https://signer.example.com",
+			},
+			Contracts: ContractAddresses{
+				Verifier:         "0x0000000000000000000000000000000000000003",
+				ProviderRegistry: "0x0000000000000000000000000000000000000004",
+				Service:          "0x0000000000000000000000000000000000000005",
+				ServiceView:      "0x0000000000000000000000000000000000000006",
+			},
+			Aggregation: DefaultAggregationConfig(),
+		}
+	}
+
+	t.Run("carries the lotus auth token through", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.LotusAuthToken = "test-token"
+		got, err := cfg.ToAppConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "test-token", got.LotusAuthToken)
+	})
+
+	t.Run("leaves the lotus auth token empty when unset", func(t *testing.T) {
+		got, err := validConfig().ToAppConfig()
+		require.NoError(t, err)
+		assert.Empty(t, got.LotusAuthToken)
+	})
+}

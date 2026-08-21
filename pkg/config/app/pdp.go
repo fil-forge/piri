@@ -27,6 +27,9 @@ type PDPServiceConfig struct {
 	OwnerAddress common.Address
 	// The URL endpoint of a lotus node used for interaction with chain state.
 	LotusEndpoint *url.URL
+	// Bearer token sent in the Authorization header on requests to
+	// LotusEndpoint. Empty means no Authorization header.
+	LotusAuthToken string
 	// Signing service configuration used to sign PDP operations
 	SigningService SigningServiceConfig
 	// Smart contract addresses

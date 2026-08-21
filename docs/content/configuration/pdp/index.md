@@ -6,6 +6,7 @@ PDP (Provable Data Possession) service configuration.
 |-----|---------|-----|---------|
 | `pdp.owner_address` | - | `PIRI_PDP_OWNER_ADDRESS` | No |
 | `pdp.lotus_endpoint` | - | `PIRI_PDP_LOTUS_ENDPOINT` | No |
+| `pdp.lotus_auth_token` | - | `PIRI_PDP_LOTUS_AUTH_TOKEN` | No |
 
 ## Fields
 
@@ -17,12 +18,19 @@ Ethereum address that owns the proof set.
 
 Filecoin Lotus node WebSocket endpoint.
 
+### `lotus_auth_token`
+
+Bearer token for a Lotus node or hosted RPC provider that requires
+authentication. Store the raw token; Piri prepends `Bearer ` when it sends the
+`Authorization` header. Leave it unset for endpoints that need no auth.
+
 ## TOML
 
 ```toml
 [pdp]
 owner_address = "0x1234..."
 lotus_endpoint = "wss://lotus.example.com/rpc/v1"
+lotus_auth_token = "YOUR_TOKEN_HERE"
 ```
 
 ### [piece](piece.md)

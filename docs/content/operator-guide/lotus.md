@@ -133,6 +133,22 @@ Or via environment variable:
 export PIRI_PDP_LOTUS_ENDPOINT="wss://your-lotus-node.example.com/rpc/v1"
 ```
 
+Nodes and hosted RPC providers that require API authentication take a bearer
+token:
+
+```toml
+[pdp]
+lotus_endpoint = "wss://your-lotus-node.example.com/rpc/v1"
+lotus_auth_token = "YOUR_TOKEN_HERE"
+```
+
+```bash
+export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
+```
+
+Piri prepends `Bearer ` to the token. There is no CLI flag for it, which keeps
+it out of shell history and `ps` output.
+
 ## Resources
 
 - [Lotus Prerequisites](https://lotus.filecoin.io/lotus/install/prerequisites/) — Hardware requirements and installation

@@ -188,6 +188,10 @@ func init() {
 	)
 	cobra.CheckErr(viper.BindPFlag("pdp.lotus_endpoint", FullCmd.Flags().Lookup("lotus-url")))
 
+	// Auth token for the lotus endpoint. Config file or env var only: a token
+	// on the command line would land in shell history and ps output.
+	cobra.CheckErr(viper.BindEnv("pdp.lotus_auth_token", "PIRI_PDP_LOTUS_AUTH_TOKEN"))
+
 	FullCmd.Flags().String(
 		"owner-address",
 		"",
