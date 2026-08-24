@@ -32,6 +32,7 @@ type ContractAddresses struct {
 type PDPServiceConfig struct {
 	OwnerAddress   string               `mapstructure:"owner_address" validate:"required" flag:"owner-address" toml:"owner_address"`
 	LotusEndpoint  string               `mapstructure:"lotus_endpoint" validate:"required" flag:"lotus-endpoint" toml:"lotus_endpoint"`
+	LotusAuthToken string               `mapstructure:"lotus_auth_token" toml:"lotus_auth_token,omitempty"`
 	SigningService SigningServiceConfig `mapstructure:"signing_service" validate:"required" toml:"signing_service,omitempty"`
 	Contracts      ContractAddresses    `mapstructure:"contracts" validate:"required" toml:"contracts,omitempty"`
 	ChainID        string               `mapstructure:"chain_id" validate:"required" flag:"chain-id" toml:"chain_id,omitempty"`
@@ -134,6 +135,7 @@ func (c PDPServiceConfig) ToAppConfig() (app.PDPServiceConfig, error) {
 	return app.PDPServiceConfig{
 		OwnerAddress:   common.HexToAddress(c.OwnerAddress),
 		LotusEndpoint:  lotusEndpoint,
+		LotusAuthToken: c.LotusAuthToken,
 		SigningService: signingServiceConfig,
 		Contracts: app.ContractAddresses{
 			Verifier:         common.HexToAddress(c.Contracts.Verifier),

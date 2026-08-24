@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/pipeline"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
@@ -49,10 +51,15 @@ func provideEthClientAsInterfaces(c *ethclient.Client) *ethclient.Client {
 }
 
 func ProvideEthClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (*ethclient.Client, error) {
-	ethAPI, err := ethclient.Dial(cfg.LotusEndpoint.String())
+	var opts []rpc.ClientOption
+	if cfg.LotusAuthToken != "" {
+		opts = append(opts, rpc.WithHeader("Authorization", "Bearer "+cfg.LotusAuthToken))
+	}
+	rpcClient, err := rpc.DialOptions(context.TODO(), cfg.LotusEndpoint.String(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("providing eth client: %w", err)
 	}
+	ethAPI := ethclient.NewClient(rpcClient)
 
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
@@ -64,7 +71,11 @@ func ProvideEthClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (*ethclient.Cli
 }
 
 func ProvideLotusClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (api.FullNode, error) {
-	lotusAPI, closer, err := client.NewFullNodeRPCV1(context.TODO(), cfg.LotusEndpoint.String(), nil)
+	var header http.Header
+	if cfg.LotusAuthToken != "" {
+		header = http.Header{"Authorization": []string{"Bearer " + cfg.LotusAuthToken}}
+	}
+	lotusAPI, closer, err := client.NewFullNodeRPCV1(context.TODO(), cfg.LotusEndpoint.String(), header)
 	if err != nil {
 		return nil, fmt.Errorf("providing lotus client: %w", err)
 	}

@@ -129,18 +129,19 @@ func init() {
 
 // initFlags holds all the parsed command flags
 type initFlags struct {
-	network       presets.Network
-	host          string
-	port          uint
-	dataDir       string
-	tempDir       string
-	keyFile       string
-	publicURL     *url.URL
-	walletPath    string
-	lotusEndpoint string
-	operatorEmail string
-	delegatorURL  string
-	plcDirectory  string
+	network        presets.Network
+	host           string
+	port           uint
+	dataDir        string
+	tempDir        string
+	keyFile        string
+	publicURL      *url.URL
+	walletPath     string
+	lotusEndpoint  string
+	lotusAuthToken string
+	operatorEmail  string
+	delegatorURL   string
+	plcDirectory   string
 	// baseConfig holds values from --base-config or network presets
 	baseConfig *baseConfigValues
 	// storage holds storage backend configuration (S3/Postgres)
@@ -422,6 +423,10 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		return nil, fmt.Errorf("error reading --lotus-endpoint: %w", err)
 	}
 
+	// Auth token for the lotus endpoint. Env var only: a token on the command
+	// line would land in shell history and ps output.
+	lotusAuthToken := os.Getenv("PIRI_PDP_LOTUS_AUTH_TOKEN")
+
 	operatorEmail, err := cmd.Flags().GetString("operator-email")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --operator-email: %w", err)
@@ -588,20 +593,21 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	}
 
 	return &initFlags{
-		network:       network,
-		host:          host,
-		port:          port,
-		dataDir:       dataDir,
-		tempDir:       tempDir,
-		keyFile:       keyFile,
-		publicURL:     parsedURL,
-		walletPath:    walletPath,
-		lotusEndpoint: lotusEndpoint,
-		operatorEmail: operatorEmail,
-		delegatorURL:  delegatorURL,
-		plcDirectory:  plcDirectory,
-		baseConfig:    baseValues,
-		storage:       storage,
+		network:        network,
+		host:           host,
+		port:           port,
+		dataDir:        dataDir,
+		tempDir:        tempDir,
+		keyFile:        keyFile,
+		publicURL:      parsedURL,
+		walletPath:     walletPath,
+		lotusEndpoint:  lotusEndpoint,
+		lotusAuthToken: lotusAuthToken,
+		operatorEmail:  operatorEmail,
+		delegatorURL:   delegatorURL,
+		plcDirectory:   plcDirectory,
+		baseConfig:     baseValues,
+		storage:        storage,
 	}, nil
 }
 
@@ -631,8 +637,9 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 		},
 		Storage: lo.Must(repoConfig.ToAppConfig()),
 		PDPService: lo.Must(config.PDPServiceConfig{
-			OwnerAddress:  walletKey.Address.String(),
-			LotusEndpoint: flags.lotusEndpoint,
+			OwnerAddress:   walletKey.Address.String(),
+			LotusEndpoint:  flags.lotusEndpoint,
+			LotusAuthToken: flags.lotusAuthToken,
 			SigningService: config.SigningServiceConfig{
 				DID: flags.baseConfig.signingServiceDID,
 				URL: flags.baseConfig.signingServiceURL,
@@ -950,8 +957,9 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 			PublicURL: flags.publicURL.String(),
 		},
 		PDPService: config.PDPServiceConfig{
-			OwnerAddress:  ownerAddress.String(),
-			LotusEndpoint: flags.lotusEndpoint,
+			OwnerAddress:   ownerAddress.String(),
+			LotusEndpoint:  flags.lotusEndpoint,
+			LotusAuthToken: flags.lotusAuthToken,
 			SigningService: config.SigningServiceConfig{
 				DID: flags.baseConfig.signingServiceDID,
 				URL: flags.baseConfig.signingServiceURL,

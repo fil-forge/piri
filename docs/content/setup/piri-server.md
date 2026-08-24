@@ -71,6 +71,16 @@ Note: if you move the config file to your user config directory (e.g. `~/.config
 - `--operator-email`: Your email so the Forge team can contact you
 - `--public-url`: The public HTTPS address for your Piri node (use the domain from the [TLS setup](./tls-termination.md), like `https://piri.example.com`)
 
+If your Lotus endpoint requires an API token, export it before running the
+command; there is no flag for it, so it stays out of shell history and `ps`
+output:
+
+```bash
+export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
+```
+
+`piri init` writes the token into the config file it generates.
+
 **Expected Output:**
 
 💡Note: Step 4 `Setting up proof set` can take up to 5 minutes to complete.

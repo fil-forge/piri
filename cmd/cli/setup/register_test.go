@@ -218,6 +218,26 @@ func TestGenerateConfig(t *testing.T) {
 		require.False(t, result.Repo.S3.Insecure)
 	})
 
+	t.Run("carries the lotus auth token into the generated config", func(t *testing.T) {
+		setupViperDefaults(t)
+		flags := baseFlags()
+		flags.lotusAuthToken = "test-token"
+
+		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+		require.NoError(t, err)
+
+		require.Equal(t, "test-token", result.PDPService.LotusAuthToken)
+	})
+
+	t.Run("leaves the lotus auth token empty when unset", func(t *testing.T) {
+		setupViperDefaults(t)
+
+		result, err := generateConfig(baseCfg(), baseFlags(), ownerAddress, 1, "indexer-proof", "egress-proof")
+		require.NoError(t, err)
+
+		require.Empty(t, result.PDPService.LotusAuthToken)
+	})
+
 	t.Run("verifies other config fields are populated", func(t *testing.T) {
 		setupViperDefaults(t)
 		flags := baseFlags()
