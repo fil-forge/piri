@@ -1,6 +1,8 @@
-# Piri
-
-A storage node that runs on the Forge network.
+<div align="center">
+  <img width="200" src="https://github.com/user-attachments/assets/13a3dbad-daaa-4773-b258-995af927ba0f" />
+  <h1>Piri</h1>
+  <p>A storage node that runs on the Forge network.</p>
+</div>
 
 ## What is Piri?
 
