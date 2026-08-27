@@ -8,7 +8,7 @@ Storacha network. It stores blobs, proves continued possession via PDP
 retrievals, replicates data between nodes, publishes IPNI advertisements, and
 tracks egress. It interoperates with the indexing service and upload service.
 
-Module path: `github.com/fil-forge/piri`. Go 1.25.
+Module path: `github.com/fil-forge/piri`. Go 1.27.
 
 ## Build, test, run
 

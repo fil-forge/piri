@@ -305,8 +305,8 @@ github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b/go.mod h1:1KcenG0jGW
 github.com/akavel/rsrc v0.8.0/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
 github.com/akavel/rsrc v0.10.2 h1:Zxm8V5eI1hW4gGaYsJQUhxpjkENuG91ki8B4zCrvEsw=
 github.com/akavel/rsrc v0.10.2/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
-github.com/alanshaw/dag-json-gen v0.0.8 h1:Y0SfO2bp9ECDvcNbw6aQ91jmnfLC7UgRDshCeASDfT8=
-github.com/alanshaw/dag-json-gen v0.0.8/go.mod h1:v1YBZcS4B355MqxtyQr+fGNbEhm0CzHd+gOqOO/MZ+I=
+github.com/alanshaw/dag-json-gen v0.0.9 h1:q59Ra1mQB6HnFGI1ilFxsZvF1CqGN0XDlUWq16EJ6pw=
+github.com/alanshaw/dag-json-gen v0.0.9/go.mod h1:v1YBZcS4B355MqxtyQr+fGNbEhm0CzHd+gOqOO/MZ+I=
 github.com/alecthomas/assert/v2 v2.2.2/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/assert/v2 v2.3.0/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/participle/v2 v2.0.0/go.mod h1:rAKZdJldHu8084ojcWevWAL8KmEU+AT+Olodb+WoN2Y=
@@ -554,8 +554,8 @@ github.com/fil-forge/libforge v0.0.0-20260807225550-3e6895b41be5 h1:Pu7Xk/LdaQyv
 github.com/fil-forge/libforge v0.0.0-20260807225550-3e6895b41be5/go.mod h1:aL/KcXZ0KVs1ymAYqIwQyCnl2p481InN+gYbRLNM8fI=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
-github.com/fil-forge/ucantone v0.0.0-20260817170631-3a20cd59fabc h1:s6QNgj3hWY2neeAWyq2FckpQoTaRZhK2utgLkauGsqA=
-github.com/fil-forge/ucantone v0.0.0-20260817170631-3a20cd59fabc/go.mod h1:uhSFN3BGtWpnIF47b1svijEa6wBmCM6JJArAG14MYh4=
+github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1 h1:Tzy3lZ7+LAyVK4+qyWM97UMOtnXx05Wdn+rcTDLdBDE=
+github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1/go.mod h1:aX35jlUs3hnWAhigjO8z9kMPiYnkW3XOW8iVoJyz7cg=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2 h1:Abzcl/chtWOahrGeF/+q0phHl+iOZpfMNp28mr5NFEY=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2/go.mod h1:Sd4Ok8KKpt9JyUOh2kL0skv/ccXdEbeGT/eJ2tMJ3Uk=
 github.com/filecoin-project/filecoin-ffi v1.36.1 h1:SCN0ue1bn6cSIMiYkhWnDfA1fHttKBkNWJutVkB2eR4=
