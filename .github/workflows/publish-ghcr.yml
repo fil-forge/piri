@@ -63,6 +63,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Resolving the pull request this commit merged from, for the link the
+      # bump pull request carries.
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -87,6 +90,7 @@ jobs:
             type=sha,prefix=sha-,format=short
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -96,6 +100,54 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # The dev node pins :main by digest, so a merge here is a deploy there.
+      # Only this job dispatches: publish-release builds tags nothing runs yet.
+      - name: Resolve the source pull request
+        id: source
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_url=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+            --jq 'map(select(.merged_at != null)) | .[0].html_url // ""')
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      # Scoped down at mint time: this token can reach infra-nodes and nothing
+      # else in the organisation.
+      - name: Mint fil-forge-bot token
+        id: bot
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.FORGE_BOT_APP_ID }}
+          private-key: ${{ secrets.FORGE_BOT_PRIVATE_KEY }}
+          owner: fil-forge
+          repositories: infra-nodes
+
+      # infra-nodes rewrites its pin and opens a pull request with auto-merge
+      # armed. Merging queues the image; the node deploys it on its next
+      # reconcile pass.
+      - name: Request a digest bump on the dev node
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          PR_URL: ${{ steps.source.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+            || { echo "::error::unexpected digest: '$DIGEST'"; exit 1; }
+          jq -n \
+            --arg service piri \
+            --arg digest "$DIGEST" \
+            --arg source_repo "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg pr_url "$PR_URL" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{event_type: "bump-deployed-image",
+              client_payload: {service: $service, digest: $digest,
+                               source_repo: $source_repo, commit: $commit,
+                               pr_url: $pr_url, run_url: $run_url}}' \
+            | gh api --method POST repos/fil-forge/infra-nodes/dispatches --input -
 
   # Publish on release tag (v*) - direct push or via Releaser
   publish-release:
