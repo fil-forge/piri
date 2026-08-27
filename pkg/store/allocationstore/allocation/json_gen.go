@@ -30,7 +30,7 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 	if err := jw.WriteObjectOpen(); err != nil {
 		return err
 	}
-	written := 0
+	written := false
 
 	// t.Blob (blob.Blob) (struct)
 	if len("blob") > 8192 {
@@ -45,8 +45,8 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 	if err := t.Blob.MarshalDagJSON(jw); err != nil {
 		return fmt.Errorf("marshaling field t.Blob: %w", err)
 	}
-	written++
-	if written > 0 {
+	written = true
+	if written {
 		if err := jw.WriteComma(); err != nil {
 			return err
 		}
@@ -67,8 +67,8 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 		return fmt.Errorf("writing CID for field t.Cause: %w", err)
 	}
 
-	written++
-	if written > 0 {
+	written = true
+	if written {
 		if err := jw.WriteComma(); err != nil {
 			return err
 		}
@@ -89,8 +89,8 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 		return fmt.Errorf("writing int64 for field t.Expires: %w", err)
 	}
 
-	written++
-	if written > 0 {
+	written = true
+	if written {
 		if err := jw.WriteComma(); err != nil {
 			return err
 		}
@@ -109,7 +109,6 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 	if err := t.Space.MarshalDagJSON(jw); err != nil {
 		return fmt.Errorf("marshaling field t.Space: %w", err)
 	}
-	written++
 	if err := jw.WriteObjectClose(); err != nil {
 		return err
 	}
