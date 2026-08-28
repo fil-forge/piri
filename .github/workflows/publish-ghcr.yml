@@ -117,7 +117,7 @@ jobs:
       # else in the organisation.
       - name: Mint fil-forge-bot token
         id: bot
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.FORGE_BOT_APP_ID }}
           private-key: ${{ secrets.FORGE_BOT_PRIVATE_KEY }}
