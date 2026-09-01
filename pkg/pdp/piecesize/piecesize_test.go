@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	blobcmds "github.com/fil-forge/libforge/commands/blob"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,9 +31,11 @@ func TestPaddedForRaw(t *testing.T) {
 		raw        uint64
 		wantPadded uint64
 	}{
-		{"exact 2^28 fit", 266338304, 1 << 28},
-		{"one byte over spills to 2^29", 266338305, 1 << 29},
-		{"libforge MaxBlobSize spills to 2^29", 268435456, 1 << 29},
+		// The network sharding constant must fit the default piece cap
+		// exactly — importing it makes drift between libforge and piri's
+		// default a test failure.
+		{"libforge blob.MaxBlobSize fills the default ceiling exactly", blobcmds.MaxBlobSize, piecesize.DefaultMaxPaddedSize},
+		{"one byte over spills a level", blobcmds.MaxBlobSize + 1, piecesize.DefaultMaxPaddedSize << 1},
 		{"exact 2^29 fit", 532676608, 1 << 29},
 		{"curio ceiling exact fit", 1065353216, 1 << 30},
 		{"tiny piece floors at 128", 1, 128},
