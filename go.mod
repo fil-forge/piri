@@ -12,7 +12,7 @@ require (
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260820150418-78ca0c16834d
-	github.com/fil-forge/libforge v0.0.0-20260807225550-3e6895b41be5
+	github.com/fil-forge/libforge v0.0.0-20260904125112-81372e7200bf
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
@@ -311,7 +311,7 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/exp v0.0.0-20260718201538-764159d718ef // indirect
+	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
