@@ -15,7 +15,7 @@ require (
 	github.com/fil-forge/libforge v0.0.0-20260904125112-81372e7200bf
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1
-	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
+	github.com/filecoin-project/curio v1.28.6
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
 	github.com/filecoin-project/go-data-segment v0.0.1
@@ -102,7 +102,7 @@ require (
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
-	github.com/curiostorage/harmonyquery v1.0.2 // indirect
+	github.com/curiostorage/harmonyquery v1.0.3-0.20260709213328-4e4a5b3b1f4d // indirect
 	github.com/daaku/go.zipexe v1.0.2 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e // indirect
@@ -151,8 +151,8 @@ require (
 	github.com/gbrlsnchs/jwt/v3 v3.0.1 // indirect
 	github.com/georgysavva/scany/v2 v2.1.4 // indirect
 	github.com/getsentry/sentry-go v0.35.1 // indirect
-	github.com/go-chi/chi/v5 v5.2.5 // indirect
-	github.com/go-chi/httprate v0.15.0 // indirect
+	github.com/go-chi/chi/v5 v5.3.1 // indirect
+	github.com/go-chi/httprate v0.16.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
@@ -183,7 +183,7 @@ require (
 	github.com/ipfs/bbloom v0.1.0 // indirect
 	github.com/ipfs/boxo v0.41.0 // indirect
 	github.com/ipfs/go-block-format v0.2.4 // indirect
-	github.com/ipfs/go-cidutil v0.1.1 // indirect
+	github.com/ipfs/go-cidutil v0.1.2 // indirect
 	github.com/ipfs/go-ds-measure v0.2.3 // indirect
 	github.com/ipfs/go-dsqueue v0.2.0 // indirect
 	github.com/ipfs/go-fs-lock v0.1.1 // indirect
