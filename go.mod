@@ -61,13 +61,13 @@ require (
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.70.0
-	go.opentelemetry.io/otel v1.45.0
+	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
-	go.opentelemetry.io/otel/metric v1.45.0
+	go.opentelemetry.io/otel/metric v1.46.0
 	go.opentelemetry.io/otel/sdk v1.45.0
 	go.opentelemetry.io/otel/sdk/metric v1.45.0
-	go.opentelemetry.io/otel/trace v1.45.0
+	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/mod v0.40.0
