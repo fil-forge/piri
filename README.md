@@ -29,6 +29,19 @@ Follow these guides in order to set up Piri:
 
 - **New to Piri?** Start with the [Getting Started Guide](https://fil-forge.github.io/piri/)
 
+## Deploying to the dev node
+
+Every merge to `main` publishes `ghcr.io/fil-forge/piri:main` and dispatches the digest it just
+pushed to
+[infra-nodes](https://github.com/fil-forge/infra-nodes/blob/main/.github/workflows/bump-deployed-image.yml).
+That workflow rewrites the pin the FilOne Appliance dev node runs and opens a pull request with
+auto-merge armed. Merging queues the image; the node picks it up on its next reconcile pass, waits
+for a safe proving window, and then restarts.
+
+The dispatch needs two repository credentials: the Actions variable `FORGE_BOT_APP_ID` and the
+Actions secret `FORGE_BOT_PRIVATE_KEY`, which mint a token scoped to `infra-nodes` alone. Without
+them the publish step fails and the image still lands in GHCR.
+
 ## Contributing
 
 All welcome! Piri is open-source. Please feel empowered to open a PR or an issue.
