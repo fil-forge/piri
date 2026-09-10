@@ -51,7 +51,7 @@ jobs:
     steps:
       - name: Get ref from Releaser
         id: releaser
-        uses: ipdxco/unified-github-workflows/.github/actions/inspect-releaser@1822b44541e3ad073b8f9109e346ba0ddd4ce96e # v1.0
+        uses: ipdxco/unified-github-workflows/.github/actions/inspect-releaser@e08e90c46d931f457e5d8e292ffa988c0c0b5b70 # v1.0
         with:
           artifacts-url: ${{ github.event.workflow_run.artifacts_url }}
 
@@ -117,7 +117,7 @@ jobs:
       # else in the organisation.
       - name: Mint fil-forge-bot token
         id: bot
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.FORGE_BOT_APP_ID }}
           private-key: ${{ secrets.FORGE_BOT_PRIVATE_KEY }}
