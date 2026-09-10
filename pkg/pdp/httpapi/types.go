@@ -81,7 +81,7 @@ type (
 		CurrentEpoch int64 `json:"currentEpoch"`
 		// true if a challenge has been issued: CurrentEpoch >= NextChallengeEpoch
 		ChallengedIssued bool `json:"challengedIssued"`
-		// true if in challenge window: CurrentEpoch < NextChallengeEpoch + ChallengeWindow
+		// true if in challenge window: NextChallengeEpoch <= CurrentEpoch < NextChallengeEpoch + ChallengeWindow
 		InChallengeWindow bool `json:"inChallengeWindow"`
 		// true if we missed the challenge: CurrentEpoch > NextChallengeEpoch + ChallengeWindow
 		IsInFaultState bool `json:"isInFaultState"`

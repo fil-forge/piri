@@ -51,7 +51,7 @@ type ProofSetState struct {
 	CurrentEpoch int64
 	// true if a challenge has been issued: CurrentEpoch >= NextChallengeEpoch
 	ChallengedIssued bool
-	// true if in challenge window: CurrentEpoch < NextChallengeEpoch + ChallengeWindow
+	// true if in challenge window: NextChallengeEpoch <= CurrentEpoch < NextChallengeEpoch + ChallengeWindow
 	InChallengeWindow bool
 	// true if we missed the challenge: CurrentEpoch > NextChallengeEpoch + ChallengeWindow
 	IsInFaultState bool

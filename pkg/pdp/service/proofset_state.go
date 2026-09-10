@@ -83,20 +83,26 @@ func (p *PDPService) GetProofSetState(ctx context.Context, id uint64) (res types
 		ContractState:          cs,
 	}
 
-	if result.NextChallengeEpoch > 0 && result.ChallengeWindow >= 0 {
-		inWindow := currentEpoch >= result.NextChallengeEpoch && currentEpoch < (result.NextChallengeEpoch+result.ChallengeWindow)
-		result.HasProven = inWindow && ps.ChallengeRequestMsgHash == nil
-	}
+	setChallengeStatus(&result, currentEpoch, ps.ChallengeRequestMsgHash)
 
+	return result, nil
+}
+
+// setChallengeStatus derives the challenge classification flags from the
+// current epoch and the proof set's challenge schedule. The challenge window
+// spans [NextChallengeEpoch, NextChallengeEpoch+ChallengeWindow); the epoch
+// exactly at the window end belongs to neither the window nor the fault state.
+func setChallengeStatus(result *types.ProofSetState, currentEpoch int64, challengeRequestMsgHash *string) {
 	if result.NextChallengeEpoch > 0 {
 		result.ChallengedIssued = currentEpoch >= result.NextChallengeEpoch
 	}
 	if result.NextChallengeEpoch > 0 && result.ChallengeWindow > 0 {
-		result.InChallengeWindow = currentEpoch < (result.NextChallengeEpoch + result.ChallengeWindow)
-		result.IsInFaultState = currentEpoch > (result.NextChallengeEpoch + result.ChallengeWindow)
+		windowEnd := result.NextChallengeEpoch + result.ChallengeWindow
+		inWindow := currentEpoch >= result.NextChallengeEpoch && currentEpoch < windowEnd
+		result.InChallengeWindow = inWindow
+		result.HasProven = inWindow && challengeRequestMsgHash == nil
+		result.IsInFaultState = currentEpoch > windowEnd
 	}
-
-	return result, nil
 }
 
 func (p *PDPService) getContractState(ctx context.Context, id *big.Int) (types.ProofSetContractState, error) {
