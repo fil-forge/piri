@@ -80,18 +80,21 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 
 ### Setting Up Metrics Collection
 
-Configure a metrics endpoint:
+Piri exports nothing until you name a collector. The endpoint is a host and
+port, with no scheme and no path, and OTLP/HTTP conventionally listens on
+4318:
 
 ```toml
 [[telemetry.metrics]]
-endpoint = "http://your-collector:4317"
+endpoint = "your-collector:4318"
 insecure = true
 publish_interval = "30s"
 ```
 
-Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
-
-To disable metrics reporting to Forge Development Team, see [Telemetry > How to Opt Out](../operations/telemetry.md#how-to-opt-out).
+Send metrics to Prometheus, Grafana, or any OTLP-compatible backend. See
+[Configuration > telemetry](../configuration/telemetry.md) for every field,
+and [Operations > Telemetry](../operations/telemetry.md) for what a node
+reports about itself.
 
 ## Logs
 

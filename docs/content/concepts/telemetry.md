@@ -1,6 +1,6 @@
 # Telemetry
 
-Piri uses [OpenTelemetry](https://opentelemetry.io/) to emit metrics and traces for observability. You can configure custom collectors to send this data to your own monitoring infrastructure.
+Piri uses [OpenTelemetry](https://opentelemetry.io/) to emit metrics and traces for observability. Configure collectors to send this data to your own monitoring infrastructure; Piri exports nothing until you do.
 
 ## Metrics
 
@@ -124,7 +124,7 @@ receivers:
   otlp:
     protocols:
       http:
-        endpoint: "0.0.0.0:4317"
+        endpoint: "0.0.0.0:4318"
 
 exporters:
   prometheus:
@@ -141,7 +141,7 @@ Configure Piri to send metrics to your collector:
 
 ```toml
 [[telemetry.metrics]]
-endpoint = "http://localhost:4317"
+endpoint = "localhost:4318"
 insecure = true
 publish_interval = "30s"
 ```
@@ -152,7 +152,7 @@ For distributed tracing, configure a Jaeger backend with OTLP support:
 
 ```toml
 [[telemetry.traces]]
-endpoint = "http://jaeger:4317"
+endpoint = "jaeger:4318"
 insecure = true
 ```
 
