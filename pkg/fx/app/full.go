@@ -5,6 +5,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/health"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 )
 
 // FullServerModule composes every fx module required to run the full piri
@@ -36,5 +37,11 @@ func FullServerModule(cfg app.AppConfig) fx.Option {
 		//    - create proof set, add root, upload piece, etc.
 		//  - address wallet
 		PDPModule,
+
+		// the IPNI advertisement queue and the task that drains it: the
+		// task publishes through the UCAN module's publisher service on the
+		// PDP module's harmonydb, so it belongs to neither half and only to
+		// their composition. `piri register` runs the PDP half alone.
+		publisher.QueueModule,
 	)
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/fil-forge/ucantone/validator"
 
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
@@ -37,6 +38,7 @@ type ReleaseDeps struct {
 	Allocations AllocationRemover
 	Acceptances AcceptanceRemover
 	ClaimStore  invocationstore.InvocationStore
+	Adverts     publisher.AdvertQueue
 	Pieces      PieceRemover
 }
 
@@ -202,6 +204,12 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 		if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
 			log.Errorw("deleting location claim", "error", err)
 			return fmt.Errorf("deleting location claim: %w", err)
+		}
+		// The claim's advertisement may still be queued rather than
+		// published; a location for a released blob must not go out.
+		if err := deps.Adverts.Dequeue(ctx, acc.Site); err != nil {
+			log.Errorw("dequeueing location advertisement", "error", err)
+			return fmt.Errorf("dequeueing location advertisement: %w", err)
 		}
 	}
 

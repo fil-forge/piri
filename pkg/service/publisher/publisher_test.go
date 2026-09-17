@@ -1,9 +1,12 @@
 package publisher
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
@@ -29,7 +32,46 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
+
+// memQueue is an in-memory AdvertQueue that records what is owed.
+type memQueue struct {
+	mu   sync.Mutex
+	owed []cid.Cid
+}
+
+func (q *memQueue) Enqueue(_ context.Context, claim cid.Cid) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.owed = append(q.owed, claim)
+	return nil
+}
+
+func (q *memQueue) Dequeue(_ context.Context, claim cid.Cid) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.owed = slices.DeleteFunc(q.owed, func(c cid.Cid) bool { return c == claim })
+	return nil
+}
+
+func (q *memQueue) links() []cid.Cid {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return append([]cid.Cid(nil), q.owed...)
+}
+
+// newTestService builds a service over fresh in-memory stores and returns the
+// queue and claim store beside it, since Accept writes the claim to the store
+// before publishing and the task reads it back from there.
+func newTestService(t *testing.T, publisherStore store.PublisherStore, addr multiaddr.Multiaddr, opts ...Option) (*PublisherService, *memQueue, invocationstore.InvocationStore) {
+	t.Helper()
+	queue := &memQueue{}
+	claims := invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, claims, opts...)
+	require.NoError(t, err)
+	return svc, queue, claims
+}
 
 func TestPublisherService(t *testing.T) {
 	addr, err := multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http")
@@ -37,20 +79,26 @@ func TestPublisherService(t *testing.T) {
 
 	ctx := t.Context()
 
-	t.Run("publishes location commitments", func(t *testing.T) {
+	t.Run("queues a location commitment and publishes it in a batch", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-
-		svc, err := New(testutil.Alice, publisherStore, addr)
-		require.NoError(t, err)
+		svc, queue, claims := newTestService(t, publisherStore, addr)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 
 		claimInv := mintLocationClaim(t, space, shard, *location)
+		require.NoError(t, claims.Put(ctx, claimInv))
 
+		// Publish owes the advertisement rather than writing it.
 		require.NoError(t, svc.Publish(ctx, claimInv))
+		require.Equal(t, []cid.Cid{claimInv.Link()}, queue.links())
+		_, err := publisherStore.Head(ctx)
+		require.True(t, store.IsNotFound(err), "nothing is published on the request path")
+
+		// The task publishes what is owed.
+		require.NoError(t, svc.PublishClaims(ctx, queue.links()))
 
 		hd, err := publisherStore.Head(ctx)
 		require.NoError(t, err)
@@ -82,19 +130,44 @@ func TestPublisherService(t *testing.T) {
 	t.Run("allow skip publish existing advert", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-
-		svc, err := New(testutil.Alice, publisherStore, addr)
-		require.NoError(t, err)
+		svc, _, claims := newTestService(t, publisherStore, addr)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 		claimInv := mintLocationClaim(t, space, shard, *location)
+		require.NoError(t, claims.Put(ctx, claimInv))
 
-		// First publish writes the advert; the second hits the
-		// ipnipub.ErrAlreadyAdvertised path which the publisher swallows.
+		// The first batch writes the advert; the second finds it already
+		// advertised and skips it, so a retried batch is harmless.
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
+		hd, err := publisherStore.Head(ctx)
+		require.NoError(t, err)
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
+		again, err := publisherStore.Head(ctx)
+		require.NoError(t, err)
+		require.Equal(t, hd.Head, again.Head, "an already advertised claim moves nothing")
+	})
+
+	t.Run("skips a claim released before it was published", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, queue, claims := newTestService(t, publisherStore, addr)
+
+		space := testutil.RandomDID(t)
+		shard := testutil.RandomMultihash(t)
+		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+		claimInv := mintLocationClaim(t, space, shard, *location)
+		require.NoError(t, claims.Put(ctx, claimInv))
 		require.NoError(t, svc.Publish(ctx, claimInv))
-		require.NoError(t, svc.Publish(ctx, claimInv))
+
+		// Released before the flush: the claim is gone from the store. A
+		// task that had already claimed the row still asks for it.
+		require.NoError(t, claims.Delete(ctx, claimInv.Link()))
+		require.NoError(t, queue.Dequeue(ctx, claimInv.Link()))
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
+		_, err := publisherStore.Head(ctx)
+		require.True(t, store.IsNotFound(err), "no location is advertised for a released blob")
 	})
 
 	t.Run("caches claims", func(t *testing.T) {
@@ -133,17 +206,13 @@ func TestPublisherService(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		svc, err := New(
-			testutil.Alice,
-			publisherStore,
-			addr,
+		svc, _, _ := newTestService(t, publisherStore, addr,
 			WithIndexingService(app.IndexingServiceConfig{
 				DID:    testutil.Bob.DID(),
 				Client: httpClient,
 			}),
 			WithIndexingServiceProof([]ucan.Delegation{proof}),
 		)
-		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)

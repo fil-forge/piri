@@ -11,7 +11,7 @@ require (
 	github.com/ethereum/go-ethereum v1.17.5
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
-	github.com/fil-forge/go-ipni-tools v0.0.0-20260820150418-78ca0c16834d
+	github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc
 	github.com/fil-forge/libforge v0.0.0-20260904125112-81372e7200bf
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1
@@ -34,6 +34,7 @@ require (
 	github.com/ipfs/go-ds-leveldb v0.5.3
 	github.com/ipfs/go-log/v2 v2.9.2
 	github.com/ipld/go-car v0.6.3
+	github.com/ipld/go-ipld-prime v0.24.0
 	github.com/ipni/go-libipni v0.8.2
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo-jwt/v4 v4.4.0
@@ -194,7 +195,6 @@ require (
 	github.com/ipfs/go-metrics-interface v0.3.0 // indirect
 	github.com/ipld/go-car/v2 v2.17.0 // indirect
 	github.com/ipld/go-codec-dagpb v1.7.0 // indirect
-	github.com/ipld/go-ipld-prime v0.24.0 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
