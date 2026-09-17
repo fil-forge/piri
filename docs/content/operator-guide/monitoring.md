@@ -36,9 +36,11 @@ Monitor your job queues for stuck or failed jobs:
 
 | Queue | Purpose |
 |-------|---------|
-| `replicator` | Data replication transfers |
-| `aggregator` | Piece aggregation |
-| `egress_tracker` | Retrieval event submission |
+| `replication` | Data replication transfers |
+| `egress-tracker` | Retrieval event submission |
+
+Piece aggregation and the rest of the PDP pipeline run on a separate scheduler,
+not on these queues, and report no metrics.
 
 A growing backlog or high failure rate indicates problems. Check logs for error details.
 
