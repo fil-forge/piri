@@ -50,3 +50,22 @@ func TestFullServerModule_ValidateApp(t *testing.T) {
 		})
 	}
 }
+
+// TestInitModule_ValidateApp ensures the graph `piri register` runs with,
+// the PDP half without the UCAN services, is complete on its own. A provider
+// placed in the PDP module that depends on a UCAN-side type passes the full
+// server's validation and still fails the node at registration.
+func TestInitModule_ValidateApp(t *testing.T) {
+	for name, withStorage := range storageVariants {
+		t.Run(name, func(t *testing.T) {
+			cfg := testutil.NewTestConfig(t, withStorage)
+
+			err := fx.ValidateApp(
+				fx.NopLogger,
+				fxapp.InitModule(cfg),
+			)
+
+			require.NoError(t, err)
+		})
+	}
+}

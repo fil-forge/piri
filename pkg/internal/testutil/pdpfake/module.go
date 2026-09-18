@@ -5,6 +5,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/types"
+	"github.com/fil-forge/piri/pkg/service/publisher"
 )
 
 // Module supplies in-memory fakes for the PDP backend. Include it alongside
@@ -23,6 +24,11 @@ var Module = fx.Module("pdpfake",
 			NewCommp,
 			fx.As(fx.Self()),
 			fx.As(new(commp.Calculator)),
+		),
+		fx.Annotate(
+			NewAdvertQueue,
+			fx.As(fx.Self()),
+			fx.As(new(publisher.AdvertQueue)),
 		),
 	),
 )

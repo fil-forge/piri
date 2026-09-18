@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"errors"
 	"fmt"
-	"iter"
 	"slices"
 	"sync"
 
@@ -16,7 +14,6 @@ import (
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	ipnimeta "github.com/ipni/go-libipni/metadata"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -32,36 +29,36 @@ import (
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
-
-// TODO(forrest)[ucan1]: thread safety should be an attribute of the publisher package. Not this ad-hoc shit.
-type threadSafeAsyncPublisher struct {
-	ipnipub.AsyncPublisher
-	mu sync.Mutex
-}
-
-func (p *threadSafeAsyncPublisher) Publish(ctx context.Context, pi peer.AddrInfo, contextID string, digests iter.Seq[multihash.Multihash], meta ipnimeta.Metadata) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.AsyncPublisher.Publish(ctx, pi, contextID, digests, meta)
-}
 
 var log = logging.Logger("publisher")
 
 type PublisherService struct {
-	id                    ucan.Issuer
-	asyncPublisher        ipnipub.AsyncPublisher
+	id ucan.Issuer
+	// mu serialises everything that decides what the node advertises: the
+	// IPNI publisher chains each advertisement to the previous head and is
+	// not safe for concurrent use, and a withdrawal must not slip between a
+	// batch deciding its contents and committing them.
+	mu                    sync.Mutex
+	ipni                  ipnipub.BatchPublisher
+	queue                 AdvertQueue
+	claims                invocationstore.InvocationStore
 	provider              peer.AddrInfo
 	indexingService       app.IndexingServiceConfig
 	indexingServiceProofs []ucan.Delegation
 }
 
+// Publish records that the claim's IPNI advertisement is owed and caches the
+// claim with the indexing service. The advertisement itself is published
+// later by the IPNIPublish task, in a batch with its neighbours, so an
+// accept returns before it exists; the indexer is told now, since that is
+// what serves a read of the blob straight after its write.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
 	case assert.Location.Command:
-		err := PublishLocationCommitment(ctx, pub.asyncPublisher, pub.provider, claim)
-		if err != nil {
+		if err := pub.queue.Enqueue(ctx, claim.Link()); err != nil {
 			return err
 		}
 		return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
@@ -70,25 +67,79 @@ func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation)
 	}
 }
 
-func PublishLocationCommitment(
-	ctx context.Context,
-	asyncPublisher ipnipub.AsyncPublisher,
-	provider peer.AddrInfo,
-	locationCommitment ucan.Invocation,
-) error {
-	log := log.With("claim", locationCommitment.Link())
+// Withdrawer takes a claim's advertisement out of the queue under the
+// publishing lock, so it waits for any batch mid-publish: the withdrawal
+// either precedes a batch loading its claims, which then finds the claim gone,
+// or follows the commit. In neither case is a location for a released blob
+// published after the release has returned.
+type Withdrawer interface {
+	Withdraw(ctx context.Context, claim cid.Cid) error
+}
 
+// Withdraw implements Withdrawer.
+func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error {
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+	return pub.queue.Dequeue(ctx, claim)
+}
+
+// PublishClaims publishes the IPNI advertisements for the given location
+// commitments under one commit. It holds the publishing lock from loading the
+// claims to committing, so a Withdraw either precedes the load, in which case
+// the claim is gone from the store and skipped, or waits for the commit; a
+// location for a released blob is never published after the release has
+// returned. A claim that does not decode is skipped and logged; it would not
+// decode on a later attempt either, and one bad claim must not hold up its
+// batch forever.
+func (pub *PublisherService) PublishClaims(ctx context.Context, claims []cid.Cid) error {
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
+	found, err := pub.claims.GetAll(ctx, claims)
+	if err != nil {
+		return fmt.Errorf("loading claims: %w", err)
+	}
+	specs := make([]ipnipub.AdvertSpec, 0, len(found))
+	for _, link := range claims {
+		clm, ok := found[link]
+		if !ok {
+			log.Debugw("skipping advertisement for released claim", "claim", link)
+			continue
+		}
+		spec, err := locationAdvertSpec(pub.provider, clm)
+		if err != nil {
+			log.Errorw("skipping advertisement for undecodable claim", "claim", link, "error", err)
+			continue
+		}
+		specs = append(specs, spec)
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	if _, err := pub.ipni.PublishBatch(ctx, pub.provider, specs); err != nil {
+		return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
+	}
+	return nil
+}
+
+// locationAdvertSpec is what a location commitment advertises: its content
+// under the context ID derived from the space and content, with metadata
+// naming the claim and its shard.
+func locationAdvertSpec(provider peer.AddrInfo, locationCommitment ucan.Invocation) (ipnipub.AdvertSpec, error) {
+	if locationCommitment.Command() != assert.Location.Command {
+		return ipnipub.AdvertSpec{}, fmt.Errorf("not a location commitment: %s", locationCommitment.Command())
+	}
 	// ArgumentsBytes returns the raw CBOR map for the invocation args;
 	// Bytes() returns the whole signed envelope, which can't be decoded
 	// as LocationArguments directly.
 	var lc assert.LocationArguments
 	if err := lc.UnmarshalCBOR(bytes.NewReader(locationCommitment.ArgumentsBytes())); err != nil {
-		return fmt.Errorf("unmarshalling location commitment: %w", err)
+		return ipnipub.AdvertSpec{}, fmt.Errorf("unmarshalling location commitment: %w", err)
 	}
 
 	shardCid, err := advertisement.ShardCID(provider, lc)
 	if err != nil {
-		return fmt.Errorf(
+		return ipnipub.AdvertSpec{}, fmt.Errorf(
 			"failed to extract shard CID for provider: %s locationCommitment %s: %w",
 			provider,
 			assert.Location.Command,
@@ -111,25 +162,14 @@ func PublishLocationCommitment(
 
 	contextid, err := advertisement.EncodeContextID(lc.Space, lc.Content)
 	if err != nil {
-		return fmt.Errorf("encoding advertisement context ID: %w", err)
+		return ipnipub.AdvertSpec{}, fmt.Errorf("encoding advertisement context ID: %w", err)
 	}
 
-	err = asyncPublisher.Publish(
-		ctx,
-		provider,
-		string(contextid),
-		slices.Values([]multihash.Multihash{lc.Content}),
-		meta,
-	)
-	if err != nil {
-		if errors.Is(err, ipnipub.ErrAlreadyAdvertised) {
-			log.Warnf("Skipping previously published claim")
-			return nil
-		}
-		return fmt.Errorf("publishing claim: %w", err)
-	}
-
-	return nil
+	return ipnipub.AdvertSpec{
+		ContextID: string(contextid),
+		Digests:   slices.Values([]multihash.Multihash{lc.Content}),
+		Metadata:  meta,
+	}, nil
 }
 
 func CacheClaim(
@@ -212,6 +252,8 @@ func New(
 	id multikey.Issuer,
 	publisherStore store.PublisherStore,
 	publicAddr multiaddr.Multiaddr,
+	queue AdvertQueue,
+	claims invocationstore.InvocationStore,
 	opts ...Option,
 ) (*PublisherService, error) {
 	o := &options{}
@@ -228,25 +270,19 @@ func New(
 		return nil, fmt.Errorf("unmarshaling private key: %w", err)
 	}
 
-	asyncPublisher := o.asyncPublisher
-	if asyncPublisher == nil {
+	announceAddr := o.announceAddr
+	if announceAddr == nil {
+		announceAddr = publicAddr
+	}
 
-		announceAddr := o.announceAddr
-		if announceAddr == nil {
-			announceAddr = publicAddr
-		}
-
-		ipnipubOpts := []ipnipub.Option{ipnipub.WithAnnounceAddrs(announceAddr.String())}
-		for _, u := range o.announceURLs {
-			log.Infof("Announcing new IPNI adverts to: %s", u.String())
-			ipnipubOpts = append(ipnipubOpts, ipnipub.WithDirectAnnounce(u.String()))
-		}
-		ipniPublisher, err := ipnipub.New(priv, publisherStore, ipnipubOpts...)
-		if err != nil {
-			return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
-		}
-
-		asyncPublisher = &threadSafeAsyncPublisher{AsyncPublisher: ipnipub.AsyncFrom(ipniPublisher)}
+	ipnipubOpts := []ipnipub.Option{ipnipub.WithAnnounceAddrs(announceAddr.String())}
+	for _, u := range o.announceURLs {
+		log.Infof("Announcing new IPNI adverts to: %s", u.String())
+		ipnipubOpts = append(ipnipubOpts, ipnipub.WithDirectAnnounce(u.String()))
+	}
+	ipniPublisher, err := ipnipub.New(priv, publisherStore, ipnipubOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
 	}
 
 	found := false
@@ -275,7 +311,9 @@ func New(
 
 	return &PublisherService{
 		id:                    id,
-		asyncPublisher:        asyncPublisher,
+		ipni:                  ipniPublisher,
+		queue:                 queue,
+		claims:                claims,
 		provider:              provInfo,
 		indexingService:       o.indexingService,
 		indexingServiceProofs: o.indexingServiceProofs,

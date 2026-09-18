@@ -3,7 +3,6 @@ package publisher
 import (
 	"net/url"
 
-	ipnipub "github.com/fil-forge/go-ipni-tools/pkg/publisher"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/multiformats/go-multiaddr"
 
@@ -11,7 +10,6 @@ import (
 )
 
 type options struct {
-	asyncPublisher        ipnipub.AsyncPublisher
 	blobAddr              multiaddr.Multiaddr
 	announceAddr          multiaddr.Multiaddr
 	announceURLs          []url.URL

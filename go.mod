@@ -11,8 +11,8 @@ require (
 	github.com/ethereum/go-ethereum v1.17.5
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
-	github.com/fil-forge/go-ipni-tools v0.0.0-20260820150418-78ca0c16834d
-	github.com/fil-forge/libforge v0.0.0-20260904125112-81372e7200bf
+	github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc
+	github.com/fil-forge/libforge v0.0.0-20260917175304-96b4969f0476
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260827134420-25cf8340b9a1
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
@@ -22,7 +22,7 @@ require (
 	github.com/filecoin-project/go-fil-commcid v0.3.1
 	github.com/filecoin-project/go-fil-commp-hashhash v0.4.0
 	github.com/filecoin-project/go-state-types v0.19.0-rc1
-	github.com/filecoin-project/lotus v1.36.2
+	github.com/filecoin-project/lotus v1.36.3
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/go-playground/validator/v10 v10.30.4
 	github.com/golang-jwt/jwt/v4 v4.5.2
@@ -34,6 +34,7 @@ require (
 	github.com/ipfs/go-ds-leveldb v0.5.3
 	github.com/ipfs/go-log/v2 v2.9.2
 	github.com/ipld/go-car v0.6.3
+	github.com/ipld/go-ipld-prime v0.24.0
 	github.com/ipni/go-libipni v0.8.2
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo-jwt/v4 v4.4.0
@@ -116,7 +117,7 @@ require (
 	github.com/ebitengine/purego v0.10.2 // indirect
 	github.com/elastic/go-sysinfo v1.15.5 // indirect
 	github.com/elastic/go-windows v1.0.2 // indirect
-	github.com/elastic/gosigar v0.14.3 // indirect
+	github.com/elastic/gosigar v0.14.4 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.8 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/filecoin-project/filecoin-ffi v1.36.1 // indirect
@@ -181,9 +182,9 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/ipfs/bbloom v0.1.0 // indirect
-	github.com/ipfs/boxo v0.41.0 // indirect
+	github.com/ipfs/boxo v0.42.2 // indirect
 	github.com/ipfs/go-block-format v0.2.4 // indirect
-	github.com/ipfs/go-cidutil v0.1.1 // indirect
+	github.com/ipfs/go-cidutil v0.1.2 // indirect
 	github.com/ipfs/go-ds-measure v0.2.3 // indirect
 	github.com/ipfs/go-dsqueue v0.2.0 // indirect
 	github.com/ipfs/go-fs-lock v0.1.1 // indirect
@@ -194,7 +195,6 @@ require (
 	github.com/ipfs/go-metrics-interface v0.3.0 // indirect
 	github.com/ipld/go-car/v2 v2.17.0 // indirect
 	github.com/ipld/go-codec-dagpb v1.7.0 // indirect
-	github.com/ipld/go-ipld-prime v0.24.0 // indirect
 	github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

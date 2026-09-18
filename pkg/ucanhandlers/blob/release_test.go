@@ -9,6 +9,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ type removeWorld struct {
 	allocs  *allocationstore.Store
 	accepts *acceptancestore.Store
 	claims  *invocationstore.Store
+	adverts *pdpfake.AdvertQueue
 	pieces  *pdpfake.Pieces
 }
 
@@ -40,12 +42,14 @@ func newRemoveWorld(t *testing.T) *removeWorld {
 		allocs:  allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 		accepts: acceptancestore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 		claims:  invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
+		adverts: pdpfake.NewAdvertQueue(),
 		pieces:  pdpfake.NewPieces(),
 	}
 	w.deps = ReleaseDeps{
 		Allocations: w.allocs,
 		Acceptances: w.accepts,
 		ClaimStore:  w.claims,
+		Adverts:     w.adverts,
 		Pieces:      w.pieces,
 	}
 	return w
@@ -163,4 +167,36 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))
 	require.Empty(t, w.pieces.Removed(), "live allocation in another space — bytes retained")
+}
+
+// TestRelease_DequeuesPendingAdvert: a blob released before its location
+// advertisement was published must not have it published later, so release
+// withdraws the claim from the advertisement queue along with the claim
+// itself. An unknown blob has nothing to withdraw.
+func TestRelease_DequeuesPendingAdvert(t *testing.T) {
+	w := newRemoveWorld(t)
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+
+	claim, err := invocation.Invoke(
+		testutil.RandomIssuer(t),
+		testutil.RandomDID(t),
+		command.New("/assert/location"),
+		&commands.Unit{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, w.claims.Put(t.Context(), claim))
+	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
+		Space:     space,
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      claim.Link(),
+	}))
+
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
+	require.Equal(t, []cid.Cid{claim.Link()}, w.adverts.Withdrawn(), "the released blob's advertisement is withdrawn")
+
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: testutil.RandomDID(t), Digest: testutil.RandomMultihash(t)}))
+	require.Len(t, w.adverts.Withdrawn(), 1, "an unknown blob has no advertisement to withdraw")
 }
