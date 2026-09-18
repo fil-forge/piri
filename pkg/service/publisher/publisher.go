@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -30,7 +29,6 @@ import (
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
-	piristore "github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -70,10 +68,10 @@ func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation)
 }
 
 // Withdrawer takes a claim's advertisement out of the queue under the
-// publishing lock. A batch that already holds the claim either commits before
-// the withdrawal or, consulting the queue under the lock, leaves it out; in
-// neither case is a location for a released blob published after the release
-// has returned.
+// publishing lock, so it waits for any batch mid-publish: the withdrawal
+// either precedes a batch loading its claims, which then finds the claim gone,
+// or follows the commit. In neither case is a location for a released blob
+// published after the release has returned.
 type Withdrawer interface {
 	Withdraw(ctx context.Context, claim cid.Cid) error
 }
@@ -86,53 +84,40 @@ func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error 
 }
 
 // PublishClaims publishes the IPNI advertisements for the given location
-// commitments under one commit. A claim no longer in the store was released
-// before its advertisement was published and is skipped: nothing may
-// advertise a location for a blob the node has let go of. A claim that does
-// not decode is skipped and logged; it would not decode on a later attempt
-// either, and one bad claim must not hold up its batch forever.
-//
-// The claims are loaded without the lock, since the claim store may be
-// remote and a batch is large. confirm is then called under the lock, right
-// before the commit, and returns the claims still to be published: the batch
-// commits exactly those, so a claim withdrawn while the batch was loading is
-// left out. An error from confirm abandons the batch.
-func (pub *PublisherService) PublishClaims(ctx context.Context, claims []cid.Cid, confirm func(context.Context) ([]cid.Cid, error)) error {
-	specs := make(map[cid.Cid]ipnipub.AdvertSpec, len(claims))
+// commitments under one commit. It holds the publishing lock from loading the
+// claims to committing, so a Withdraw either precedes the load, in which case
+// the claim is gone from the store and skipped, or waits for the commit; a
+// location for a released blob is never published after the release has
+// returned. A claim that does not decode is skipped and logged; it would not
+// decode on a later attempt either, and one bad claim must not hold up its
+// batch forever.
+func (pub *PublisherService) PublishClaims(ctx context.Context, claims []cid.Cid) error {
+	found, err := pub.claims.GetAll(ctx, claims)
+	if err != nil {
+		return fmt.Errorf("loading claims: %w", err)
+	}
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
+	specs := make([]ipnipub.AdvertSpec, 0, len(found))
 	for _, link := range claims {
-		clm, err := pub.claims.Get(ctx, link)
-		if errors.Is(err, piristore.ErrNotFound) {
+		clm, ok := found[link]
+		if !ok {
 			log.Debugw("skipping advertisement for released claim", "claim", link)
 			continue
-		}
-		if err != nil {
-			return fmt.Errorf("loading claim %s: %w", link, err)
 		}
 		spec, err := locationAdvertSpec(pub.provider, clm)
 		if err != nil {
 			log.Errorw("skipping advertisement for undecodable claim", "claim", link, "error", err)
 			continue
 		}
-		specs[link] = spec
+		specs = append(specs, spec)
 	}
-
-	pub.mu.Lock()
-	defer pub.mu.Unlock()
-	still, err := confirm(ctx)
-	if err != nil {
-		return fmt.Errorf("confirming advertisement batch: %w", err)
-	}
-	batch := make([]ipnipub.AdvertSpec, 0, len(still))
-	for _, link := range still {
-		if spec, ok := specs[link]; ok {
-			batch = append(batch, spec)
-		}
-	}
-	if len(batch) == 0 {
+	if len(specs) == 0 {
 		return nil
 	}
-	if _, err := pub.ipni.PublishBatch(ctx, pub.provider, batch); err != nil {
-		return fmt.Errorf("publishing %d advertisements: %w", len(batch), err)
+	if _, err := pub.ipni.PublishBatch(ctx, pub.provider, specs); err != nil {
+		return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
 	}
 	return nil
 }

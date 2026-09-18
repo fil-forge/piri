@@ -9,7 +9,6 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
-	"github.com/ipfs/go-cid"
 
 	"github.com/fil-forge/piri/pkg/pdp/promise"
 )
@@ -109,17 +108,12 @@ func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	// too: a failed commit leaves nothing behind, and anything that did
 	// publish is skipped as already advertised.
 	//
-	// Right before the commit, under the publishing lock: the batch is only
-	// this worker's to publish while the engine still says so, and only the
-	// rows still queued are published, since a release may have withdrawn
-	// one while the claims were loading.
-	confirm := func(ctx context.Context) ([]cid.Cid, error) {
-		if !stillOwned() {
-			return nil, errLostOwnership
-		}
-		return t.queue.claimed(ctx, taskID)
+	// The batch is only this worker's to publish while the engine still says
+	// so; a worker the task was taken from leaves it to the new owner.
+	if !stillOwned() {
+		return false, errLostOwnership
 	}
-	if err := t.svc.PublishClaims(ctx, claims, confirm); err != nil {
+	if err := t.svc.PublishClaims(ctx, claims); err != nil {
 		return false, err
 	}
 	log.Infow("published advertisement batch", "claims", len(claims))

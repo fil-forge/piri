@@ -2,7 +2,6 @@ package publisher
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -29,7 +28,6 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
-	"github.com/ipld/go-ipld-prime"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -62,11 +60,6 @@ func (q *memQueue) links() []cid.Cid {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return append([]cid.Cid(nil), q.owed...)
-}
-
-// allOf is the confirm hook of a batch nothing was withdrawn from.
-func allOf(links []cid.Cid) func(context.Context) ([]cid.Cid, error) {
-	return func(context.Context) ([]cid.Cid, error) { return links, nil }
 }
 
 // newTestService builds a service over fresh in-memory stores and returns the
@@ -106,7 +99,7 @@ func TestPublisherService(t *testing.T) {
 		require.True(t, store.IsNotFound(err), "nothing is published on the request path")
 
 		// The task publishes what is owed.
-		require.NoError(t, svc.PublishClaims(ctx, queue.links(), allOf(queue.links())))
+		require.NoError(t, svc.PublishClaims(ctx, queue.links()))
 
 		hd, err := publisherStore.Head(ctx)
 		require.NoError(t, err)
@@ -148,10 +141,10 @@ func TestPublisherService(t *testing.T) {
 
 		// The first batch writes the advert; the second finds it already
 		// advertised and skips it, so a retried batch is harmless.
-		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}, allOf([]cid.Cid{claimInv.Link()})))
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
 		hd, err := publisherStore.Head(ctx)
 		require.NoError(t, err)
-		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}, allOf([]cid.Cid{claimInv.Link()})))
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
 		again, err := publisherStore.Head(ctx)
 		require.NoError(t, err)
 		require.Equal(t, hd.Head, again.Head, "an already advertised claim moves nothing")
@@ -173,47 +166,18 @@ func TestPublisherService(t *testing.T) {
 		// task that had already claimed the row still asks for it.
 		require.NoError(t, claims.Delete(ctx, claimInv.Link()))
 		require.NoError(t, queue.Dequeue(ctx, claimInv.Link()))
-		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}, allOf([]cid.Cid{claimInv.Link()})))
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{claimInv.Link()}))
 		_, err := publisherStore.Head(ctx)
 		require.True(t, store.IsNotFound(err), "no location is advertised for a released blob")
-	})
-
-	t.Run("publishes only what confirm still wants", func(t *testing.T) {
-		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-		svc, _, claims := newTestService(t, publisherStore, addr)
-
-		var links []cid.Cid
-		for range 3 {
-			shard := testutil.RandomMultihash(t)
-			location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
-			clm := mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
-			require.NoError(t, claims.Put(ctx, clm))
-			links = append(links, clm.Link())
-		}
-
-		// The middle claim was withdrawn while the batch was loading: the
-		// queue, consulted under the lock, no longer lists it.
-		require.NoError(t, svc.PublishClaims(ctx, links, allOf([]cid.Cid{links[0], links[2]})))
-		hd, err := publisherStore.Head(ctx)
-		require.NoError(t, err)
-		var n int
-		for lnk := ipld.Link(hd.Head); lnk != nil; n++ {
-			ad, err := publisherStore.Advert(ctx, lnk)
-			require.NoError(t, err)
-			lnk = ad.PreviousID
-		}
-		require.Equal(t, 2, n, "the withdrawn claim is not advertised")
-
-		// An error from confirm abandons the batch.
-		err = svc.PublishClaims(ctx, links, func(context.Context) ([]cid.Cid, error) { return nil, errors.New("not ours") })
-		require.ErrorContains(t, err, "not ours")
 	})
 
 	t.Run("a withdrawal waits for the batch in flight", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-		svc, queue, claims := newTestService(t, publisherStore, addr)
+		queue := &memQueue{}
+		claims := &claimsObservingLoad{InvocationStore: invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))}
+		svc, err := New(testutil.Alice, publisherStore, addr, queue, claims)
+		require.NoError(t, err)
 
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
@@ -221,22 +185,21 @@ func TestPublisherService(t *testing.T) {
 		require.NoError(t, claims.Put(ctx, clm))
 		require.NoError(t, svc.Publish(ctx, clm))
 
-		// Release arrives while the batch holds the lock: it must not get in
-		// until the batch has committed.
+		// Release arrives while the batch is loading its claims under the
+		// lock: it must not get in until the batch has committed.
 		withdrawn := make(chan error, 1)
-		confirm := func(ctx context.Context) ([]cid.Cid, error) {
+		claims.onGetAll = func(ctx context.Context) {
 			go func() { withdrawn <- svc.Withdraw(ctx, clm.Link()) }()
 			select {
 			case err := <-withdrawn:
-				t.Fatalf("withdrawal completed while the batch held the lock (err=%v)", err)
+				t.Errorf("withdrawal completed while the batch held the lock (err=%v)", err)
 			case <-time.After(50 * time.Millisecond):
 			}
-			return queue.links(), nil
 		}
-		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{clm.Link()}, confirm))
+		require.NoError(t, svc.PublishClaims(ctx, []cid.Cid{clm.Link()}))
 		require.NoError(t, <-withdrawn, "the withdrawal goes through once the batch has committed")
 		require.Empty(t, queue.links())
-		_, err := publisherStore.Head(ctx)
+		_, err = publisherStore.Head(ctx)
 		require.NoError(t, err, "the batch that held the lock committed")
 	})
 
@@ -314,4 +277,18 @@ func mintLocationClaim(t *testing.T, space did.DID, content multihash.Multihash,
 	)
 	require.NoError(t, err)
 	return inv
+}
+
+// claimsObservingLoad is a claim store that runs a hook when a batch loads
+// its claims, which PublishClaims does under the publishing lock.
+type claimsObservingLoad struct {
+	invocationstore.InvocationStore
+	onGetAll func(context.Context)
+}
+
+func (c *claimsObservingLoad) GetAll(ctx context.Context, links []cid.Cid) (map[cid.Cid]ucan.Invocation, error) {
+	if c.onGetAll != nil {
+		c.onGetAll(ctx)
+	}
+	return c.InvocationStore.GetAll(ctx, links)
 }
