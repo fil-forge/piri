@@ -48,6 +48,18 @@ it.
 `replication` and `egress-tracker` are the only two queues. PDP runs on a
 separate scheduler inside Piri which emits no metrics of its own.
 
+### IPNI Publishing Metrics
+
+The advertisement queue's backlog. Publishing is asynchronous, so the
+`blob/accept` receipt can no longer report a failure to advertise; a backlog
+that keeps growing, or an age that does, is how a publisher that is down or
+failing shows up.
+
+| Metric                                               | Type  | Unit | Description                                         |
+|------------------------------------------------------|-------|------|-----------------------------------------------------|
+| <nobr>`ipni_pending_adverts`</nobr>                  | Gauge |      | Advertisements queued and not yet published         |
+| <nobr>`ipni_pending_adverts_oldest_seconds`</nobr>   | Gauge | s    | Age of the oldest advertisement still queued        |
+
 ### HTTP Server Metrics
 
 Standard OpenTelemetry HTTP instrumentation:
