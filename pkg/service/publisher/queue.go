@@ -96,10 +96,26 @@ func (q *DBQueue) retire(ctx context.Context, id harmonytask.TaskID) error {
 	return nil
 }
 
-// unclaimed reports how many advertisements are waiting for a task to claim
-// them and how long the oldest has waited. A growing age means the publish
-// task is not keeping up, or not running.
-func (q *DBQueue) unclaimed(ctx context.Context) (count int64, oldest time.Duration, err error) {
+// reclaimOrphans returns rows to the unclaimed pool whose task the engine no
+// longer has: harmonytask deletes a task after it fails too many times, and
+// its rows would otherwise stay stamped with an id nothing will run again.
+// It reports how many were reclaimed.
+func (q *DBQueue) reclaimOrphans(ctx context.Context) (int, error) {
+	n, err := q.db.Exec(ctx, `
+		UPDATE ipni_pending_adverts SET publish_task_id = NULL
+		WHERE publish_task_id IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = ipni_pending_adverts.publish_task_id)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("reclaiming orphaned advertisements: %w", err)
+	}
+	return n, nil
+}
+
+// pending reports how many advertisements are queued and not yet published,
+// claimed by a task or not, and how long the oldest has waited. A growing age
+// means the publish task is not keeping up, or is failing.
+func (q *DBQueue) pending(ctx context.Context) (count int64, oldest time.Duration, err error) {
 	var rows []struct {
 		N   int64   `db:"n"`
 		Age float64 `db:"age"`
@@ -107,9 +123,9 @@ func (q *DBQueue) unclaimed(ctx context.Context) (count int64, oldest time.Durat
 	if err := q.db.Select(ctx, &rows, `
 		SELECT count(*) AS n,
 		       coalesce(extract(epoch FROM now() - min(created_at)), 0)::double precision AS age
-		FROM ipni_pending_adverts WHERE publish_task_id IS NULL
+		FROM ipni_pending_adverts
 	`); err != nil {
-		return 0, 0, fmt.Errorf("measuring unclaimed advertisements: %w", err)
+		return 0, 0, fmt.Errorf("measuring pending advertisements: %w", err)
 	}
 	if len(rows) == 0 {
 		return 0, 0, nil

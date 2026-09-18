@@ -13,3 +13,7 @@ CREATE TABLE ipni_pending_adverts (
 
 CREATE INDEX ipni_pending_adverts_unclaimed ON ipni_pending_adverts (created_at)
     WHERE publish_task_id IS NULL;
+
+-- A task loads and retires its rows by publish_task_id.
+CREATE INDEX ipni_pending_adverts_claimed ON ipni_pending_adverts (publish_task_id, created_at)
+    WHERE publish_task_id IS NOT NULL;

@@ -195,8 +195,8 @@ func TestRelease_DequeuesPendingAdvert(t *testing.T) {
 	}))
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
-	require.Equal(t, []cid.Cid{claim.Link()}, w.adverts.Dequeued(), "the released blob's advertisement is withdrawn")
+	require.Equal(t, []cid.Cid{claim.Link()}, w.adverts.Withdrawn(), "the released blob's advertisement is withdrawn")
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: testutil.RandomDID(t), Digest: testutil.RandomMultihash(t)}))
-	require.Len(t, w.adverts.Dequeued(), 1, "an unknown blob has no advertisement to withdraw")
+	require.Len(t, w.adverts.Withdrawn(), 1, "an unknown blob has no advertisement to withdraw")
 }

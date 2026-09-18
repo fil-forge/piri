@@ -64,7 +64,7 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 
 	// The backlog the metrics report: three waiting, the oldest for no time
 	// worth speaking of yet.
-	count, oldest, err := queue.unclaimed(ctx)
+	count, oldest, err := queue.pending(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, published, count)
 	require.GreaterOrEqual(t, oldest, time.Duration(0))
@@ -81,7 +81,24 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, links, claimed, "the released claim is not in the batch")
 
-	done, err := task.Do(id, func() bool { return true })
+	// Claimed rows still count as pending: a batch that is retrying must not
+	// vanish from the backlog gauges.
+	count, _, err = queue.pending(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, published, count, "claimed rows are still pending")
+
+	// A worker the engine has taken the task from publishes nothing and
+	// leaves the rows for the new owner.
+	done, err := task.Do(id, func() bool { return false })
+	require.ErrorIs(t, err, errLostOwnership)
+	require.False(t, done)
+	_, err = publisherStore.Head(ctx)
+	require.True(t, store.IsNotFound(err), "a worker that lost the task must not publish")
+	claimed, err = queue.claimed(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, claimed, published, "the rows stay stamped for the task's new owner")
+
+	done, err = task.Do(id, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 
@@ -102,7 +119,7 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	}
 	require.NoError(t, db.Select(ctx, &rows, `SELECT count(*) AS n FROM ipni_pending_adverts`))
 	require.Zero(t, rows[0].N)
-	count, oldest, err = queue.unclaimed(ctx)
+	count, oldest, err = queue.pending(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
 	require.Zero(t, oldest, "an empty queue has no backlog age")
@@ -113,20 +130,55 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	require.False(t, stamped, "an empty queue claims nothing")
 }
 
-// TestPublishTask_FlushSchedulesThroughTheEngine pins that a flush goes
+// TestPublishTask_SchedulesThroughTheEngine pins that a flush schedules
 // through the add function the engine hands over, and not before it has: the
 // ticker starts with the app, the engine somewhat later.
-func TestPublishTask_FlushSchedulesThroughTheEngine(t *testing.T) {
+func TestPublishTask_SchedulesThroughTheEngine(t *testing.T) {
 	task := NewPublishTask(nil, nil)
 
-	// No add function yet: a flush must wait rather than run without one.
+	// No add function yet: scheduling must wait rather than run without one.
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
-	task.flush(ctx)
+	task.schedule(ctx)
 
 	var adds int
 	task.Adder(func(func(harmonytask.TaskID, *harmonydb.Tx) (bool, error)) { adds++ })
-	task.flush(t.Context())
-	task.flush(t.Context())
+	task.schedule(t.Context())
+	task.schedule(t.Context())
 	require.Equal(t, 2, adds, "every flush asks the engine for one task")
+}
+
+// TestDBQueue_ReclaimsOrphanedRows pins that rows stamped by a task the
+// engine no longer has go back to the pool, since claimBatch only takes
+// unclaimed rows and would otherwise never see them again.
+func TestDBQueue_ReclaimsOrphanedRows(t *testing.T) {
+	db := piritestutil.NewHarmonyDB(t)
+	ctx := t.Context()
+	queue := NewDBQueue(db)
+
+	links := []cid.Cid{testutil.RandomCID(t), testutil.RandomCID(t)}
+	for _, l := range links {
+		require.NoError(t, queue.Enqueue(ctx, l))
+	}
+	// Stamped by a task id that is not in harmony_task, as after the engine
+	// deleted a task that failed too often.
+	_, err := db.Exec(ctx, `UPDATE ipni_pending_adverts SET publish_task_id = 424242`)
+	require.NoError(t, err)
+	stamped, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		return claimBatch(tx, 7, publishBatchSize)
+	})
+	require.NoError(t, err)
+	require.False(t, stamped, "nothing is unclaimed while the rows are stranded")
+
+	n, err := queue.reclaimOrphans(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, n)
+	stamped, err = db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		return claimBatch(tx, 7, publishBatchSize)
+	})
+	require.NoError(t, err)
+	require.True(t, stamped, "reclaimed rows are claimable again")
+	claimed, err := queue.claimed(ctx, 7)
+	require.NoError(t, err)
+	require.ElementsMatch(t, links, claimed)
 }

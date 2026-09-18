@@ -13,9 +13,10 @@ import (
 // queued and dequeued and publishes nothing, which is what an fxtest app
 // without a harmonydb needs.
 type AdvertQueue struct {
-	mu       sync.Mutex
-	queued   []cid.Cid
-	dequeued []cid.Cid
+	mu        sync.Mutex
+	queued    []cid.Cid
+	dequeued  []cid.Cid
+	withdrawn []cid.Cid
 }
 
 // NewAdvertQueue returns an empty AdvertQueue fake.
@@ -44,6 +45,21 @@ func (q *AdvertQueue) Queued() []cid.Cid {
 	return append([]cid.Cid(nil), q.queued...)
 }
 
+// Withdraw records the claim and returns nil.
+func (q *AdvertQueue) Withdraw(_ context.Context, claim cid.Cid) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.withdrawn = append(q.withdrawn, claim)
+	return nil
+}
+
+// Withdrawn returns the claims Withdraw was called with, in order.
+func (q *AdvertQueue) Withdrawn() []cid.Cid {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return append([]cid.Cid(nil), q.withdrawn...)
+}
+
 // Dequeued returns the claims Dequeue was called with, in order.
 func (q *AdvertQueue) Dequeued() []cid.Cid {
 	q.mu.Lock()
@@ -51,4 +67,7 @@ func (q *AdvertQueue) Dequeued() []cid.Cid {
 	return append([]cid.Cid(nil), q.dequeued...)
 }
 
-var _ publisher.AdvertQueue = (*AdvertQueue)(nil)
+var (
+	_ publisher.AdvertQueue = (*AdvertQueue)(nil)
+	_ publisher.Withdrawer  = (*AdvertQueue)(nil)
+)

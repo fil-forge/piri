@@ -2,12 +2,14 @@ package publisher
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	"github.com/ipfs/go-cid"
 
 	"github.com/fil-forge/piri/pkg/pdp/promise"
 )
@@ -63,10 +65,23 @@ func (t *PublishTask) run(ctx context.Context) {
 	}
 }
 
-// flush asks the engine for a task that claims the unclaimed rows. It waits
-// for the engine to have handed over its add function, which happens when
-// the engine starts.
+// flush returns stranded rows to the pool, then asks the engine for a task
+// that claims whatever is unclaimed.
 func (t *PublishTask) flush(ctx context.Context) {
+	// Rows stamped by a task the engine has since deleted (it gives up on a
+	// task after MaxFailures) would otherwise never be claimed again.
+	if n, err := t.queue.reclaimOrphans(ctx); err != nil {
+		log.Warnw("reclaiming orphaned advertisements", "error", err)
+	} else if n > 0 {
+		log.Warnw("reclaimed advertisements from a publish task the engine gave up on", "claims", n)
+	}
+	t.schedule(ctx)
+}
+
+// schedule asks the engine for a task that claims the unclaimed rows. It
+// waits for the engine to have handed over its add function, which happens
+// when the engine starts.
+func (t *PublishTask) schedule(ctx context.Context) {
 	add := t.add.Val(ctx)
 	if add == nil {
 		return
@@ -75,6 +90,10 @@ func (t *PublishTask) flush(ctx context.Context) {
 		return claimBatch(tx, id, publishBatchSize)
 	})
 }
+
+// errLostOwnership is returned when the engine reassigned the task while it
+// was running; the new owner publishes the batch.
+var errLostOwnership = errors.New("publish task is no longer owned by this worker")
 
 func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
@@ -89,7 +108,18 @@ func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	// retries it with the same batch. That is safe on the publisher's side
 	// too: a failed commit leaves nothing behind, and anything that did
 	// publish is skipped as already advertised.
-	if err := t.svc.PublishClaims(ctx, claims); err != nil {
+	//
+	// Right before the commit, under the publishing lock: the batch is only
+	// this worker's to publish while the engine still says so, and only the
+	// rows still queued are published, since a release may have withdrawn
+	// one while the claims were loading.
+	confirm := func(ctx context.Context) ([]cid.Cid, error) {
+		if !stillOwned() {
+			return nil, errLostOwnership
+		}
+		return t.queue.claimed(ctx, taskID)
+	}
+	if err := t.svc.PublishClaims(ctx, claims, confirm); err != nil {
 		return false, err
 	}
 	log.Infow("published advertisement batch", "claims", len(claims))

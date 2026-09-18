@@ -20,6 +20,7 @@ var Module = fx.Module("publisher",
 			NewFx,
 			fx.As(fx.Self()),
 			fx.As(new(Publisher)),
+			fx.As(new(Withdrawer)),
 		),
 		fx.Annotate(
 			NewServer,

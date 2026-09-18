@@ -38,7 +38,7 @@ type ReleaseDeps struct {
 	Allocations AllocationRemover
 	Acceptances AcceptanceRemover
 	ClaimStore  invocationstore.InvocationStore
-	Adverts     publisher.AdvertQueue
+	Adverts     publisher.Withdrawer
 	Pieces      PieceRemover
 }
 
@@ -206,10 +206,12 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 			return fmt.Errorf("deleting location claim: %w", err)
 		}
 		// The claim's advertisement may still be queued rather than
-		// published; a location for a released blob must not go out.
-		if err := deps.Adverts.Dequeue(ctx, acc.Site); err != nil {
-			log.Errorw("dequeueing location advertisement", "error", err)
-			return fmt.Errorf("dequeueing location advertisement: %w", err)
+		// published; a location for a released blob must not go out. The
+		// withdrawal waits for any batch mid-publish, so it cannot slip in
+		// between that batch deciding its contents and committing them.
+		if err := deps.Adverts.Withdraw(ctx, acc.Site); err != nil {
+			log.Errorw("withdrawing location advertisement", "error", err)
+			return fmt.Errorf("withdrawing location advertisement: %w", err)
 		}
 	}
 
