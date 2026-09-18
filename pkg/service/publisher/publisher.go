@@ -92,13 +92,13 @@ func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error 
 // decode on a later attempt either, and one bad claim must not hold up its
 // batch forever.
 func (pub *PublisherService) PublishClaims(ctx context.Context, claims []cid.Cid) error {
+	pub.mu.Lock()
+	defer pub.mu.Unlock()
+
 	found, err := pub.claims.GetAll(ctx, claims)
 	if err != nil {
 		return fmt.Errorf("loading claims: %w", err)
 	}
-	pub.mu.Lock()
-	defer pub.mu.Unlock()
-
 	specs := make([]ipnipub.AdvertSpec, 0, len(found))
 	for _, link := range claims {
 		clm, ok := found[link]

@@ -193,6 +193,8 @@ func TestPublisherService(t *testing.T) {
 			select {
 			case err := <-withdrawn:
 				t.Errorf("withdrawal completed while the batch held the lock (err=%v)", err)
+				// Put it back so the receive below does not hang the test.
+				withdrawn <- err
 			case <-time.After(50 * time.Millisecond):
 			}
 		}
