@@ -14,9 +14,14 @@ type TelemetryCollectorConfig struct {
 }
 
 type TelemetryConfig struct {
-	Metrics                  []TelemetryCollectorConfig `mapstructure:"metrics" toml:"metrics,omitempty"`
-	Traces                   []TelemetryCollectorConfig `mapstructure:"traces" toml:"traces,omitempty"`
-	DisableStorachaAnalytics bool                       `mapstructure:"disable_storacha_analytics" toml:"disable_storacha_analytics,omitempty"`
+	// Environment names the deployment telemetry is reported under, and
+	// becomes the deployment.environment.name resource attribute. It defaults
+	// to the configured network, which is only meaningful for a node running
+	// against a network preset; a node configured from a base config sets it
+	// explicitly.
+	Environment string                     `mapstructure:"environment" toml:"environment,omitempty"`
+	Metrics     []TelemetryCollectorConfig `mapstructure:"metrics" toml:"metrics,omitempty"`
+	Traces      []TelemetryCollectorConfig `mapstructure:"traces" toml:"traces,omitempty"`
 }
 
 func (t TelemetryConfig) Validate() error {
@@ -38,8 +43,8 @@ func (t TelemetryConfig) ToAppConfig() app.TelemetryConfig {
 	}
 
 	return app.TelemetryConfig{
-		Metrics:                  convert(t.Metrics),
-		Traces:                   convert(t.Traces),
-		DisableStorachaAnalytics: t.DisableStorachaAnalytics,
+		Environment: t.Environment,
+		Metrics:     convert(t.Metrics),
+		Traces:      convert(t.Traces),
 	}
 }

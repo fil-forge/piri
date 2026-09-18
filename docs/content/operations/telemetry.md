@@ -1,96 +1,65 @@
-# Telemetry and Analytics
+# Telemetry
 
-Piri collects telemetry data to help developers understand how the software is being used and improve the experience of running Piri nodes. 
-This includes some pseudonymous identifiers (DIDs and Ethereum addresses) that are part of your node's public identity on the network. 
-Telemetry can be disabled at any time.
+Piri uses [OpenTelemetry](https://opentelemetry.io/) to emit metrics and
+traces about itself. **Piri sends this data nowhere by default.** It is
+exported only to the collectors your configuration names, and a node with no
+`[telemetry]` section starts no exporter at all.
 
-## Why We Collect Telemetry
+Earlier versions of Piri reported usage analytics to an endpoint operated by
+Storacha, the project Piri came from, unless the operator opted out. That
+endpoint no longer exists and the default was removed, along with the
+`disable_storacha_analytics` setting and the `PIRI_DISABLE_ANALYTICS`
+environment variable that turned it off. Both are now ignored if present:
+there is nothing left to opt out of.
 
-Telemetry helps the Piri development team to:
+## What a node emits
 
-- Understand which versions of Piri are actively being used in the network
-- Monitor the health and reliability of the network
-- Identify common deployment patterns and configurations
-- Prioritize development efforts based on actual usage
-- Debug issues more effectively by understanding the runtime environment
+When you configure a collector, these are the things Piri reports about
+itself. [Concepts > Telemetry](../concepts/telemetry.md) lists every metric
+and span.
 
-## What Data Is Collected
+### Resource attributes
 
-Piri collects information about your node, including pseudonymous identifiers that are part of your node's public network identity:
+Attached to every metric and span:
 
-### Base Server Information (All Node Types)
+- **Service name**: always `piri`
+- **Service version**: the Piri version you are running
+- **Service instance ID**: your node's DID
+- **Deployment environment**: `telemetry.environment`, or the configured
+  network
 
-- **Version**: The Piri software version you're running
-- **Commit**: The git commit hash of your build
-- **Built By**: The builder information (typically automated build system)
-- **Build Date**: When your version was compiled
-- **Start Time**: Unix timestamp of when the server started
-- **Server Type**: The type of server (e.g., "pdp" or "ucan")
+### Server information
 
-### PDP Server Specific Data
+Recorded once at startup as `piri_server_info`: version, commit, build date,
+builder, start time, and server type. A PDP server also reports its Ethereum
+address; a UCAN server reports its DID and the DIDs and public URLs of the
+indexing and upload services it is configured against.
 
-- **Ethereum Address**: Your node's Ethereum address for PDP operations
+These identifiers are pseudonymous but they are part of your node's public
+identity on the network, so treat the collector you send them to as you would
+any other operational data store.
 
-### UCAN Server Specific Data
+### Never emitted
 
-- **DID**: Your server's Decentralized Identifier
-- **Indexing Service DID**: The DID of the indexing service you're connected to
-- **Indexing Service URL**: The URL of the indexing service (public endpoint)
-- **Upload Service DID**: The DID of the upload service you're connected to
-- **Upload Service URL**: The URL of the upload service (public endpoint)
+- Private keys or any other cryptographic material
+- The contents of stored data
+- Client IP addresses or location data
 
-### Tracing data
+## Configuring a collector
 
-Tracing data is a specialized form of telemetry that provides an end-to-end view of a request's journey as it flows through the various components of a complex, distributed system, such as a microservices architecture.
+See [Configuration > telemetry](../configuration/telemetry.md) for the
+settings, and [Operator Guide > Monitoring](../operator-guide/monitoring.md)
+for what to watch.
 
-## What Data Is NOT Collected
+## Technical implementation
 
-We do NOT collect:
+- Exporters are built at startup, and only when a collector is configured.
+- OpenTelemetry's own errors — an unreachable collector, a refused batch — are
+  logged through Piri's logger under the `telemetry` subsystem at `warn`, rate
+  limited to one line every five minutes with a count of what was suppressed.
+- A failing exporter never stops the node; Piri logs and carries on.
 
-- Private keys or any sensitive cryptographic material
-- Personal information beyond what's listed above
-- IP addresses or location data
-
-## How to Opt Out
-
-If you prefer not to share telemetry data with Forge Development Team, you can disable it using either an environment variable or config file:
-
-**Environment variable:**
-
-```bash
-export PIRI_DISABLE_STORACHA_ANALYTICS=1
-```
-
-**Config file:**
-
-```toml
-[telemetry]
-disable_storacha_analytics = true
-```
-
-To make the environment variable permanent, add the export to your shell configuration file (e.g., `.bashrc`, `.zshrc`).
-
-## Data Retention and Usage
-
-- Telemetry data is used solely for improving Piri
-- Data is retained for a reasonable period to analyze trends
-- We do not sell or share this data with third parties
-- All data handling follows industry best practices for privacy and security
-
-## Technical Implementation
-
-Telemetry is implemented using OpenTelemetry, an industry-standard observability framework. The telemetry system:
-
-- Initializes during startup unless `PIRI_DISABLE_STORACHA_ANALYTICS` is set
-- Records server information once at startup
-- Has a 10-second timeout for initialization to prevent blocking
-- Logs warnings if telemetry fails but continues normal operation
-
-## Questions or Concerns
-
-If you have questions about telemetry or privacy, please:
+## Questions or concerns
 
 - Open an issue on our [GitHub repository](https://github.com/fil-forge/piri)
 - Contact the development team through official channels
-
-We're committed to transparency and will continue to document any changes to telemetry collection.
