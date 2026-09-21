@@ -7,7 +7,7 @@ This is a **long-running process** that operates your storage node. Once started
 1. **Accept storage requests** - Receive and store data from clients via the UCAN protocol
 2. **Generate PDP proofs** - Create Provable Data Possession proofs on a regular schedule to demonstrate you're storing data correctly
 3. **Respond to challenges** - Submit proofs to the on-chain PDP smart contract during challenge windows
-4. **Publish to IPNI** - Announce stored content to the InterPlanetary Network Indexer for discoverability, when an indexing service is configured
+4. **Publish to IPNI** - Announce stored content to the InterPlanetary Network Indexer for discoverability, when an indexing service or IPNI announce URLs are configured
 5. **Handle retrievals** - Serve stored data back to clients on request
 
 The server runs continuously, writing logs to the terminal. For production deployments, you should run it as a systemd service or use a process manager to ensure it restarts on failure.

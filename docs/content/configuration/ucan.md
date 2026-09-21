@@ -38,7 +38,9 @@ proof = "..."  # Optional delegation proof
 ```
 
 The integration is optional. Leaving `did` or `url` empty disables it: location
-claims are then neither cached with an indexer nor advertised to IPNI. A
+claims are then not cached with an indexer. They are still advertised to IPNI
+while `ipni_announce_urls` (below) names at least one IPNI node; with neither
+configured, nothing would read the advertisements and none are built. A
 `network` preset fills in both keys, so under a preset the override has to be
 explicit:
 
@@ -81,7 +83,9 @@ proof = "..."  # Optional
 
 ### [ucan.services.publisher]
 
-IPNI announcement configuration.
+IPNI announcement configuration. Each new batch of advertisements is announced
+to every URL listed; the IPNI nodes then sync the advertisement chain from this
+node. Leave the list empty to not advertise, unless an indexer is configured.
 
 ```toml
 [ucan.services.publisher]

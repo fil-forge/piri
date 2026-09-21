@@ -135,6 +135,10 @@ func newTestIndexer(t *testing.T) (*testIndexer, []Option) {
 // newTestService's default indexer options, so the last one wins.
 var indexerDisabled = WithIndexingService(app.IndexingServiceConfig{})
 
+// ipniAnnounce points the service at an IPNI node to announce to. The test
+// never commits a batch, so nothing is sent.
+var ipniAnnounce = WithDirectAnnounce(url.URL{Scheme: "http", Host: "ipni.example", Path: "/announce"})
+
 // newTestService builds a service over a fresh in-memory queue, pointed at an
 // in-process indexer since Publish only queues advertisements while one is
 // configured, and returns the queue beside it. Caller options are applied
@@ -323,8 +327,9 @@ func TestPublisherService(t *testing.T) {
 		opts   []Option
 		queued int
 	}{
-		"indexer configured": {opts: nil, queued: 1},
-		"indexer disabled":   {opts: []Option{indexerDisabled}, queued: 0},
+		"indexer is configured":                         {opts: nil, queued: 1},
+		"indexer is disabled but IPNI is announced to":  {opts: []Option{indexerDisabled, ipniAnnounce}, queued: 1},
+		"indexer is disabled and IPNI is not announced": {opts: []Option{indexerDisabled}, queued: 0},
 	}
 	for desc, tc := range queuedByIndexerState {
 		t.Run(fmt.Sprintf("queues an advertisement only while the %s", desc), func(t *testing.T) {
@@ -341,7 +346,8 @@ func TestPublisherService(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 		indexer, indexerOpts := newTestIndexer(t)
-		svc, _ := newTestService(t, publisherStore, addr, append(indexerOpts, indexerDisabled)...)
+		// Announcing to IPNI keeps the advertisement; the indexer stays out of it.
+		svc, _ := newTestService(t, publisherStore, addr, append(indexerOpts, indexerDisabled, ipniAnnounce)...)
 
 		require.NoError(t, svc.Publish(ctx, mintTestLocationClaim(t)))
 		handlerCalled, _ := indexer.called()

@@ -47,6 +47,9 @@ type PublisherService struct {
 	provider              peer.AddrInfo
 	indexingService       app.IndexingServiceConfig
 	indexingServiceProofs []ucan.Delegation
+	// advertises is false when nothing reads the advertisement chain: no
+	// indexing service to query IPNI for it and no IPNI node told to sync it.
+	advertises bool
 }
 
 // Publish records that the claim's IPNI advertisement is owed, together with
@@ -54,13 +57,14 @@ type PublisherService struct {
 // advertisement itself is published later by the IPNIPublish task, in a batch
 // with its neighbours, so an accept returns before it exists; the indexer is
 // told now, since that is what serves a read of the blob straight after its
-// write. With no indexing service configured the claim is neither queued for
-// advertisement nor cached: nothing would consume the advertisement.
+// write. Without an indexing service the claim is not cached, and when there
+// are no IPNI announce URLs either it is not queued: nothing would consume
+// the advertisement.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
 	case assert.Location.Command:
-		if !pub.indexingService.DID.Defined() {
+		if !pub.advertises {
 			return nil
 		}
 		spec, err := locationAdvertSpec(pub.provider, claim)
@@ -319,8 +323,12 @@ func New(
 		return nil, fmt.Errorf("building provider info: %w", err)
 	}
 
-	if !o.indexingService.DID.Defined() {
-		log.Warn("indexing service not configured; claims will be neither cached nor advertised")
+	advertises := o.indexingService.DID.Defined() || len(o.announceURLs) > 0
+	switch {
+	case !advertises:
+		log.Warn("no indexing service and no IPNI announce URLs configured; claims will be neither cached nor advertised")
+	case !o.indexingService.DID.Defined():
+		log.Warn("indexing service not configured; claims will be advertised to IPNI but not cached")
 	}
 
 	return &PublisherService{
@@ -330,6 +338,7 @@ func New(
 		provider:              provInfo,
 		indexingService:       o.indexingService,
 		indexingServiceProofs: o.indexingServiceProofs,
+		advertises:            advertises,
 	}, nil
 }
 
