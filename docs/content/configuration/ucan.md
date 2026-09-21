@@ -37,8 +37,16 @@ url = "https://indexer.forge.storacha.network/claims"
 proof = "..."  # Optional delegation proof
 ```
 
-The integration is optional. Leaving `did` and `url` unset disables it: location
-claims are then neither cached with an indexer nor advertised to IPNI.
+The integration is optional. Leaving `did` or `url` empty disables it: location
+claims are then neither cached with an indexer nor advertised to IPNI. A
+`network` preset fills in both keys, so under a preset the override has to be
+explicit:
+
+```toml
+[ucan.services.indexer]
+did = ""
+url = ""
+```
 
 ### [ucan.services.upload]
 
