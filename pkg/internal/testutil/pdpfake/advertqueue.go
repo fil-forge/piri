@@ -4,9 +4,11 @@ import (
 	"context"
 	"sync"
 
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
 
 	"github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
 
 // AdvertQueue is an in-memory publisher.AdvertQueue. It records what was
@@ -23,11 +25,16 @@ type AdvertQueue struct {
 func NewAdvertQueue() *AdvertQueue { return &AdvertQueue{} }
 
 // Enqueue records the claim and returns nil.
-func (q *AdvertQueue) Enqueue(_ context.Context, claim cid.Cid) error {
+func (q *AdvertQueue) Enqueue(_ context.Context, claim cid.Cid, _ advert.Spec) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.queued = append(q.queued, claim)
 	return nil
+}
+
+// Claimed returns no rows: the fake queues nothing for a task to publish.
+func (q *AdvertQueue) Claimed(context.Context, harmonytask.TaskID) ([]publisher.QueuedAdvert, error) {
+	return nil, nil
 }
 
 // Dequeue records the claim and returns nil.
