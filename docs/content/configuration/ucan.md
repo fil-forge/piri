@@ -37,6 +37,9 @@ url = "https://indexer.forge.storacha.network/claims"
 proof = "..."  # Optional delegation proof
 ```
 
+The integration is optional. Leaving `did` and `url` unset disables it: location
+claims are then neither cached with an indexer nor advertised to IPNI.
+
 ### [ucan.services.upload]
 
 ```toml

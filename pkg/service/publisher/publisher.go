@@ -54,11 +54,15 @@ type PublisherService struct {
 // advertisement itself is published later by the IPNIPublish task, in a batch
 // with its neighbours, so an accept returns before it exists; the indexer is
 // told now, since that is what serves a read of the blob straight after its
-// write.
+// write. With no indexing service configured the claim is neither queued for
+// advertisement nor cached: nothing would consume the advertisement.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
 	case assert.Location.Command:
+		if !pub.indexingService.DID.Defined() {
+			return nil
+		}
 		spec, err := locationAdvertSpec(pub.provider, claim)
 		if err != nil {
 			return fmt.Errorf("deriving advertisement for claim %s: %w", claim.Link(), err)
@@ -316,7 +320,7 @@ func New(
 	}
 
 	if !o.indexingService.DID.Defined() {
-		log.Errorf("Indexing service is not configured - claims will not be cached")
+		log.Warn("indexing service not configured; claims will be neither cached nor advertised")
 	}
 
 	return &PublisherService{

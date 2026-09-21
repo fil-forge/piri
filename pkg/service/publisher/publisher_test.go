@@ -79,12 +79,71 @@ func (q *memQueue) links() []cid.Cid {
 	return links
 }
 
-// newTestService builds a service over a fresh in-memory queue and returns
-// the queue beside it.
+// testIndexer is an in-process indexing service: a UCAN HTTP server signed
+// by Bob with a single /claim/cache handler, recording what it was asked to
+// cache. server.NewHTTP is both an http.Handler and an http.RoundTripper, so
+// a client configured to use it as Transport round-trips invocations without
+// binding a real port.
+type testIndexer struct {
+	mu            sync.Mutex
+	handlerCalled bool
+	receivedClaim cid.Cid
+}
+
+func (ix *testIndexer) called() (bool, cid.Cid) {
+	ix.mu.Lock()
+	defer ix.mu.Unlock()
+	return ix.handlerCalled, ix.receivedClaim
+}
+
+// newTestIndexer starts a fresh in-process indexer and returns the options
+// that point a service at it, with Bob authorising Alice to invoke
+// /claim/cache on Bob.
+func newTestIndexer(t *testing.T) (*testIndexer, []Option) {
+	t.Helper()
+	ix := &testIndexer{}
+	srv := server.NewHTTP(testutil.Bob)
+	srv.Handle(claim.Cache.Command, binding.NewHandler(
+		func(req *binding.Request[*claim.CacheArguments], res *binding.Response[*claim.CacheOK]) error {
+			ix.mu.Lock()
+			defer ix.mu.Unlock()
+			ix.handlerCalled = true
+			ix.receivedClaim = req.Task().Arguments().Claim
+			return res.SetSuccess(&claim.CacheOK{})
+		},
+	))
+
+	endpoint := testutil.Must(url.Parse("http://test"))(t)
+	httpClient := testutil.Must(client.NewHTTP(endpoint, client.WithHTTPClient(&http.Client{Transport: srv})))(t)
+	proof := testutil.Must(delegation.Delegate(
+		testutil.Bob,
+		testutil.Alice.DID(),
+		testutil.Bob.DID(),
+		ucan.Command(claim.Cache.Command),
+	))(t)
+
+	return ix, []Option{
+		WithIndexingService(app.IndexingServiceConfig{
+			DID:    testutil.Bob.DID(),
+			Client: httpClient,
+		}),
+		WithIndexingServiceProof([]ucan.Delegation{proof}),
+	}
+}
+
+// indexerDisabled turns the indexing service off again; it is applied after
+// newTestService's default indexer options, so the last one wins.
+var indexerDisabled = WithIndexingService(app.IndexingServiceConfig{})
+
+// newTestService builds a service over a fresh in-memory queue, pointed at an
+// in-process indexer since Publish only queues advertisements while one is
+// configured, and returns the queue beside it. Caller options are applied
+// last.
 func newTestService(t *testing.T, publisherStore store.PublisherStore, addr multiaddr.Multiaddr, opts ...Option) (*PublisherService, *memQueue) {
 	t.Helper()
+	_, indexerOpts := newTestIndexer(t)
 	queue := &memQueue{}
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, opts...)
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, append(indexerOpts, opts...)...)
 	require.NoError(t, err)
 	return svc, queue
 }
@@ -249,57 +308,83 @@ func TestPublisherService(t *testing.T) {
 	t.Run("caches claims", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		indexer, indexerOpts := newTestIndexer(t)
+		svc, _ := newTestService(t, publisherStore, addr, indexerOpts...)
 
-		// Mock indexing service: an in-process UCAN HTTP server signed
-		// by Bob with a single /claim/cache handler. server.NewHTTP is
-		// both an http.Handler and an http.RoundTripper, so a client
-		// configured to use it as Transport round-trips invocations
-		// without binding a real port.
-		var (
-			handlerCalled bool
-			receivedClaim cid.Cid
-		)
-		srv := server.NewHTTP(testutil.Bob)
-		srv.Handle(claim.Cache.Command, binding.NewHandler(
-			func(req *binding.Request[*claim.CacheArguments], res *binding.Response[*claim.CacheOK]) error {
-				handlerCalled = true
-				receivedClaim = req.Task().Arguments().Claim
-				return res.SetSuccess(&claim.CacheOK{})
-			},
-		))
-
-		endpoint, err := url.Parse("http://test")
-		require.NoError(t, err)
-		httpClient, err := client.NewHTTP(endpoint, client.WithHTTPClient(&http.Client{Transport: srv}))
-		require.NoError(t, err)
-
-		// Bob authorises Alice to invoke /claim/cache on Bob.
-		proof, err := delegation.Delegate(
-			testutil.Bob,
-			testutil.Alice.DID(),
-			testutil.Bob.DID(),
-			ucan.Command(claim.Cache.Command),
-		)
-		require.NoError(t, err)
-
-		svc, _ := newTestService(t, publisherStore, addr,
-			WithIndexingService(app.IndexingServiceConfig{
-				DID:    testutil.Bob.DID(),
-				Client: httpClient,
-			}),
-			WithIndexingServiceProof([]ucan.Delegation{proof}),
-		)
-
-		space := testutil.RandomDID(t)
-		shard := testutil.RandomMultihash(t)
-		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
-		claimInv := mintLocationClaim(t, space, shard, *location)
+		claimInv := mintTestLocationClaim(t)
 
 		require.NoError(t, svc.Publish(ctx, claimInv))
-		require.True(t, handlerCalled, "indexing-service /claim/cache handler was invoked")
+		_, receivedClaim := indexer.called()
 		require.Equal(t, claimInv.Link(), receivedClaim,
 			"handler received the location-claim CID as args.Claim")
 	})
+
+	queuedByIndexerState := map[string]struct {
+		opts   []Option
+		queued int
+	}{
+		"indexer configured": {opts: nil, queued: 1},
+		"indexer disabled":   {opts: []Option{indexerDisabled}, queued: 0},
+	}
+	for desc, tc := range queuedByIndexerState {
+		t.Run(fmt.Sprintf("queues an advertisement only while the %s", desc), func(t *testing.T) {
+			dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+			publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+			svc, queue := newTestService(t, publisherStore, addr, tc.opts...)
+
+			require.NoError(t, svc.Publish(ctx, mintTestLocationClaim(t)))
+			require.Len(t, queue.links(), tc.queued)
+		})
+	}
+
+	t.Run("does not ask a disabled indexer to cache", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		indexer, indexerOpts := newTestIndexer(t)
+		svc, _ := newTestService(t, publisherStore, addr, append(indexerOpts, indexerDisabled)...)
+
+		require.NoError(t, svc.Publish(ctx, mintTestLocationClaim(t)))
+		handlerCalled, _ := indexer.called()
+		require.False(t, handlerCalled, "indexing-service /claim/cache handler was not invoked")
+	})
+
+	t.Run("withdraws a queued advertisement while the indexer is disabled", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, queue := newTestService(t, publisherStore, addr, indexerDisabled)
+
+		// Queued while the indexer was still configured, released after it
+		// was turned off: the row must still go, or the task publishes a
+		// location for a released blob.
+		claimInv := mintTestLocationClaim(t)
+		queue.rows = append(queue.rows, QueuedAdvert{Claim: claimInv.Link()})
+
+		require.NoError(t, svc.Withdraw(ctx, claimInv.Link()))
+		require.Empty(t, queue.links())
+	})
+
+	t.Run("rejects an unknown claim while the indexer is disabled", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, _ := newTestService(t, publisherStore, addr, indexerDisabled)
+
+		unknown := testutil.Must(claim.Cache.Invoke(
+			testutil.Alice,
+			testutil.Alice.DID(),
+			&claim.CacheArguments{Claim: mintTestLocationClaim(t).Link()},
+		))(t)
+
+		require.ErrorContains(t, svc.Publish(ctx, unknown), "unknown claim")
+	})
+}
+
+// mintTestLocationClaim mints a location claim for a random space and shard,
+// located under the test node's blob route.
+func mintTestLocationClaim(t *testing.T) ucan.Invocation {
+	t.Helper()
+	shard := testutil.RandomMultihash(t)
+	location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+	return mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
 }
 
 // mintLocationClaim builds a signed /assert/location invocation matching
