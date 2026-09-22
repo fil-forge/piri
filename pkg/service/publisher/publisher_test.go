@@ -1,10 +1,14 @@
 package publisher
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
@@ -21,6 +25,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
@@ -29,7 +34,60 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
+
+// memQueue is an in-memory AdvertQueue that records what is owed. It hands
+// every row to any batch that asks, and runs onClaimed, if set, while doing
+// so, which PublishClaimed does under the publishing lock.
+type memQueue struct {
+	mu        sync.Mutex
+	rows      []QueuedAdvert
+	onClaimed func(context.Context)
+}
+
+func (q *memQueue) Enqueue(_ context.Context, claim cid.Cid, spec advert.Spec) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.rows = append(q.rows, QueuedAdvert{Claim: claim, Spec: &spec})
+	return nil
+}
+
+func (q *memQueue) Dequeue(_ context.Context, claim cid.Cid) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.rows = slices.DeleteFunc(q.rows, func(r QueuedAdvert) bool { return r.Claim == claim })
+	return nil
+}
+
+func (q *memQueue) Claimed(ctx context.Context, _ harmonytask.TaskID) ([]QueuedAdvert, error) {
+	if q.onClaimed != nil {
+		q.onClaimed(ctx)
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return append([]QueuedAdvert(nil), q.rows...), nil
+}
+
+func (q *memQueue) links() []cid.Cid {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	links := make([]cid.Cid, len(q.rows))
+	for i, r := range q.rows {
+		links[i] = r.Claim
+	}
+	return links
+}
+
+// newTestService builds a service over a fresh in-memory queue and returns
+// the queue beside it.
+func newTestService(t *testing.T, publisherStore store.PublisherStore, addr multiaddr.Multiaddr, opts ...Option) (*PublisherService, *memQueue) {
+	t.Helper()
+	queue := &memQueue{}
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, opts...)
+	require.NoError(t, err)
+	return svc, queue
+}
 
 func TestPublisherService(t *testing.T) {
 	addr, err := multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http")
@@ -37,12 +95,10 @@ func TestPublisherService(t *testing.T) {
 
 	ctx := t.Context()
 
-	t.Run("publishes location commitments", func(t *testing.T) {
+	t.Run("queues a location commitment and publishes it in a batch", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-
-		svc, err := New(testutil.Alice, publisherStore, addr)
-		require.NoError(t, err)
+		svc, queue := newTestService(t, publisherStore, addr)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
@@ -50,7 +106,19 @@ func TestPublisherService(t *testing.T) {
 
 		claimInv := mintLocationClaim(t, space, shard, *location)
 
+		// Publish owes the advertisement, spec included, rather than writing
+		// it.
 		require.NoError(t, svc.Publish(ctx, claimInv))
+		require.Equal(t, []cid.Cid{claimInv.Link()}, queue.links())
+		require.NotNil(t, queue.rows[0].Spec, "the row carries what to advertise")
+		_, err := publisherStore.Head(ctx)
+		require.True(t, store.IsNotFound(err), "nothing is published on the request path")
+
+		// The task publishes what is owed, from the rows alone.
+		rows, published, err := svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err)
+		require.Equal(t, 1, rows)
+		require.Equal(t, 1, published)
 
 		hd, err := publisherStore.Head(ctx)
 		require.NoError(t, err)
@@ -82,19 +150,100 @@ func TestPublisherService(t *testing.T) {
 	t.Run("allow skip publish existing advert", func(t *testing.T) {
 		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
 		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-
-		svc, err := New(testutil.Alice, publisherStore, addr)
-		require.NoError(t, err)
+		svc, _ := newTestService(t, publisherStore, addr)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 		claimInv := mintLocationClaim(t, space, shard, *location)
+		require.NoError(t, svc.Publish(ctx, claimInv))
 
-		// First publish writes the advert; the second hits the
-		// ipnipub.ErrAlreadyAdvertised path which the publisher swallows.
+		// The first batch writes the advert; the second finds it already
+		// advertised and skips it, so a retried batch is harmless.
+		_, _, err := svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err)
+		hd, err := publisherStore.Head(ctx)
+		require.NoError(t, err)
+		_, _, err = svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err)
+		again, err := publisherStore.Head(ctx)
+		require.NoError(t, err)
+		require.Equal(t, hd.Head, again.Head, "an already advertised claim moves nothing")
+	})
+
+	t.Run("skips a claim withdrawn before it was published", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, _ := newTestService(t, publisherStore, addr)
+
+		space := testutil.RandomDID(t)
+		shard := testutil.RandomMultihash(t)
+		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+		claimInv := mintLocationClaim(t, space, shard, *location)
 		require.NoError(t, svc.Publish(ctx, claimInv))
-		require.NoError(t, svc.Publish(ctx, claimInv))
+
+		// Released before the flush: the row is withdrawn, so the batch has
+		// nothing for it.
+		require.NoError(t, svc.Withdraw(ctx, claimInv.Link()))
+		rows, published, err := svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err)
+		require.Zero(t, rows)
+		require.Zero(t, published)
+		_, err = publisherStore.Head(ctx)
+		require.True(t, store.IsNotFound(err), "no location is advertised for a released blob")
+	})
+
+	t.Run("skips a queued row without a spec", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, queue := newTestService(t, publisherStore, addr)
+
+		shard := testutil.RandomMultihash(t)
+		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+		require.NoError(t, svc.Publish(ctx, mintLocationClaim(t, testutil.RandomDID(t), shard, *location)))
+		// A row queued before the spec was stored with it.
+		queue.rows = append(queue.rows, QueuedAdvert{Claim: testutil.RandomCID(t)})
+
+		rows, published, err := svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err, "a row without a spec is skipped, not an error")
+		require.Equal(t, 2, rows)
+		require.Equal(t, 1, published)
+		hd, err := publisherStore.Head(ctx)
+		require.NoError(t, err)
+		ad, err := publisherStore.Advert(ctx, hd.Head)
+		require.NoError(t, err)
+		require.Nil(t, ad.PreviousID, "only the row with a spec was advertised")
+	})
+
+	t.Run("a withdrawal waits for the batch in flight", func(t *testing.T) {
+		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, queue := newTestService(t, publisherStore, addr)
+
+		shard := testutil.RandomMultihash(t)
+		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+		clm := mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
+		require.NoError(t, svc.Publish(ctx, clm))
+
+		// Release arrives while the batch is loading its rows under the
+		// lock: it must not get in until the batch has committed.
+		withdrawn := make(chan error, 1)
+		queue.onClaimed = func(ctx context.Context) {
+			go func() { withdrawn <- svc.Withdraw(ctx, clm.Link()) }()
+			select {
+			case err := <-withdrawn:
+				t.Errorf("withdrawal completed while the batch held the lock (err=%v)", err)
+				// Put it back so the receive below does not hang the test.
+				withdrawn <- err
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+		_, _, err := svc.PublishClaimed(ctx, 1)
+		require.NoError(t, err)
+		require.NoError(t, <-withdrawn, "the withdrawal goes through once the batch has committed")
+		require.Empty(t, queue.links())
+		_, err = publisherStore.Head(ctx)
+		require.NoError(t, err, "the batch that held the lock committed")
 	})
 
 	t.Run("caches claims", func(t *testing.T) {
@@ -133,17 +282,13 @@ func TestPublisherService(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		svc, err := New(
-			testutil.Alice,
-			publisherStore,
-			addr,
+		svc, _ := newTestService(t, publisherStore, addr,
 			WithIndexingService(app.IndexingServiceConfig{
 				DID:    testutil.Bob.DID(),
 				Client: httpClient,
 			}),
 			WithIndexingServiceProof([]ucan.Delegation{proof}),
 		)
-		require.NoError(t, err)
 
 		space := testutil.RandomDID(t)
 		shard := testutil.RandomMultihash(t)

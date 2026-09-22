@@ -39,8 +39,6 @@ import (
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/app"
-	"github.com/fil-forge/piri/pkg/fx/root"
-	"github.com/fil-forge/piri/pkg/health"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/presets"
 )
@@ -674,11 +672,8 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 			el.UseLogLevel(zapcore.DebugLevel)
 			return el
 		}),
-		// Supply init mode for health checks
-		fx.Supply(health.ModeInit),
-		app.CommonModules(cfg),
-		app.PDPModule,
-		root.Module,
+		// the PDP half alone, as validated by TestInitModule_ValidateApp
+		app.InitModule(cfg),
 		fx.Populate(&pdpSvc, &wlt),
 	)
 
