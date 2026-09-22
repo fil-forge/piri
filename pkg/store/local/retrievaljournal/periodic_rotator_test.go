@@ -2,11 +2,13 @@ package retrievaljournal_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/ipfs/go-cid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
@@ -37,25 +39,44 @@ func TestPeriodicRotator(t *testing.T) {
 	}
 	pr := retrievaljournal.NewPeriodicRotator(&rj, time.Millisecond)
 
-	// collect the rotation batches
-	actualBatches := []cid.Cid{}
-	pr.RotateFunc = func(batchID cid.Cid) {
-		actualBatches = append(actualBatches, batchID)
-		t.Logf("Rotated batch: %s", batchID)
-	}
-
-	pr.Start()
-	time.Sleep(30 * time.Millisecond) // allow some time for rotations to occur
-	err := pr.Stop(t.Context())
-	require.NoError(t, err)
-
 	var expectedBatches []cid.Cid
 	for _, batch := range batches {
 		if batch != cid.Undef {
 			expectedBatches = append(expectedBatches, batch)
 		}
 	}
-	require.Equal(t, actualBatches, expectedBatches)
+
+	// collect the rotation batches. RotateFunc runs on the rotator's own
+	// goroutine and Eventually polls from a third, so the slice needs a lock:
+	// without one the poll races the appends and -race fails every run.
+	var mu sync.Mutex
+	actualBatches := []cid.Cid{}
+	pr.RotateFunc = func(batchID cid.Cid) {
+		mu.Lock()
+		actualBatches = append(actualBatches, batchID)
+		mu.Unlock()
+		t.Logf("Rotated batch: %s", batchID)
+	}
+
+	pr.Start()
+	// A deadline, not a fixed sleep. The rotator ticks every millisecond, so
+	// sleeping 30ms and asserting six rotations is a bet on how much CPU the
+	// goroutine gets: measured at 2 failures in 480 runs under GOMAXPROCS=1
+	// with 24 concurrent test processes, reporting three and five of six.
+	//
+	// assert, not require: require aborts this goroutine, so pr.Stop() below
+	// would never run and the rotator would leak.
+	assert.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(actualBatches) == len(expectedBatches)
+	}, 2*time.Second, time.Millisecond)
+	err := pr.Stop(t.Context())
+	require.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, expectedBatches, actualBatches)
 }
 
 type mockRetrievalJournal struct {
