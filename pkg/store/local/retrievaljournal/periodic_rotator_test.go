@@ -83,14 +83,23 @@ func TestPeriodicRotator(t *testing.T) {
 	// rule 5 warns about. Waiting on the drain makes it deterministic instead.
 	//
 	// assert, not require: require aborts this goroutine, so pr.Stop() below
-	// would never run. On a FAILING condition that is not merely an untidy
-	// leak -- a failing condition means the mock is still undrained, so the
-	// rotator is still producing, and it ticks into t.Logf after the test has
-	// returned until Go kills the binary with "Log in goroutine after
-	// TestPeriodicRotator has completed". Reproduced with a deadline short
-	// enough to fail, 10 processes out of 10; with the 2s deadline below the
-	// condition succeeds and nothing aborts, so the panic needs that
-	// precondition stated to be a true claim.
+	// would never run and the rotator is never stopped.
+	//
+	// THE PANIC THAT CAUSES NEEDS TWO PRECONDITIONS, and two revisions of this
+	// comment each stated only one. It needs a FAILING condition -- with the
+	// 2s deadline below the condition succeeds and require aborts nothing --
+	// AND a still-running rotator, which then ticks into t.Logf after the test
+	// has returned until Go kills the binary with "Log in goroutine after
+	// TestPeriodicRotator has completed". It also needs -count=5 or more:
+	// TestPeriodicRotator is the last test in this package, so at -count=1 the
+	// process exits before the stray log lands. Measured: 0 panics in 10 at
+	// -count=1, 10 in 10 at -count=5.
+	//
+	// "Undrained implies still producing" does NOT follow, which an earlier
+	// revision asserted. In the one fixture-drift case the drain half exists
+	// for -- an entry the rotator can never reach -- the rotator is stuck
+	// rather than producing, and require aborts with no panic at all: 0 in 10
+	// at -count=5, against 10 in 10 for a rotator still running.
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -100,10 +109,15 @@ func TestPeriodicRotator(t *testing.T) {
 	require.NoError(t, err)
 
 	// Restates what the condition waited for, so a timeout reports WHICH half
-	// was missing instead of only the batch-list diff. Stop() has joined the
-	// rotator goroutine by here -- run() does `defer close(r.stopped)` and
-	// Stop() blocks on <-r.stopped -- but the lock is taken anyway, because
-	// the ctx.Err() path in Stop() returns without that join.
+	// was missing instead of only the batch-list diff.
+	//
+	// The lock here is REDUNDANT, and an earlier revision justified it with a
+	// path that cannot be reached: Stop()'s ctx.Err() branch does return
+	// without joining, but require.NoError on the line above Goexits first, so
+	// execution never arrives here with the goroutine still running. On every
+	// path that does arrive, run() has closed r.stopped and Stop() has
+	// received it. Kept because every other access to these two variables is
+	// locked and an unlocked one here reads as an oversight.
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, len(batches), i, "the rotator did not consume every mock batch")
