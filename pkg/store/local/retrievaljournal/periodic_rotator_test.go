@@ -25,9 +25,14 @@ func TestPeriodicRotator(t *testing.T) {
 		testutil.RandomCID(t),
 		testutil.RandomCID(t),
 	}
+	// mu guards both i and actualBatches. Both are written on the rotator's
+	// goroutine and read by the Eventually condition on a third.
+	var mu sync.Mutex
 	i := 0
 	rj := mockRetrievalJournal{
 		forceRotateFunc: func() (bool, cid.Cid, error) {
+			mu.Lock()
+			defer mu.Unlock()
 			if i >= len(batches) {
 				return false, cid.Undef, nil
 			}
@@ -48,8 +53,8 @@ func TestPeriodicRotator(t *testing.T) {
 
 	// collect the rotation batches. RotateFunc runs on the rotator's own
 	// goroutine and Eventually polls from a third, so the slice needs a lock:
-	// without one the poll races the appends and -race fails every run.
-	var mu sync.Mutex
+	// without one the poll races the appends and -race catches it -- measured
+	// at 60 failures in 60 independent runs.
 	actualBatches := []cid.Cid{}
 	pr.RotateFunc = func(batchID cid.Cid) {
 		mu.Lock()
@@ -64,31 +69,44 @@ func TestPeriodicRotator(t *testing.T) {
 	// goroutine gets: measured at 2 failures in 480 runs under GOMAXPROCS=1
 	// with 24 concurrent test processes, reporting three and five of six.
 	//
-	// assert, not require. require aborts this goroutine, so pr.Stop() below
-	// never runs -- and the consequence is not a leak, it is a panic: the
-	// rotator keeps ticking into t.Logf after the test returns, and Go kills
-	// the binary with "Log in goroutine after TestPeriodicRotator has
-	// completed". Measured at -count=5, every run.
+	// Wait for BOTH: every fixture entry presented to the rotator, and every
+	// real one collected. The drain half is what keeps the fixture and the
+	// assertion from drifting apart -- add an entry the rotator can never
+	// reach and this times out and says so, rather than passing on a mock it
+	// only half consumed.
+	//
+	// Waiting on length alone is not enough, and an earlier revision's attempt
+	// to catch that AFTER Stop() was itself a race: with a trailing cid.Undef
+	// appended to batches, whether the rotator got one more tick before Stop()
+	// took effect decided whether the check fired. Measured at 97 catches in
+	// 120 runs -- a guard that is right 80% of the time, which is the shape
+	// rule 5 warns about. Waiting on the drain makes it deterministic instead.
+	//
+	// assert, not require: require aborts this goroutine, so pr.Stop() below
+	// would never run. On a FAILING condition that is not merely an untidy
+	// leak -- a failing condition means the mock is still undrained, so the
+	// rotator is still producing, and it ticks into t.Logf after the test has
+	// returned until Go kills the binary with "Log in goroutine after
+	// TestPeriodicRotator has completed". Reproduced with a deadline short
+	// enough to fail, 10 processes out of 10; with the 2s deadline below the
+	// condition succeeds and nothing aborts, so the panic needs that
+	// precondition stated to be a true claim.
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(actualBatches) == len(expectedBatches)
+		return i == len(batches) && len(actualBatches) == len(expectedBatches)
 	}, 2*time.Second, time.Millisecond)
 	err := pr.Stop(t.Context())
 	require.NoError(t, err)
 
-	// The condition above keys on LENGTH, which means "the mock was fully
-	// consumed" only because the last fixture entry happens to be a real CID.
-	// Append a cid.Undef to batches and the test would stop exercising the
-	// tail without any assertion noticing. Check the drain directly.
-	//
-	// Reading i here is race-free: Stop() joins the rotator goroutine --
-	// run() does `defer close(r.stopped)` and Stop() blocks on <-r.stopped --
-	// so nothing is still calling forceRotateFunc.
-	require.Equal(t, len(batches), i, "the rotator did not consume every mock batch")
-
+	// Restates what the condition waited for, so a timeout reports WHICH half
+	// was missing instead of only the batch-list diff. Stop() has joined the
+	// rotator goroutine by here -- run() does `defer close(r.stopped)` and
+	// Stop() blocks on <-r.stopped -- but the lock is taken anyway, because
+	// the ctx.Err() path in Stop() returns without that join.
 	mu.Lock()
 	defer mu.Unlock()
+	require.Equal(t, len(batches), i, "the rotator did not consume every mock batch")
 	require.Equal(t, expectedBatches, actualBatches)
 }
 
