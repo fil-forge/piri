@@ -64,8 +64,11 @@ func TestPeriodicRotator(t *testing.T) {
 	// goroutine gets: measured at 2 failures in 480 runs under GOMAXPROCS=1
 	// with 24 concurrent test processes, reporting three and five of six.
 	//
-	// assert, not require: require aborts this goroutine, so pr.Stop() below
-	// would never run and the rotator would leak.
+	// assert, not require. require aborts this goroutine, so pr.Stop() below
+	// never runs -- and the consequence is not a leak, it is a panic: the
+	// rotator keeps ticking into t.Logf after the test returns, and Go kills
+	// the binary with "Log in goroutine after TestPeriodicRotator has
+	// completed". Measured at -count=5, every run.
 	assert.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -73,6 +76,16 @@ func TestPeriodicRotator(t *testing.T) {
 	}, 2*time.Second, time.Millisecond)
 	err := pr.Stop(t.Context())
 	require.NoError(t, err)
+
+	// The condition above keys on LENGTH, which means "the mock was fully
+	// consumed" only because the last fixture entry happens to be a real CID.
+	// Append a cid.Undef to batches and the test would stop exercising the
+	// tail without any assertion noticing. Check the drain directly.
+	//
+	// Reading i here is race-free: Stop() joins the rotator goroutine --
+	// run() does `defer close(r.stopped)` and Stop() blocks on <-r.stopped --
+	// so nothing is still calling forceRotateFunc.
+	require.Equal(t, len(batches), i, "the rotator did not consume every mock batch")
 
 	mu.Lock()
 	defer mu.Unlock()
