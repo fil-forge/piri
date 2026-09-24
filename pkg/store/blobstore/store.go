@@ -26,7 +26,7 @@ type Store struct {
 // NewS3Store creates a Blobstore backed by an S3/MinIO object store.
 func NewS3Store(backend *minio_store.Store) *Store {
 	return &Store{
-		backend: backend,
+		backend: objectstore.Traced("blobs", backend),
 		encoder: NewBase32FlatFSKeyEncoder(),
 	}
 }
@@ -34,7 +34,7 @@ func NewS3Store(backend *minio_store.Store) *Store {
 // NewFlatfsStore creates a Blobstore backed by a flatfs object store.
 func NewFlatfsStore(backend *flatfs.Store) *Store {
 	return &Store{
-		backend: backend,
+		backend: objectstore.Traced("blobs", backend),
 		encoder: Base32KeyEncoder{},
 	}
 }
@@ -43,7 +43,7 @@ func NewFlatfsStore(backend *flatfs.Store) *Store {
 // Useful for testing with sync.MutexWrap(datastore.NewMapDatastore()).
 func NewDatastoreStore(ds datastore.Datastore) *Store {
 	return &Store{
-		backend: dsadapter.New(ds),
+		backend: objectstore.Traced("blobs", dsadapter.New(ds)),
 		encoder: PlainKeyEncoder{},
 	}
 }

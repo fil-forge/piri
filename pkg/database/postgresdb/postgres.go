@@ -6,8 +6,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	logging "github.com/ipfs/go-log/v2"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 )
@@ -93,10 +95,14 @@ func New(connURL string, schema string, opts ...Option) (*sql.DB, error) {
 
 	log.Infof("connecting to postgres (schema: %s)", schema)
 
-	db, err := sql.Open("pgx", dsn)
+	// Opened through pgx's stdlib so every query is a span on the caller's
+	// trace.
+	pgxCfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("opening postgres connection: %w", err)
+		return nil, fmt.Errorf("parsing postgres connection URL: %w", err)
 	}
+	pgxCfg.Tracer = otelpgx.NewTracer()
+	db := stdlib.OpenDB(*pgxCfg)
 
 	// Verify connection
 	if err = db.Ping(); err != nil {

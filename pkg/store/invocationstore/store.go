@@ -43,7 +43,7 @@ var _ InvocationStore = (*Store)(nil)
 // New creates a InvocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New(backend, Codec{}),
+		store:   genericstore.New(objectstore.TracedListable("invocations", backend), Codec{}),
 		encoder: encoder,
 	}
 }

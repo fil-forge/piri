@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
@@ -66,6 +67,9 @@ func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation)
 		if err := pub.queue.Enqueue(ctx, claim.Link(), spec); err != nil {
 			return err
 		}
+		// Caching the claim with the indexing service stays synchronous: it is
+		// what makes a blob readable as soon as its accept returns, and it is
+		// what lets the IPNI advertisement chain above be built async.
 		return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
 	default:
 		return fmt.Errorf("unknown claim: %s", ability)
@@ -190,7 +194,15 @@ func CacheClaim(
 	invocationProofs []ucan.Delegation,
 	clm ucan.Invocation,
 	providerAddresses []multiaddr.Multiaddr,
-) error {
+) (err error) {
+	ctx, span := tracer.Start(ctx, "claim.cache")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 	log := log.With("claim", clm.Link())
 
 	if !indexingService.DID.Defined() {
