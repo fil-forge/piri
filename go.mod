@@ -9,12 +9,13 @@ require (
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/ethereum/go-ethereum v1.17.5
+	github.com/exaring/otelpgx v0.12.0
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc
-	github.com/fil-forge/libforge v0.0.0-20260917175304-96b4969f0476
+	github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
-	github.com/fil-forge/ucantone v0.0.0-20260923134326-7eea01e38c0b
+	github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
@@ -62,6 +63,7 @@ require (
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
 	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.70.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.46.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
@@ -300,7 +302,6 @@ require (
 	go.mongodb.org/mongo-driver v1.17.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.64.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect

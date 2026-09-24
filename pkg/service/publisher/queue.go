@@ -8,6 +8,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
@@ -41,7 +42,15 @@ func NewDBQueue(db *harmonydb.DB) *DBQueue { return &DBQueue{db: db} }
 
 // Enqueue records that the claim's advertisement is owed, and what to
 // advertise. A claim already queued is left as it is.
-func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) error {
+func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) (err error) {
+	ctx, span := tracer.Start(ctx, "publisher.queue_advert")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 	encoded, err := advert.Encode(spec)
 	if err != nil {
 		return fmt.Errorf("queueing advertisement for %s: %w", claim, err)

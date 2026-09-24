@@ -11,6 +11,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/minio/minio-go/v7"
 
+	"github.com/fil-forge/piri/lib/telemetry"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
@@ -22,6 +23,16 @@ type Store struct {
 }
 
 func New(endpoint, bucket string, opts minio.Options) (*Store, error) {
+	// Every object store call is a client span on the caller's trace.
+	base := opts.Transport
+	if base == nil {
+		tr, err := minio.DefaultTransport(opts.Secure)
+		if err != nil {
+			return nil, fmt.Errorf("creating transport: %w", err)
+		}
+		base = tr
+	}
+	opts.Transport = telemetry.NewTransport(base)
 	client, err := minio.New(endpoint, &opts)
 	if err != nil {
 		return nil, err
