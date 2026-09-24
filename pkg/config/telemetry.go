@@ -14,9 +14,8 @@ type TelemetryCollectorConfig struct {
 }
 
 type TelemetryConfig struct {
-	Metrics                  []TelemetryCollectorConfig `mapstructure:"metrics" toml:"metrics,omitempty"`
-	Traces                   []TelemetryCollectorConfig `mapstructure:"traces" toml:"traces,omitempty"`
-	DisableStorachaAnalytics bool                       `mapstructure:"disable_storacha_analytics" toml:"disable_storacha_analytics,omitempty"`
+	Metrics []TelemetryCollectorConfig `mapstructure:"metrics" toml:"metrics,omitempty"`
+	Traces  []TelemetryCollectorConfig `mapstructure:"traces" toml:"traces,omitempty"`
 }
 
 func (t TelemetryConfig) Validate() error {
@@ -38,8 +37,7 @@ func (t TelemetryConfig) ToAppConfig() app.TelemetryConfig {
 	}
 
 	return app.TelemetryConfig{
-		Metrics:                  convert(t.Metrics),
-		Traces:                   convert(t.Traces),
-		DisableStorachaAnalytics: t.DisableStorachaAnalytics,
+		Metrics: convert(t.Metrics),
+		Traces:  convert(t.Traces),
 	}
 }

@@ -1,8 +1,14 @@
 package setup
 
 import (
+	"bytes"
 	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/ucantone/did"
@@ -387,4 +393,47 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, "flags-s3.example.com:9000", result.Repo.S3.Endpoint)
 		require.Equal(t, "flags-winner-", result.Repo.S3.BucketPrefix)
 	})
+}
+
+// The base config's [telemetry] section has to survive init: it is the only way
+// an operator who drives init through --base-config can point Piri at their own
+// collector.
+func TestBaseConfigTelemetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "base-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[[telemetry.metrics]]
+endpoint = "host.docker.internal:4318"
+insecure = true
+publish_interval = "30s"
+`), 0o600))
+
+	baseValues, err := loadBaseConfig(path)
+	require.NoError(t, err)
+
+	publicURL, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+	flags := &initFlags{publicURL: publicURL, baseConfig: baseValues}
+
+	generated, err := generateConfig(&appcfg.AppConfig{}, flags, common.Address{}, 1, "", "")
+	require.NoError(t, err)
+
+	// Round-trip through the file init writes and the loader serve reads it
+	// with, so the check covers the encoding of publish_interval too.
+	var buf bytes.Buffer
+	require.NoError(t, toml.NewEncoder(&buf).Encode(generated))
+
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetConfigType("toml")
+	require.NoError(t, viper.ReadConfig(&buf))
+	var loaded config.FullServerConfig
+	require.NoError(t, viper.Unmarshal(&loaded))
+
+	require.Equal(t, config.TelemetryConfig{
+		Metrics: []config.TelemetryCollectorConfig{{
+			Endpoint:        "host.docker.internal:4318",
+			Insecure:        true,
+			PublishInterval: 30 * time.Second,
+		}},
+	}, loaded.Telemetry)
 }

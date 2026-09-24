@@ -3,9 +3,8 @@ package app
 import "time"
 
 type TelemetryConfig struct {
-	Metrics                  []TelemetryCollectorConfig
-	Traces                   []TelemetryCollectorConfig
-	DisableStorachaAnalytics bool
+	Metrics []TelemetryCollectorConfig
+	Traces  []TelemetryCollectorConfig
 }
 
 type TelemetryCollectorConfig struct {

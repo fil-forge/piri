@@ -1,16 +1,9 @@
 # telemetry
 
-Observability configuration for metrics and distributed tracing.
-
-| Key                                    | Default | Env                                         | Dynamic |
-|----------------------------------------|---------|---------------------------------------------|---------|
-| `telemetry.disable_storacha_analytics` | `false` | `PIRI_TELEMETRY_DISABLE_STORACHA_ANALYTICS` | No      |
+Observability configuration for metrics and distributed tracing. Piri exports telemetry only to the
+collectors listed here; with none configured, it exports nothing.
 
 ## Fields
-
-### `disable_storacha_analytics`
-
-Disable sending analytics to Forge Development Team. See [Operations > Telemetry](../operations/telemetry.md) for details on what data is collected.
 
 ### `metrics`
 
@@ -38,9 +31,6 @@ See [Concepts > Telemetry](../concepts/telemetry.md) for details on available me
 ## TOML
 
 ```toml
-[telemetry]
-disable_storacha_analytics = false
-
 [[telemetry.metrics]]
 endpoint = "https://otel.example.com:4317"
 insecure = false

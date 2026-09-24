@@ -175,14 +175,18 @@ type baseConfigValues struct {
 	// Storage configuration from base-config
 	database config.DatabaseConfig
 	s3Config *config.S3Config
+	// Telemetry collectors from base-config, copied into the generated config
+	// as-is
+	telemetry config.TelemetryConfig
 }
 
 // baseConfig represents the structure of the base config TOML file
 type baseConfig struct {
-	Network string         `toml:"network"`
-	PDP     basePDPConfig  `toml:"pdp"`
-	UCAN    baseUCANConfig `toml:"ucan"`
-	Repo    baseRepoConfig `toml:"repo"`
+	Network   string                 `toml:"network"`
+	PDP       basePDPConfig          `toml:"pdp"`
+	UCAN      baseUCANConfig         `toml:"ucan"`
+	Repo      baseRepoConfig         `toml:"repo"`
+	Telemetry config.TelemetryConfig `toml:"telemetry"`
 }
 
 // baseRepoConfig holds storage configuration from base config TOML file
@@ -270,6 +274,7 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		ipniAnnounceURLs:        cfg.UCAN.Services.Publisher.IPNIAnnounceURLs,
 		database:                cfg.Repo.Database,
 		s3Config:                cfg.Repo.S3,
+		telemetry:               cfg.Telemetry,
 	}, nil
 }
 
@@ -996,6 +1001,7 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 			ProofSetID:   proofSetID,
 			PLCDirectory: flags.plcDirectory,
 		},
+		Telemetry: flags.baseConfig.telemetry,
 	}, nil
 }
 
