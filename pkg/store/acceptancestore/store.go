@@ -54,7 +54,7 @@ var _ AcceptanceStore = (*Store)(nil)
 // New creates an AcceptanceStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New(backend, acceptance.Codec{}),
+		store:   genericstore.New(objectstore.TracedListable("acceptances", backend), acceptance.Codec{}),
 		encoder: encoder,
 	}
 }
