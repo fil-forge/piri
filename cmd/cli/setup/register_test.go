@@ -1,11 +1,14 @@
 package setup
 
 import (
+	"bytes"
 	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/ucantone/did"
@@ -232,39 +235,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, "test-token", result.PDPService.LotusAuthToken)
 	})
 
-	t.Run("carries telemetry collectors into the generated config", func(t *testing.T) {
-		setupViperDefaults(t)
-		flags := baseFlags()
-		flags.baseConfig.telemetry = config.TelemetryConfig{
-			Environment: "staging",
-			Metrics: []config.TelemetryCollectorConfig{{
-				Endpoint:        "alloy:4318",
-				Insecure:        true,
-				PublishInterval: 30 * time.Second,
-			}},
-		}
-
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
-		require.NoError(t, err)
-
-		require.Equal(t, "staging", result.Telemetry.Environment)
-		require.Len(t, result.Telemetry.Metrics, 1)
-		require.Equal(t, "alloy:4318", result.Telemetry.Metrics[0].Endpoint)
-		require.True(t, result.Telemetry.Metrics[0].Insecure)
-		require.Equal(t, 30*time.Second, result.Telemetry.Metrics[0].PublishInterval)
-	})
-
-	t.Run("generates no telemetry config when the base config names none", func(t *testing.T) {
-		setupViperDefaults(t)
-
-		result, err := generateConfig(baseCfg(), baseFlags(), ownerAddress, 1, "indexer-proof", "egress-proof")
-		require.NoError(t, err)
-
-		require.Empty(t, result.Telemetry.Environment)
-		require.Empty(t, result.Telemetry.Metrics)
-		require.Empty(t, result.Telemetry.Traces)
-	})
-
 	t.Run("leaves the lotus auth token empty when unset", func(t *testing.T) {
 		setupViperDefaults(t)
 
@@ -425,45 +395,45 @@ func TestGenerateConfig(t *testing.T) {
 	})
 }
 
-// The appliance configures Piri through a base config file, so a [telemetry]
-// section there has to survive the round trip into the generated config.
-func TestLoadBaseConfigTelemetry(t *testing.T) {
-	write := func(t *testing.T, contents string) string {
-		t.Helper()
-		path := filepath.Join(t.TempDir(), "piri-base-config.toml")
-		require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
-		return path
-	}
-
-	t.Run("reads a metrics collector", func(t *testing.T) {
-		path := write(t, `
-[telemetry]
-environment = "staging"
-
+// The base config's [telemetry] section has to survive init: it is the only way
+// an operator who drives init through --base-config can point Piri at their own
+// collector.
+func TestBaseConfigTelemetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "base-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
 [[telemetry.metrics]]
-endpoint = "alloy:4318"
+endpoint = "host.docker.internal:4318"
 insecure = true
 publish_interval = "30s"
-`)
+`), 0o600))
 
-		values, err := loadBaseConfig(path)
-		require.NoError(t, err)
+	baseValues, err := loadBaseConfig(path)
+	require.NoError(t, err)
 
-		require.Equal(t, "staging", values.telemetry.Environment)
-		require.Len(t, values.telemetry.Metrics, 1)
-		require.Equal(t, "alloy:4318", values.telemetry.Metrics[0].Endpoint)
-		require.True(t, values.telemetry.Metrics[0].Insecure)
-		require.Equal(t, 30*time.Second, values.telemetry.Metrics[0].PublishInterval)
-	})
+	publicURL, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+	flags := &initFlags{publicURL: publicURL, baseConfig: baseValues}
 
-	t.Run("leaves telemetry empty when the section is absent", func(t *testing.T) {
-		path := write(t, "network = \"warm-staging\"\n")
+	generated, err := generateConfig(&appcfg.AppConfig{}, flags, common.Address{}, 1, "", "")
+	require.NoError(t, err)
 
-		values, err := loadBaseConfig(path)
-		require.NoError(t, err)
+	// Round-trip through the file init writes and the loader serve reads it
+	// with, so the check covers the encoding of publish_interval too.
+	var buf bytes.Buffer
+	require.NoError(t, toml.NewEncoder(&buf).Encode(generated))
 
-		require.Empty(t, values.telemetry.Metrics)
-		require.Empty(t, values.telemetry.Traces)
-		require.Empty(t, values.telemetry.Environment)
-	})
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.SetConfigType("toml")
+	require.NoError(t, viper.ReadConfig(&buf))
+	var loaded config.FullServerConfig
+	require.NoError(t, viper.Unmarshal(&loaded))
+
+	require.Equal(t, config.TelemetryConfig{
+		Metrics: []config.TelemetryCollectorConfig{{
+			Endpoint:        "host.docker.internal:4318",
+			Insecure:        true,
+			PublishInterval: 30 * time.Second,
+		}},
+	}, loaded.Telemetry)
 }

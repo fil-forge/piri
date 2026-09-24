@@ -3,16 +3,13 @@ package invocationstore
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	"golang.org/x/sync/errgroup"
 
-	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
@@ -23,10 +20,6 @@ import (
 type InvocationStore interface {
 	// Get retrieves a invocation by its root CID.
 	Get(context.Context, cid.Cid) (ucan.Invocation, error)
-	// GetAll retrieves the invocations with the given root CIDs, keyed by
-	// CID. A CID the store does not hold is absent from the result rather
-	// than an error.
-	GetAll(context.Context, []cid.Cid) (map[cid.Cid]ucan.Invocation, error)
 	// Put adds or replaces a invocation in the store.
 	Put(context.Context, ucan.Invocation) error
 	// Delete removes an invocation by its root CID. Deleting a missing
@@ -61,39 +54,6 @@ func (s *Store) Get(ctx context.Context, link cid.Cid) (ucan.Invocation, error) 
 		return nil, fmt.Errorf("getting invocation: %w", err)
 	}
 	return dlg, nil
-}
-
-// getAllConcurrency bounds the reads GetAll has in flight: the backend may be
-// an object store a round trip away, and a batch may hold a thousand links.
-const getAllConcurrency = 16
-
-func (s *Store) GetAll(ctx context.Context, links []cid.Cid) (map[cid.Cid]ucan.Invocation, error) {
-	found := make([]ucan.Invocation, len(links))
-	grp, ctx := errgroup.WithContext(ctx)
-	grp.SetLimit(getAllConcurrency)
-	for i, link := range links {
-		grp.Go(func() error {
-			inv, err := s.Get(ctx, link)
-			if errors.Is(err, store.ErrNotFound) {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			found[i] = inv
-			return nil
-		})
-	}
-	if err := grp.Wait(); err != nil {
-		return nil, err
-	}
-	out := make(map[cid.Cid]ucan.Invocation, len(links))
-	for i, inv := range found {
-		if inv != nil {
-			out[links[i]] = inv
-		}
-	}
-	return out, nil
 }
 
 func (s *Store) Put(ctx context.Context, dlg ucan.Invocation) error {

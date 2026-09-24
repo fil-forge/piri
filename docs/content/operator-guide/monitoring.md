@@ -39,8 +39,8 @@ Monitor your job queues for stuck or failed jobs:
 | `replication` | Data replication transfers |
 | `egress-tracker` | Retrieval event submission |
 
-Piece aggregation and the rest of the PDP pipeline run on a separate scheduler,
-not on these queues, and report no metrics.
+These are the only two job queues. Piece aggregation and the rest of PDP run on
+a separate scheduler that emits no metrics of its own.
 
 A growing backlog or high failure rate indicates problems. Check logs for error details.
 
@@ -74,17 +74,15 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `queued_jobs` | Jobs waiting in queue |
 | `failed_jobs` | Permanently failed jobs (investigate these) |
 | `job_duration` | How long jobs take |
+| `ipni_pending_adverts` | IPNI advertisements queued and not yet published |
+| `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
-| `chain_current_epoch` | Current Filecoin epoch |
-| `next_challenge_window_start_epoch` | When next challenge starts |
 
 ### Setting Up Metrics Collection
 
-Piri exports nothing until you name a collector. The endpoint is a host and
-port, with no scheme and no path, and OTLP/HTTP conventionally listens on
-4318:
+Configure a metrics endpoint:
 
 ```toml
 [[telemetry.metrics]]
@@ -93,10 +91,11 @@ insecure = true
 publish_interval = "30s"
 ```
 
-Send metrics to Prometheus, Grafana, or any OTLP-compatible backend. See
-[Configuration > telemetry](../configuration/telemetry.md) for every field,
-and [Operations > Telemetry](../operations/telemetry.md) for what a node
-reports about itself.
+`endpoint` is a host and optional port, with no scheme and no path: Piri exports over OTLP/HTTP
+(port 4318 by convention) and appends `/v1/metrics` itself. See
+[Configuration > telemetry](../configuration/telemetry.md).
+
+Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 
 ## Logs
 
@@ -166,10 +165,10 @@ Recommended alerts:
 
 ### Replication Failing
 
-1. Check replicator queue for stuck jobs
+1. Check the `replication` queue for stuck jobs
 2. Verify network connectivity to source
 3. Check disk space
-4. Review replicator logs
+4. Review the replicator logs
 
 ### High Job Failure Rate
 

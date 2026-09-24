@@ -16,15 +16,13 @@ import (
 )
 
 // defaultPublishInterval is how often a metrics collector that does not
-// configure an interval of its own publishes.
+// configure an interval of its own publishes. The provider rejects an interval
+// of zero, so a collector that leaves it unset gets this rather than an error.
 const defaultPublishInterval = 30 * time.Second
 
-// Setup builds the telemetry providers from the configured collectors. Piri
-// ships telemetry nowhere by default: a node exports only to the collectors
-// its configuration names.
 func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConfig) (*telemetry.Telemetry, error) {
-	// Route the SDK's own errors through Piri's logger before anything can
-	// start exporting, so an unreachable collector is legible.
+	// Route the SDK's errors through Piri's logger before anything can start
+	// exporting, so an unreachable collector is legible.
 	SetErrorHandler()
 
 	// The network is only a deployment environment for a node running against
@@ -55,8 +53,6 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 
 	// Build trace collectors list
 	var traceCollectors []traces.CollectorConfig
-
-	// Add user-configured collectors
 	for _, c := range cfg.Traces {
 		traceCollectors = append(traceCollectors, traces.CollectorConfig{
 			Endpoint:        c.Endpoint,

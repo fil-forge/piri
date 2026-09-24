@@ -96,13 +96,6 @@ var errLostOwnership = errors.New("publish task is no longer owned by this worke
 
 func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	ctx := context.Background()
-	claims, err := t.queue.claimed(ctx, taskID)
-	if err != nil {
-		return false, err
-	}
-	if len(claims) == 0 {
-		return true, nil
-	}
 	// A failure leaves the rows stamped for this task, and harmonytask
 	// retries it with the same batch. That is safe on the publisher's side
 	// too: a failed commit leaves nothing behind, and anything that did
@@ -113,10 +106,14 @@ func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 	if !stillOwned() {
 		return false, errLostOwnership
 	}
-	if err := t.svc.PublishClaims(ctx, claims); err != nil {
+	rows, published, err := t.svc.PublishClaimed(ctx, taskID)
+	if err != nil {
 		return false, err
 	}
-	log.Infow("published advertisement batch", "claims", len(claims))
+	if rows == 0 {
+		return true, nil
+	}
+	log.Infow("published advertisement batch", "rows", rows, "published", published, "skipped", rows-published)
 	return true, t.queue.retire(ctx, taskID)
 }
 

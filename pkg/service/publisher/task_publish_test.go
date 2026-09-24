@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
-	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
 
 // TestPublishTask_PublishesClaimedBatch runs the task against harmonydb:
@@ -35,9 +36,8 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	queue := NewDBQueue(db)
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
 		store.WithMetadataContext(metadata.MetadataContext))
-	claims := invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, claims)
+	svc, err := New(testutil.Alice, publisherStore, addr, queue)
 	require.NoError(t, err)
 	task := NewPublishTask(queue, svc)
 
@@ -45,28 +45,36 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 		shard := testutil.RandomMultihash(t)
 		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
 		clm := mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
-		require.NoError(t, claims.Put(ctx, clm))
-		require.NoError(t, queue.Enqueue(ctx, clm.Link()))
+		require.NoError(t, svc.Publish(ctx, clm))
 		return clm.Link()
 	}
 
 	// Three accepted blobs owe an advertisement; a fourth is released before
-	// it is published, and a fifth is accepted again (the same claim twice).
+	// it is published; a fifth is accepted again (the same claim twice); and
+	// a sixth was queued before the spec was stored with the row, as rows
+	// from an older release are.
 	const published = 3
 	var links []cid.Cid
 	for range published {
 		links = append(links, queueClaim())
 	}
 	released := queueClaim()
-	require.NoError(t, claims.Delete(ctx, released))
-	require.NoError(t, queue.Dequeue(ctx, released))
-	require.NoError(t, queue.Enqueue(ctx, links[0]), "re-queueing a claim is a no-op")
+	require.NoError(t, svc.Withdraw(ctx, released))
+	require.NoError(t, queue.Enqueue(ctx, links[0], advert.Spec{}), "re-queueing a claim is a no-op")
+	legacy := testutil.RandomCID(t)
+	_, err = db.Exec(ctx, `INSERT INTO ipni_pending_adverts (claim) VALUES ($1)`, legacy.String())
+	require.NoError(t, err)
+	// And a seventh whose spec is not one: skipped like the legacy row.
+	garbled := testutil.RandomCID(t)
+	_, err = db.Exec(ctx, `INSERT INTO ipni_pending_adverts (claim, spec) VALUES ($1, $2)`, garbled.String(), []byte("not a spec"))
+	require.NoError(t, err)
+	const queued = published + 2 // the legacy and garbled rows ride along
 
-	// The backlog the metrics report: three waiting, the oldest for no time
+	// The backlog the metrics report: four waiting, the oldest for no time
 	// worth speaking of yet.
 	count, oldest, err := queue.pending(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, published, count)
+	require.EqualValues(t, queued, count)
 	require.GreaterOrEqual(t, oldest, time.Duration(0))
 	require.Less(t, oldest, time.Minute)
 
@@ -77,15 +85,25 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, stamped)
-	claimed, err := queue.claimed(ctx, id)
+	claimed, err := queue.Claimed(ctx, id)
 	require.NoError(t, err)
-	require.ElementsMatch(t, links, claimed, "the released claim is not in the batch")
+	require.ElementsMatch(t, append(slices.Clone(links), legacy, garbled), claimsOf(claimed), "the released claim is not in the batch")
+	for _, row := range claimed {
+		switch row.Claim {
+		case legacy:
+			require.Nil(t, row.Spec, "a row from before the spec was stored has none")
+		case garbled:
+			require.Nil(t, row.Spec, "a row whose spec does not decode has none")
+		default:
+			require.NotNil(t, row.Spec, "a queued claim carries its spec")
+		}
+	}
 
 	// Claimed rows still count as pending: a batch that is retrying must not
 	// vanish from the backlog gauges.
 	count, _, err = queue.pending(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, published, count, "claimed rows are still pending")
+	require.EqualValues(t, queued, count, "claimed rows are still pending")
 
 	// A worker the engine has taken the task from publishes nothing and
 	// leaves the rows for the new owner.
@@ -94,15 +112,16 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	require.False(t, done)
 	_, err = publisherStore.Head(ctx)
 	require.True(t, store.IsNotFound(err), "a worker that lost the task must not publish")
-	claimed, err = queue.claimed(ctx, id)
+	claimed, err = queue.Claimed(ctx, id)
 	require.NoError(t, err)
-	require.Len(t, claimed, published, "the rows stay stamped for the task's new owner")
+	require.Len(t, claimed, queued, "the rows stay stamped for the task's new owner")
 
 	done, err = task.Do(id, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 
-	// One chain of three advertisements behind one head.
+	// One chain of three advertisements behind one head: the legacy and
+	// garbled rows are skipped, and retired with the batch below.
 	hd, err := publisherStore.Head(ctx)
 	require.NoError(t, err)
 	var chain int
@@ -158,7 +177,7 @@ func TestDBQueue_ReclaimsOrphanedRows(t *testing.T) {
 
 	links := []cid.Cid{testutil.RandomCID(t), testutil.RandomCID(t)}
 	for _, l := range links {
-		require.NoError(t, queue.Enqueue(ctx, l))
+		require.NoError(t, queue.Enqueue(ctx, l, advert.Spec{}))
 	}
 	// Stamped by a task id that is not in harmony_task, as after the engine
 	// deleted a task that failed too often.
@@ -178,7 +197,16 @@ func TestDBQueue_ReclaimsOrphanedRows(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, stamped, "reclaimed rows are claimable again")
-	claimed, err := queue.claimed(ctx, 7)
+	claimed, err := queue.Claimed(ctx, 7)
 	require.NoError(t, err)
-	require.ElementsMatch(t, links, claimed)
+	require.ElementsMatch(t, links, claimsOf(claimed))
+}
+
+// claimsOf lists the claims of queued rows.
+func claimsOf(rows []QueuedAdvert) []cid.Cid {
+	out := make([]cid.Cid, len(rows))
+	for i, r := range rows {
+		out[i] = r.Claim
+	}
+	return out
 }

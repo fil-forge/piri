@@ -2,8 +2,10 @@ package ucanfx
 
 import (
 	"fmt"
+	"runtime/debug"
 	"time"
 
+	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/ucantone/did"
@@ -11,6 +13,7 @@ import (
 	"github.com/fil-forge/ucantone/did/plc"
 	"github.com/fil-forge/ucantone/did/resolver"
 	"github.com/fil-forge/ucantone/did/web"
+	"github.com/fil-forge/ucantone/execution"
 
 	// Registers the secp256k1 verification method used by did:plc DID documents.
 	_ "github.com/fil-forge/ucantone/multikey/secp256k1/verifier"
@@ -25,6 +28,8 @@ import (
 	"github.com/fil-forge/piri/pkg/ucanhandlers/content"
 	"github.com/fil-forge/piri/pkg/ucanhandlers/pdp"
 )
+
+var log = logging.Logger("ucan")
 
 // Module composes the UCAN HTTP surface. It builds the two servers
 // (body-CAR RPC + header-container retrieval), exposes each as an echo
@@ -66,6 +71,17 @@ var Module = fx.Module("ucan",
 				validator.WithDIDResolver(resolver),
 			)
 		}),
+
+		// The dispatcher recovers panics raised while executing an
+		// invocation and answers with an ExecutionFailure receipt. Route
+		// the recovered value to piri's logger instead of the standard
+		// log package.
+		ucanhandlers.ProvideRPCOption(func() server.HTTPOption {
+			return server.WithPanicLogger(logPanic)
+		}),
+		ucanhandlers.ProvideRetrievalOption(func() server.HTTPOption {
+			return server.WithPanicLogger(logPanic)
+		}),
 	),
 
 	access.Module,
@@ -74,6 +90,18 @@ var Module = fx.Module("ucan",
 	content.Module,
 	pdp.Module,
 )
+
+// logPanic records a panic recovered by the UCAN dispatcher. It runs on the
+// panicking goroutine inside the deferred recover, so debug.Stack returns the
+// stack of the panic.
+func logPanic(req execution.Request, value any) {
+	log.Errorw("panic executing UCAN invocation",
+		"command", req.Invocation().Command(),
+		"task", req.Invocation().Task().Link(),
+		"panic", value,
+		"stack", string(debug.Stack()),
+	)
+}
 
 // newDIDResolver builds the DID resolver used to validate incoming UCANs. It
 // always supports did:key and did:web, and additionally supports did:plc when a

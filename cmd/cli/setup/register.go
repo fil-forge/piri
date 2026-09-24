@@ -175,8 +175,8 @@ type baseConfigValues struct {
 	// Storage configuration from base-config
 	database config.DatabaseConfig
 	s3Config *config.S3Config
-	// telemetry is carried through to the generated config verbatim. A
-	// preset supplies none: a node exports only where its operator says.
+	// Telemetry collectors from base-config, copied into the generated config
+	// as-is
 	telemetry config.TelemetryConfig
 }
 
@@ -186,7 +186,7 @@ type baseConfig struct {
 	PDP       basePDPConfig          `toml:"pdp"`
 	UCAN      baseUCANConfig         `toml:"ucan"`
 	Repo      baseRepoConfig         `toml:"repo"`
-	Telemetry config.TelemetryConfig `toml:"telemetry,omitempty"`
+	Telemetry config.TelemetryConfig `toml:"telemetry"`
 }
 
 // baseRepoConfig holds storage configuration from base config TOML file
@@ -937,12 +937,6 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 		network = flags.baseConfig.network
 	}
 
-	// Telemetry comes from the base config only; a preset supplies none.
-	var telemetryConfig config.TelemetryConfig
-	if flags.baseConfig != nil {
-		telemetryConfig = flags.baseConfig.telemetry
-	}
-
 	// Build repo config with storage backend settings
 	repoConfig := config.RepoConfig{
 		DataDir: cfg.Storage.DataDir,
@@ -1007,7 +1001,7 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 			ProofSetID:   proofSetID,
 			PLCDirectory: flags.plcDirectory,
 		},
-		Telemetry: telemetryConfig,
+		Telemetry: flags.baseConfig.telemetry,
 	}, nil
 }
 

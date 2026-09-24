@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/ucanhandlers"
 	"github.com/fil-forge/piri/pkg/ucanhandlers/ucanfxtest/base"
 )
 
@@ -68,6 +69,7 @@ func (s *RPCSuite) SetupSuite() {
 				},
 			}
 		}),
+		fx.Provide(ucanhandlers.ProvideRPC(newPanicRoute)),
 		fx.Populate(
 			&s.Allocations,
 			&s.Acceptances,

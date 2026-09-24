@@ -1,6 +1,7 @@
 package blob
 
 import (
+	"context"
 	"testing"
 
 	"github.com/fil-forge/libforge/commands"
@@ -199,4 +200,50 @@ func TestRelease_DequeuesPendingAdvert(t *testing.T) {
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: testutil.RandomDID(t), Digest: testutil.RandomMultihash(t)}))
 	require.Len(t, w.adverts.Withdrawn(), 1, "an unknown blob has no advertisement to withdraw")
+}
+
+// withdrawBeforeDelete is a Withdrawer that records whether the claim was
+// still in the store when its advertisement was withdrawn.
+type withdrawBeforeDelete struct {
+	claims       *invocationstore.Store
+	claimPresent []bool
+}
+
+func (w *withdrawBeforeDelete) Withdraw(ctx context.Context, claim cid.Cid) error {
+	_, err := w.claims.Get(ctx, claim)
+	w.claimPresent = append(w.claimPresent, err == nil)
+	return nil
+}
+
+// TestRelease_WithdrawsBeforeDeletingTheClaim pins the order: a publish
+// batch works from its queue row alone, so the row must be withdrawn while
+// the claim still exists. The other way round, a batch that loads between
+// the two steps publishes a location for a claim the node has deleted.
+func TestRelease_WithdrawsBeforeDeletingTheClaim(t *testing.T) {
+	w := newRemoveWorld(t)
+	order := &withdrawBeforeDelete{claims: w.claims}
+	w.deps.Adverts = order
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+
+	claim, err := invocation.Invoke(
+		testutil.RandomIssuer(t),
+		testutil.RandomDID(t),
+		command.New("/assert/location"),
+		&commands.Unit{},
+	)
+	require.NoError(t, err)
+	require.NoError(t, w.claims.Put(t.Context(), claim))
+	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
+		Space:     space,
+		Blob:      acceptance.Blob{Digest: digest, Size: 4},
+		Cause:     testutil.RandomCID(t),
+		PDPAccept: promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:      claim.Link(),
+	}))
+
+	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: space, Digest: digest}))
+	require.Equal(t, []bool{true}, order.claimPresent, "the advertisement is withdrawn while the claim still exists")
+	_, err = w.claims.Get(t.Context(), claim.Link())
+	require.ErrorIs(t, err, store.ErrNotFound, "and the claim is deleted afterwards")
 }

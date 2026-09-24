@@ -201,17 +201,21 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 		return fmt.Errorf("getting acceptance: %w", err)
 	}
 	if err == nil && acc.Site.Defined() {
-		if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
-			log.Errorw("deleting location claim", "error", err)
-			return fmt.Errorf("deleting location claim: %w", err)
-		}
 		// The claim's advertisement may still be queued rather than
 		// published; a location for a released blob must not go out. The
 		// withdrawal waits for any batch mid-publish, so it cannot slip in
-		// between that batch deciding its contents and committing them.
+		// between that batch deciding its contents and committing them. It
+		// comes before the claim is deleted: a batch publishes from what its
+		// row holds, not from the claim store, so the row must be gone before
+		// the claim is, or a batch could publish a location for a claim that
+		// no longer exists.
 		if err := deps.Adverts.Withdraw(ctx, acc.Site); err != nil {
 			log.Errorw("withdrawing location advertisement", "error", err)
 			return fmt.Errorf("withdrawing location advertisement: %w", err)
+		}
+		if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
+			log.Errorw("deleting location claim", "error", err)
+			return fmt.Errorf("deleting location claim: %w", err)
 		}
 	}
 

@@ -1,6 +1,6 @@
 # Telemetry
 
-Piri uses [OpenTelemetry](https://opentelemetry.io/) to emit metrics and traces for observability. Configure collectors to send this data to your own monitoring infrastructure; Piri exports nothing until you do.
+Piri uses [OpenTelemetry](https://opentelemetry.io/) to emit metrics and traces for observability. You can configure custom collectors to send this data to your own monitoring infrastructure.
 
 ## Metrics
 
@@ -55,10 +55,10 @@ The advertisement queue's backlog. Publishing is asynchronous, so the
 that keeps growing, or an age that does, is how a publisher that is down or
 failing shows up.
 
-| Metric                                               | Type  | Unit | Description                                         |
-|------------------------------------------------------|-------|------|-----------------------------------------------------|
-| <nobr>`ipni_pending_adverts`</nobr>                  | Gauge |      | Advertisements queued and not yet published         |
-| <nobr>`ipni_pending_adverts_oldest_seconds`</nobr>   | Gauge | s    | Age of the oldest advertisement still queued        |
+| Metric                                             | Type  | Unit | Description                                  |
+|----------------------------------------------------|-------|------|----------------------------------------------|
+| <nobr>`ipni_pending_adverts`</nobr>                | Gauge |      | Advertisements queued and not yet published  |
+| <nobr>`ipni_pending_adverts_oldest_seconds`</nobr> | Gauge | s    | Age of the oldest advertisement still queued |
 
 ### HTTP Server Metrics
 
@@ -87,7 +87,7 @@ Build and runtime information:
 | `built_by` | Build system identifier |
 | `build_date` | When the binary was compiled |
 | `start_time_unix` | Server start time (Unix timestamp) |
-| `server_type` | Server mode (`full` or `ucan`) |
+| `server_type` | Server mode; `serve full` is the only server, so always `full` |
 | `did` | Server's Decentralized Identifier |
 | `owner_address` | Ethereum address of node owner |
 | `public_url` | Server's publicly accessible URL |
@@ -97,17 +97,19 @@ Build and runtime information:
 
 Distributed tracing provides end-to-end visibility into operations:
 
-| Span                                  | Description                  |
-|---------------------------------------|------------------------------|
-| <nobr>`blob.accept`</nobr>            | Blob acceptance operations   |
-| <nobr>`blob.allocate`</nobr>          | Blob allocation operations   |
-| <nobr>`space.content.retrieve`</nobr> | Content retrieval operations |
-| <nobr>`AddRoots`</nobr>               | PDP root addition operations |
+| Span                           | Description                                     |
+|--------------------------------|-------------------------------------------------|
+| <nobr>`access.grant`</nobr>    | Issuing a delegation in response to `access/grant` |
+| <nobr>`blob.allocate`</nobr>   | Allocating space for a blob                     |
+| <nobr>`blob.accept`</nobr>     | Accepting an uploaded blob                      |
+| <nobr>`blob.reject`</nobr>     | Rejecting an allocation                         |
+| <nobr>`blob.release`</nobr>    | Releasing a previously accepted blob            |
+| <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
 
-Piri samples no trace of its own: the sampler is parent-based with a
-never-sample root, so a span is recorded only when an incoming request already
-carries a sampled W3C Trace Context. A node that no other service traces into
-exports nothing here, however its `[[telemetry.traces]]` is configured.
+HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
+matched route, so those appear alongside the operation spans above.
+
+Traces use parent-based sampling and integrate with W3C Trace Context propagation.
 
 ## Integration
 
@@ -155,8 +157,7 @@ insecure = true
 
 ### Grafana
 
-Connect your Prometheus datasource and create dashboards using the metrics
-above. Key metrics to monitor:
+Connect your Prometheus datasource and create dashboards using the metrics above. Key metrics to monitor:
 
 - **System health**: `system_cpu_utilization`, `system_memory_used_bytes`, `piri_datadir_free_bytes`
 - **Job queue health**: `active_jobs`, `failed_jobs`, `job_duration`
@@ -176,9 +177,3 @@ Prometheus-facing collector maps the service name to `job`, the instance ID to
 ## Configuration
 
 See [Configuration > telemetry](../configuration/telemetry.md) for collector setup options.
-
-## What a node reports about itself
-
-Piri sends telemetry only to the collectors you configure. See
-[Operations > Telemetry](../operations/telemetry.md) for what a node reports
-about itself when you do.

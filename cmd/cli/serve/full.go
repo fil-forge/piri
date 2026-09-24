@@ -65,6 +65,12 @@ func init() {
 	cobra.CheckErr(viper.BindPFlag("ucan.plc_directory", FullCmd.Flags().Lookup("plc-directory")))
 	cobra.CheckErr(viper.BindEnv("ucan.plc_directory", "PIRI_PLC_DIRECTORY"))
 
+	// viper.AutomaticEnv does not make a key visible to Unmarshal unless the
+	// key is otherwise registered, so a telemetry.environment set only in the
+	// environment would be silently dropped. Bind it explicitly, as the keys
+	// above are.
+	cobra.CheckErr(viper.BindEnv("telemetry.environment", "PIRI_TELEMETRY_ENVIRONMENT"))
+
 	FullCmd.Flags().String(
 		"network",
 		"",
@@ -426,7 +432,7 @@ func fullServer(cmd *cobra.Command, _ []string) error {
 }
 
 func initTelemetry(ctx context.Context, instanceID, network string, dataDir string, cfg appconfig.TelemetryConfig) error {
-	// Nowhere to export to, so nothing to set up.
+	// No collectors configured, so nothing to export to
 	if len(cfg.Metrics) == 0 && len(cfg.Traces) == 0 {
 		return nil
 	}
