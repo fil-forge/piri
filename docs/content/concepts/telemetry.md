@@ -167,7 +167,3 @@ Connect your Prometheus datasource and create dashboards using the metrics above
 ## Configuration
 
 See [Configuration > telemetry](../configuration/telemetry.md) for collector setup options.
-
-## Analytics
-
-Piri can optionally send anonymized analytics to Forge Development Team to help improve the software. See [Operations > Telemetry](../operations/telemetry.md) for details and opt-out instructions.

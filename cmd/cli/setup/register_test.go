@@ -401,9 +401,6 @@ func TestGenerateConfig(t *testing.T) {
 func TestBaseConfigTelemetry(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "base-config.toml")
 	require.NoError(t, os.WriteFile(path, []byte(`
-[telemetry]
-disable_storacha_analytics = true
-
 [[telemetry.metrics]]
 endpoint = "host.docker.internal:4318"
 insecure = true
@@ -433,7 +430,6 @@ publish_interval = "30s"
 	require.NoError(t, viper.Unmarshal(&loaded))
 
 	require.Equal(t, config.TelemetryConfig{
-		DisableStorachaAnalytics: true,
 		Metrics: []config.TelemetryCollectorConfig{{
 			Endpoint:        "host.docker.internal:4318",
 			Insecure:        true,

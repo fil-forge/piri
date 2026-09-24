@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"context"
-	"os"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -16,36 +15,14 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 )
 
-const (
-	defaultEndpoint        = "telemetry.storacha.network:443"
-	defaultPublishInterval = 30 * time.Second
-)
-
 func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConfig) (*telemetry.Telemetry, error) {
 	if network == "" {
 		log.Warn("network not configured; telemetry will use 'custom' as deployment environment")
 		network = "custom"
 	}
 
-	// backwards compatible env var - this disables everything
-	disableStorachaAnalytics := false
-	if os.Getenv("PIRI_DISABLE_ANALYTICS") != "" {
-		disableStorachaAnalytics = true
-	}
-
-	disableStorachaAnalytics = disableStorachaAnalytics || cfg.DisableStorachaAnalytics
 	// Build metrics collectors list
 	var metricCollectors []metrics.CollectorConfig
-
-	// Add default Storacha endpoint unless disabled
-	if !disableStorachaAnalytics {
-		metricCollectors = append(metricCollectors, metrics.CollectorConfig{
-			Endpoint:        defaultEndpoint,
-			PublishInterval: defaultPublishInterval,
-		})
-	}
-
-	// Add user-configured collectors
 	for _, c := range cfg.Metrics {
 		metricCollectors = append(metricCollectors, metrics.CollectorConfig{
 			Endpoint:        c.Endpoint,
@@ -57,8 +34,6 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 
 	// Build trace collectors list
 	var traceCollectors []traces.CollectorConfig
-
-	// Add user-configured collectors
 	for _, c := range cfg.Traces {
 		traceCollectors = append(traceCollectors, traces.CollectorConfig{
 			Endpoint:        c.Endpoint,
