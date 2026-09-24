@@ -441,3 +441,17 @@ publish_interval = "30s"
 		}},
 	}, loaded.Telemetry)
 }
+
+// A collector with no endpoint is rejected by telemetry setup at startup, which
+// is long after `piri init` has registered the provider, created the proof set
+// and registered the delegator. loadBaseConfig catches it before any of that.
+func TestBaseConfigTelemetryRejectsCollectorWithoutEndpoint(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "base-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[[telemetry.metrics]]
+insecure = true
+`), 0o600))
+
+	_, err := loadBaseConfig(path)
+	require.ErrorContains(t, err, "endpoint")
+}
