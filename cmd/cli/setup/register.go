@@ -245,6 +245,14 @@ func loadBaseConfig(path string) (*baseConfigValues, error) {
 		return nil, fmt.Errorf("parsing base config file: %w", err)
 	}
 
+	// Every collector needs an endpoint, and nothing downstream checks before
+	// telemetry setup refuses it at startup. Without this, `piri init` would
+	// register the provider, create the proof set and register the delegator,
+	// and only then write a config that `serve full` cannot start from.
+	if err := cfg.Telemetry.Validate(); err != nil {
+		return nil, fmt.Errorf("validating base config telemetry: %w", err)
+	}
+
 	uploadServiceDID := did.Undef
 	if cfg.UCAN.Services.Upload.DID != "" {
 		uploadServiceDID, err = did.Parse(cfg.UCAN.Services.Upload.DID)
