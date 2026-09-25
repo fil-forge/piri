@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconvhttp "go.opentelemetry.io/otel/semconv/v1.37.0/httpconv"
@@ -31,6 +32,10 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 		log.Warn("neither telemetry.environment nor network configured; telemetry will use 'custom' as deployment environment")
 		environment = "custom"
 	}
+
+	// Before any exporter exists, so the first failed export already goes
+	// through Piri's logger.
+	otel.SetErrorHandler(newErrorHandler())
 
 	// Build metrics collectors list
 	var metricCollectors []metrics.CollectorConfig
