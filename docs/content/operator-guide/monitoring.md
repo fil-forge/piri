@@ -36,9 +36,11 @@ Monitor your job queues for stuck or failed jobs:
 
 | Queue | Purpose |
 |-------|---------|
-| `replicator` | Data replication transfers |
-| `aggregator` | Piece aggregation |
-| `egress_tracker` | Retrieval event submission |
+| `replication` | Data replication transfers |
+| `egress-tracker` | Retrieval event submission |
+
+These are the only two job queues. Piece aggregation and the rest of PDP run on
+a separate scheduler that emits no metrics of its own.
 
 A growing backlog or high failure rate indicates problems. Check logs for error details.
 
@@ -72,11 +74,11 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `queued_jobs` | Jobs waiting in queue |
 | `failed_jobs` | Permanently failed jobs (investigate these) |
 | `job_duration` | How long jobs take |
+| `ipni_pending_adverts` | IPNI advertisements queued and not yet published |
+| `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
-| `chain_current_epoch` | Current Filecoin epoch |
-| `next_challenge_window_start_epoch` | When next challenge starts |
 
 ### Setting Up Metrics Collection
 
@@ -84,10 +86,14 @@ Configure a metrics endpoint:
 
 ```toml
 [[telemetry.metrics]]
-endpoint = "http://your-collector:4317"
+endpoint = "your-collector:4318"
 insecure = true
 publish_interval = "30s"
 ```
+
+`endpoint` is a host and optional port, with no scheme and no path: Piri exports over OTLP/HTTP
+(port 4318 by convention) and appends `/v1/metrics` itself. See
+[Configuration > telemetry](../configuration/telemetry.md).
 
 Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 
@@ -159,10 +165,10 @@ Recommended alerts:
 
 ### Replication Failing
 
-1. Check replicator queue for stuck jobs
+1. Check the `replication` queue for stuck jobs
 2. Verify network connectivity to source
 3. Check disk space
-4. Review replicator logs
+4. Review the replicator logs
 
 ### High Job Failure Rate
 

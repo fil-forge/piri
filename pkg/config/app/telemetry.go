@@ -3,8 +3,10 @@ package app
 import "time"
 
 type TelemetryConfig struct {
-	Metrics []TelemetryCollectorConfig
-	Traces  []TelemetryCollectorConfig
+	// Environment is the deployment environment telemetry is reported under.
+	Environment string
+	Metrics     []TelemetryCollectorConfig
+	Traces      []TelemetryCollectorConfig
 }
 
 type TelemetryCollectorConfig struct {

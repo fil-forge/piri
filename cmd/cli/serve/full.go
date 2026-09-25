@@ -65,6 +65,12 @@ func init() {
 	cobra.CheckErr(viper.BindPFlag("ucan.plc_directory", FullCmd.Flags().Lookup("plc-directory")))
 	cobra.CheckErr(viper.BindEnv("ucan.plc_directory", "PIRI_PLC_DIRECTORY"))
 
+	// viper.AutomaticEnv does not make a key visible to Unmarshal unless the
+	// key is otherwise registered, so a telemetry.environment set only in the
+	// environment would be silently dropped. Bind it explicitly, as the keys
+	// above are.
+	cobra.CheckErr(viper.BindEnv("telemetry.environment", "PIRI_TELEMETRY_ENVIRONMENT"))
+
 	FullCmd.Flags().String(
 		"network",
 		"",
