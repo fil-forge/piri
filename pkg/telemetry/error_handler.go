@@ -12,7 +12,8 @@ const (
 	errorResetAfter = 5 * time.Minute
 
 	// maxTrackedErrors bounds the counts kept at once. Errors whose text varies
-	// from one export to the next would otherwise grow the map without limit.
+	// from one export to the next would otherwise grow the map without limit;
+	// past it, the least recently seen error is dropped.
 	maxTrackedErrors = 64
 )
 
@@ -66,7 +67,7 @@ func (h *errorHandler) Handle(err error) {
 	e, ok := h.errors[msg]
 	if !ok {
 		if len(h.errors) >= maxTrackedErrors {
-			clear(h.errors)
+			h.evictOldest()
 		}
 		e = &trackedError{}
 		h.errors[msg] = e
@@ -81,4 +82,18 @@ func (h *errorHandler) Handle(err error) {
 		return
 	}
 	h.log(err, n)
+}
+
+// evictOldest drops the least recently seen error, so a full map loses one
+// count rather than resetting the backoff of every error still recurring.
+// Callers hold mu.
+func (h *errorHandler) evictOldest() {
+	var oldest string
+	var oldestSeen time.Time
+	for k, e := range h.errors {
+		if oldest == "" || e.lastSeen.Before(oldestSeen) {
+			oldest, oldestSeen = k, e.lastSeen
+		}
+	}
+	delete(h.errors, oldest)
 }

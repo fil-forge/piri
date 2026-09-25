@@ -86,6 +86,24 @@ func TestErrorHandler(t *testing.T) {
 		require.LessOrEqual(t, len(h.errors), maxTrackedErrors)
 	})
 
+	t.Run("a full map keeps the backoff of a recurring error", func(t *testing.T) {
+		h, logged, clock := newTestErrorHandler()
+		for i := range maxTrackedErrors * 4 {
+			*clock = clock.Add(time.Millisecond)
+			h.Handle(fmt.Errorf("error %d", i))
+			*clock = clock.Add(time.Millisecond)
+			h.Handle(noHost)
+		}
+		var noHostLogged []uint64
+		for _, l := range *logged {
+			if l.msg == noHost.Error() {
+				noHostLogged = append(noHostLogged, l.occurrences)
+			}
+		}
+		require.Equal(t, []uint64{1, 2, 4, 8, 16, 32, 64, 128, 256}, noHostLogged)
+		require.LessOrEqual(t, len(h.errors), maxTrackedErrors)
+	})
+
 	t.Run("ignores nil", func(t *testing.T) {
 		h, logged, _ := newTestErrorHandler()
 		h.Handle(nil)
