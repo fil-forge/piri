@@ -21,10 +21,6 @@ import (
 const defaultPublishInterval = 30 * time.Second
 
 func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConfig) (*telemetry.Telemetry, error) {
-	// Route the SDK's errors through Piri's logger before anything can start
-	// exporting, so an unreachable collector is legible.
-	SetErrorHandler()
-
 	// The network is only a deployment environment for a node running against
 	// a network preset. A node configured from a base config names its own.
 	environment := cfg.Environment
