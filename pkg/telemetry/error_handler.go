@@ -56,11 +56,12 @@ func (h *errorHandler) Handle(err error) {
 	}
 
 	msg := err.Error()
-	now := h.now()
 
 	h.mu.Lock()
+	// Read under the lock, so lastSeen only ever moves forward.
+	now := h.now()
 	for k, e := range h.errors {
-		if now.Sub(e.lastSeen) > errorResetAfter {
+		if now.Sub(e.lastSeen) >= errorResetAfter {
 			delete(h.errors, k)
 		}
 	}
@@ -90,10 +91,13 @@ func (h *errorHandler) Handle(err error) {
 func (h *errorHandler) evictOldest() {
 	var oldest string
 	var oldestSeen time.Time
+	found := false
 	for k, e := range h.errors {
-		if oldest == "" || e.lastSeen.Before(oldestSeen) {
-			oldest, oldestSeen = k, e.lastSeen
+		if !found || e.lastSeen.Before(oldestSeen) {
+			oldest, oldestSeen, found = k, e.lastSeen, true
 		}
 	}
-	delete(h.errors, oldest)
+	if found {
+		delete(h.errors, oldest)
+	}
 }

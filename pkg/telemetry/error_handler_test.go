@@ -66,6 +66,36 @@ func TestErrorHandler(t *testing.T) {
 		}, *logged)
 	})
 
+	t.Run("an error starts again exactly at the quiet period", func(t *testing.T) {
+		h, logged, clock := newTestErrorHandler()
+		for range 3 {
+			h.Handle(noHost)
+		}
+		*clock = clock.Add(errorResetAfter)
+		h.Handle(noHost)
+		require.Equal(t, []loggedError{
+			{noHost.Error(), 1}, {noHost.Error(), 2}, {noHost.Error(), 1},
+		}, *logged)
+	})
+
+	t.Run("eviction drops an oldest entry with an empty message", func(t *testing.T) {
+		// Map iteration order is random, so repeat to cover the orders in
+		// which newer entries are seen after the empty message.
+		for range 200 {
+			h, _, _ := newTestErrorHandler()
+			base := time.Unix(0, 0)
+			h.errors = map[string]*trackedError{
+				"":  {count: 1, lastSeen: base.Add(1 * time.Second)},
+				"a": {count: 1, lastSeen: base.Add(2 * time.Second)},
+				"b": {count: 1, lastSeen: base.Add(3 * time.Second)},
+				"c": {count: 1, lastSeen: base.Add(4 * time.Second)},
+			}
+			h.evictOldest()
+			require.NotContains(t, h.errors, "")
+			require.Len(t, h.errors, 3)
+		}
+	})
+
 	t.Run("keeps backing off within the quiet period", func(t *testing.T) {
 		h, logged, clock := newTestErrorHandler()
 		for range 3 {
