@@ -3,6 +3,10 @@
 Observability configuration for metrics and distributed tracing. Piri exports telemetry only to the
 collectors listed here; with none configured, it exports nothing.
 
+A failed export is logged at `WARN` by the `telemetry` logger. While the same error repeats, as it
+does when a collector is unreachable, Piri logs it on its 1st, 2nd, 4th, 8th and later
+power-of-two occurrences, with the count in the `occurrences` field.
+
 ## Fields
 
 ### `metrics`
