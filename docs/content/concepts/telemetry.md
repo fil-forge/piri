@@ -109,7 +109,12 @@ Distributed tracing provides end-to-end visibility into operations:
 HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
 matched route, so those appear alongside the operation spans above.
 
-Traces use parent-based sampling and integrate with W3C Trace Context propagation.
+Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header
+joins the caller's trace and follows its sampling decision; one that arrives without one starts a
+new trace, sampled. This is the OpenTelemetry SDK's default sampler, `parentbased_always_on`. To
+sample less, set the standard `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` environment
+variables, for example `OTEL_TRACES_SAMPLER=parentbased_traceidratio` and
+`OTEL_TRACES_SAMPLER_ARG=0.1` to start a trace for one request in ten.
 
 ## Integration
 
