@@ -6,6 +6,7 @@ import (
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/multiformats/go-multihash"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 )
@@ -27,10 +28,18 @@ func NewEntry(db *harmonydb.DB, commp *CommPTask) *Entry {
 
 var _ commp.Calculator = (*Entry)(nil)
 
-func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) error {
+func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err error) {
+	ctx, span := tracer.Start(ctx, "commp.enqueue")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 	log.Infow("enqueuing blob for aggregation", "blob", blob.String())
 	var spawn bool
-	_, err := e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	_, err = e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		spawn = false
 		// A blob whose piece is already live on-chain (or staged to be) is a
 		// re-accept of content the pipeline has already carried through —

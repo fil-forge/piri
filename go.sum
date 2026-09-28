@@ -534,6 +534,8 @@ github.com/ethereum/go-bigmodexpfix v0.0.0-20250911101455-f9e208c548ab/go.mod h1
 github.com/ethereum/go-ethereum v1.17.5 h1:o9BIXs2Q/3cPHVxw49n+Zjn2i6rB9TOXatev46duOC4=
 github.com/ethereum/go-ethereum v1.17.5/go.mod h1:vz2YvG7RewA4sFHTgzLyW+WmFG1N4jfk/hgXQVhhn9c=
 github.com/ettle/strcase v0.1.1/go.mod h1:hzDLsPC7/lwKyBOywSHEP89nt2pDgdy+No1NBA9o9VY=
+github.com/exaring/otelpgx v0.12.0 h1:K3NG2YUiYB384YWptKglk8gLDYek5YptMdm1b0G4pQM=
+github.com/exaring/otelpgx v0.12.0/go.mod h1:3OojrUKhhy3lTbYIMBijP3YjMey/jo14eHAW5cXcUdk=
 github.com/fatih/color v1.10.0/go.mod h1:ELkj/draVOlAH/xkhN6mQ50Qd0MPOk5AAr3maGEBuJM=
 github.com/fatih/color v1.13.0/go.mod h1:kLAiJbzzSOZDVNGyDpeOxJ47H46qBXwg5ILebYFFOfk=
 github.com/fatih/color v1.15.0/go.mod h1:0h5ZqXfHYED7Bhv2ZJamyIOUej9KtShiJESRwBDUSsw=
@@ -550,12 +552,12 @@ github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc h1:fzFl4n4OYukafjHD78DKu0o5UIfI9uKyzBug5cDcYJ4=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc/go.mod h1:5Sfcai2D0OxYqtelvgHU/qQ9CtigawFn+MpzO73cOzk=
-github.com/fil-forge/libforge v0.0.0-20260917175304-96b4969f0476 h1:cGqoD31GjO/qM5f2fQE29ov9NPYd655KKOM/b8amhag=
-github.com/fil-forge/libforge v0.0.0-20260917175304-96b4969f0476/go.mod h1:09nIz6/BJD0Qdb8YrLwVeNQwQprTCFWVPULL3c5CNJs=
+github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7 h1:MUP8oByAzhniP4FxpPIICFRackeyXrqiqJ0A2PB2OHA=
+github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7/go.mod h1:sHUJ6GoVlCwuwvt2auh+ZEhr4Ywi0y+MV7yqDpWV1lc=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
-github.com/fil-forge/ucantone v0.0.0-20260923134326-7eea01e38c0b h1:qEMaAiJ82KogjbtpARqQyaZ0L5vK+X8ZLz1qgmvPi+s=
-github.com/fil-forge/ucantone v0.0.0-20260923134326-7eea01e38c0b/go.mod h1:aX35jlUs3hnWAhigjO8z9kMPiYnkW3XOW8iVoJyz7cg=
+github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3 h1:Ta5ODMWR9mM4zMfRp/K1unAKvnt7f5dhehRA+YHiv7w=
+github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3/go.mod h1:aX35jlUs3hnWAhigjO8z9kMPiYnkW3XOW8iVoJyz7cg=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2 h1:Abzcl/chtWOahrGeF/+q0phHl+iOZpfMNp28mr5NFEY=
 github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2/go.mod h1:Sd4Ok8KKpt9JyUOh2kL0skv/ccXdEbeGT/eJ2tMJ3Uk=
 github.com/filecoin-project/filecoin-ffi v1.36.1 h1:SCN0ue1bn6cSIMiYkhWnDfA1fHttKBkNWJutVkB2eR4=

@@ -57,7 +57,7 @@ var _ Store = (*consolidationStore)(nil)
 // New creates a ConsolidationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *consolidationStore {
 	return &consolidationStore{
-		store:   genericstore.New[consolidation.Consolidation](backend, consolidation.Codec{}),
+		store:   genericstore.New[consolidation.Consolidation](objectstore.TracedListable("consolidation", backend), consolidation.Codec{}),
 		encoder: encoder,
 	}
 }
