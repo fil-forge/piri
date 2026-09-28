@@ -73,6 +73,7 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 		body,
 		int64(size),
 		minio.PutObjectOptions{
+			NumThreads:            4, // minio default
 			ConcurrentStreamParts: true,
 		},
 	)
