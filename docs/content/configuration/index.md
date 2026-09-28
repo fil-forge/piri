@@ -20,6 +20,15 @@ Piri searches for config files in this order:
 2. `~/.config/piri/config.toml`
 3. `piri-config.toml` in current directory
 
+## Generated Config Version
+
+A config written by `piri init` starts with `config_version`, the version of the config that init
+generated it. `piri version --config` prints the version the installed binary's init generates. When
+the two differ, the binary's init would write something different from the same inputs, so a
+deployment that generates its config with `piri init` should re-run it. The version changes only
+when init's output does, not with every release. A config written by hand, or by an init older than
+this field, has none.
+
 ## Environment Variables
 
 Override any config value with `PIRI_` prefix, replacing dots with underscores:

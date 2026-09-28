@@ -956,9 +956,10 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 	}
 
 	return config.FullServerConfig{
-		Network:  network,
-		Identity: config.IdentityConfig{KeyFile: flags.keyFile},
-		Repo:     repoConfig,
+		ConfigVersion: config.GeneratedConfigVersion,
+		Network:       network,
+		Identity:      config.IdentityConfig{KeyFile: flags.keyFile},
+		Repo:          repoConfig,
 		Server: config.ServerConfig{
 			Port:      cfg.Server.Port,
 			Host:      cfg.Server.Host,

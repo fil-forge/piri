@@ -6,14 +6,28 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 )
 
+// GeneratedConfigVersion identifies what `piri init` writes for a given set of
+// inputs. Bump it whenever a change to init alters the config it generates from
+// the same base config and flags: a newly honoured base-config section, a field
+// init now sets or derives differently. Leave it alone for changes that do not.
+//
+// init records it in the generated config as `config_version`, and `piri version
+// --config` prints it, so a deployment can tell that a config was written by an
+// init that predates the running binary and re-run init. TestGeneratedConfig in
+// cmd/cli/setup fails when init's output changes without a bump.
+const GeneratedConfigVersion = 1
+
 type FullServerConfig struct {
-	Network     string            `mapstructure:"network" flag:"network" toml:"network,omitempty"`
-	Identity    IdentityConfig    `mapstructure:"identity" toml:"identity"`
-	Repo        RepoConfig        `mapstructure:"repo" toml:"repo"`
-	Server      ServerConfig      `mapstructure:"server" toml:"server"`
-	PDPService  PDPServiceConfig  `mapstructure:"pdp" toml:"pdp"`
-	UCANService UCANServiceConfig `mapstructure:"ucan" toml:"ucan"`
-	Telemetry   TelemetryConfig   `mapstructure:"telemetry" toml:"telemetry,omitempty"`
+	// ConfigVersion is the GeneratedConfigVersion of the init that wrote this
+	// config, or zero for a config written by hand or by an older init.
+	ConfigVersion int               `mapstructure:"config_version" toml:"config_version,omitempty"`
+	Network       string            `mapstructure:"network" flag:"network" toml:"network,omitempty"`
+	Identity      IdentityConfig    `mapstructure:"identity" toml:"identity"`
+	Repo          RepoConfig        `mapstructure:"repo" toml:"repo"`
+	Server        ServerConfig      `mapstructure:"server" toml:"server"`
+	PDPService    PDPServiceConfig  `mapstructure:"pdp" toml:"pdp"`
+	UCANService   UCANServiceConfig `mapstructure:"ucan" toml:"ucan"`
+	Telemetry     TelemetryConfig   `mapstructure:"telemetry" toml:"telemetry,omitempty"`
 }
 
 func (f FullServerConfig) Validate() error {
