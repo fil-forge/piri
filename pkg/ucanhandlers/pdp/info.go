@@ -50,9 +50,11 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 		args := req.Task().Arguments()
 		ctx := req.Context()
 
-		// No subject check — the legacy /pdp/info handler is open by
-		// design (any holder of the delegation can ask whether a blob
-		// is aggregated yet).
+		// No check on who is asking: any holder of a delegation may ask
+		// whether a blob is aggregated yet. The route still requires the
+		// invocation to be subjected to this node and issued by someone the
+		// node delegated to (see pkg/ucanhandlers), which is what the upload
+		// service is granted at registration.
 
 		// Try to resolve the blob multihash to its commp.
 		resolvedCommp, found, err := deps.Pieces.ResolveToPiece(ctx, args.Blob)

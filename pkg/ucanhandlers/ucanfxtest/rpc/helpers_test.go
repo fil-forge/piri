@@ -9,6 +9,7 @@ import (
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -115,6 +116,23 @@ func assertReceiptOK(t *testing.T, rcpt ucan.Receipt) {
 // name matches expectedName. Decoding the error model lets the test
 // distinguish between e.g. InvalidCause and UnknownCause — assertions
 // against bare IsErr() would conflate every error path.
+// assertNotRejected checks an invocation got past the route's authorization
+// middleware, whatever the command then made of it.
+func assertNotRejected(t *testing.T, rcpt ucan.Receipt) {
+	t.Helper()
+	if !rcpt.Out().IsErr() {
+		return
+	}
+	_, errBytes := rcpt.Out().Unpack()
+	var em datamodel.ErrorModel
+	require.NoError(t, em.UnmarshalCBOR(bytes.NewReader(errBytes)), "decoding error model")
+	require.NotContains(t, []string{
+		middleware.SelfSignedInvocationErrorName,
+		middleware.InvalidSubjectErrorName,
+		middleware.UnauthorizedErrorName,
+	}, em.ErrorName, "invocation was rejected by the route middleware (message: %q)", em.Message)
+}
+
 func assertReceiptFailure(t *testing.T, rcpt ucan.Receipt, expectedName string) {
 	t.Helper()
 	require.True(t, rcpt.Out().IsErr(), "expected receipt failure, got success")
