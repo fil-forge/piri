@@ -20,3 +20,16 @@ func TestLotusAuthTokenFromEnv(t *testing.T) {
 
 	assert.Equal(t, "test-token", cfg.PDPService.LotusAuthToken)
 }
+
+// telemetry.environment has no CLI flag either. viper.AutomaticEnv alone does
+// not make an otherwise-unregistered key visible to Unmarshal, so without the
+// BindEnv call in this package's init the value would be dropped and Setup
+// would fall back to the network, or to "custom".
+func TestTelemetryEnvironmentFromEnv(t *testing.T) {
+	t.Setenv("PIRI_TELEMETRY_ENVIRONMENT", "staging")
+
+	var cfg config.FullServerConfig
+	require.NoError(t, viper.Unmarshal(&cfg))
+
+	assert.Equal(t, "staging", cfg.Telemetry.Environment)
+}

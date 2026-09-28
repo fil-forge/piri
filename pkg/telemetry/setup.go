@@ -2,9 +2,9 @@ package telemetry
 
 import (
 	"context"
-	"os"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconvhttp "go.opentelemetry.io/otel/semconv/v1.37.0/httpconv"
@@ -16,49 +16,44 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 )
 
-const (
-	defaultEndpoint        = "telemetry.storacha.network:443"
-	defaultPublishInterval = 30 * time.Second
-)
+// defaultPublishInterval is how often a metrics collector that does not
+// configure an interval of its own publishes. The provider rejects an interval
+// of zero, so a collector that leaves it unset gets this rather than an error.
+const defaultPublishInterval = 30 * time.Second
 
 func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConfig) (*telemetry.Telemetry, error) {
-	if network == "" {
-		log.Warn("network not configured; telemetry will use 'custom' as deployment environment")
-		network = "custom"
+	// The network is only a deployment environment for a node running against
+	// a network preset. A node configured from a base config names its own.
+	environment := cfg.Environment
+	if environment == "" {
+		environment = network
+	}
+	if environment == "" {
+		log.Warn("neither telemetry.environment nor network configured; telemetry will use 'custom' as deployment environment")
+		environment = "custom"
 	}
 
-	// backwards compatible env var - this disables everything
-	disableStorachaAnalytics := false
-	if os.Getenv("PIRI_DISABLE_ANALYTICS") != "" {
-		disableStorachaAnalytics = true
-	}
+	// Before any exporter exists, so the first failed export already goes
+	// through Piri's logger.
+	otel.SetErrorHandler(newErrorHandler())
 
-	disableStorachaAnalytics = disableStorachaAnalytics || cfg.DisableStorachaAnalytics
 	// Build metrics collectors list
 	var metricCollectors []metrics.CollectorConfig
-
-	// Add default Storacha endpoint unless disabled
-	if !disableStorachaAnalytics {
-		metricCollectors = append(metricCollectors, metrics.CollectorConfig{
-			Endpoint:        defaultEndpoint,
-			PublishInterval: defaultPublishInterval,
-		})
-	}
-
-	// Add user-configured collectors
 	for _, c := range cfg.Metrics {
+		publishInterval := c.PublishInterval
+		if publishInterval == 0 {
+			publishInterval = defaultPublishInterval
+		}
 		metricCollectors = append(metricCollectors, metrics.CollectorConfig{
 			Endpoint:        c.Endpoint,
 			Insecure:        c.Insecure,
 			Headers:         c.Headers,
-			PublishInterval: c.PublishInterval,
+			PublishInterval: publishInterval,
 		})
 	}
 
 	// Build trace collectors list
 	var traceCollectors []traces.CollectorConfig
-
-	// Add user-configured collectors
 	for _, c := range cfg.Traces {
 		traceCollectors = append(traceCollectors, traces.CollectorConfig{
 			Endpoint:        c.Endpoint,
@@ -70,7 +65,7 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 
 	return telemetry.New(
 		ctx,
-		network,
+		environment,
 		"piri",
 		build.Version,
 		id,

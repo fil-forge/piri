@@ -85,7 +85,6 @@ nav:
       - Inspect Proof Set: operations/inspect-proof-set.md
       - Best Practices: operations/best-practices.md
       - Upgrading: operations/upgrading.md
-      - Telemetry: operations/telemetry.md
   - Concepts:
       - concepts/index.md
       - Database: concepts/database.md

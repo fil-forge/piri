@@ -60,7 +60,7 @@ var _ AllocationStore = (*Store)(nil)
 // New creates an AllocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	return &Store{
-		store:   genericstore.New(backend, allocation.Codec{}),
+		store:   genericstore.New(objectstore.TracedListable("allocations", backend), allocation.Codec{}),
 		encoder: encoder,
 	}
 }

@@ -5,11 +5,22 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAllocation) (res *types.AllocatedPiece, retErr error) {
+	// harmonydb's queries carry no spans, so the upload row insert shows here
+	// as the time not covered by the piece lookup.
+	ctx, span := tracer.Start(ctx, "pdp.allocate_piece")
+	defer func() {
+		if retErr != nil {
+			span.RecordError(retErr)
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.End()
+	}()
 	log.Infow("allocating piece", "request", allocation)
 	defer func() {
 		if retErr != nil {

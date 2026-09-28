@@ -55,7 +55,7 @@ var _ ReceiptStore = (*Store)(nil)
 // New creates a ReceiptStore with the given backend,  key encoder, and ran link index.
 func New(backend objectstore.ListableStore, encoder KeyEncoder, ranLinkIndex RanLinkIndex) *Store {
 	return &Store{
-		store:        genericstore.New[ucan.Receipt](backend, Codec{}),
+		store:        genericstore.New(objectstore.TracedListable("receipts", backend), Codec{}),
 		ranLinkIndex: ranLinkIndex,
 		encoder:      encoder,
 	}
