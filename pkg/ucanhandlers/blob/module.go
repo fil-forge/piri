@@ -14,11 +14,11 @@ import (
 // narrow interfaces each handler declares.
 var Module = fx.Module("ucan/blob",
 	fx.Provide(
-		ucanhandlers.ProvideRPC(NewAcceptHandler),
-		ucanhandlers.ProvideRPC(NewBlobAllocateHandler),
-		ucanhandlers.ProvideRPC(NewBlobReleaseHandler),
-		ucanhandlers.ProvideRPC(NewBlobRejectHandler),
-		ucanhandlers.ProvideRetrieval(NewBlobRetrieveHandler),
+		fx.Annotate(NewAcceptHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobAllocateHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobReleaseHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobRejectHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobRetrieveHandler, fx.ResultTags(ucanhandlers.RetrievalHandlersGroupTag)),
 
 		fx.Annotate(
 			func(a allocationstore.AllocationStore) allocationstore.AllocationStore { return a },

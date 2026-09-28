@@ -47,21 +47,21 @@ func (s *RPCSuite) TestBatch_ConcurrentAllocations() {
 	const count = 20
 	space := testutil.RandomDID(t)
 
+	// One delegation covers every invocation in the batch, as it does in
+	// production: the node delegates /blob/allocate to the upload service once.
+	proof := s.allocateProof(t)
 	invs := make([]ucan.Invocation, 0, count)
 	for range count {
-		invs = append(invs, testutil.Must(blob.Allocate.Invoke(
-			s.ServiceID,
-			s.ServiceID.DID(),
-			&blob.AllocateArguments{
-				Space: space,
-				Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123},
-				Cause: testutil.RandomCID(t),
-			},
-			invocation.WithAudience(s.ServiceID.DID()),
-		))(t))
+		invs = append(invs, s.newAllocateWith(t, proof, &blob.AllocateArguments{
+			Space: space,
+			Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123},
+			Cause: testutil.RandomCID(t),
+		}))
 	}
 
-	res, err := s.RPCClient(t).ExecuteBatch(batch.NewRequest(t.Context(), invs))
+	res, err := s.RPCClient(t).ExecuteBatch(
+		batch.NewRequest(t.Context(), invs, batch.WithDelegations(proof)),
+	)
 	require.NoError(t, err)
 
 	var failures []string

@@ -69,7 +69,9 @@ func (s *RPCSuite) SetupSuite() {
 				},
 			}
 		}),
-		fx.Provide(ucanhandlers.ProvideRPC(newPanicRoute)),
+		// Registered open: the fixture exists to exercise panic recovery, and a
+		// self-signed invocation is the shortest way to reach it.
+		fx.Provide(fx.Annotate(newPanicRoute, fx.ResultTags(ucanhandlers.RPCOpenHandlersGroupTag))),
 		fx.Populate(
 			&s.Allocations,
 			&s.Acceptances,

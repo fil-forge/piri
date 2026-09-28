@@ -29,7 +29,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 var log = logging.Logger("storage/handlers/blob")
@@ -77,13 +76,9 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 	return blob.Allocate.Route(func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider; the space being
-		// allocated into travels in the arguments. Authorization that the upload
-		// service may invoke /blob/allocate is enforced by the validator's proof
-		// chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.Issuer.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The space being allocated into travels in the arguments. That the
+		// invocation is subjected to this provider, and issued by someone it
+		// delegated to, is enforced by the route's middleware (see pkg/ucanhandlers).
 
 		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
 			Space: args.Space,

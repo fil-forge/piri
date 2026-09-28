@@ -6,9 +6,12 @@ import (
 
 	"github.com/fil-forge/libforge/commands/access"
 	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
+	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
@@ -21,6 +24,39 @@ import (
 func (s *RPCSuite) sendInvocation(t *testing.T, inv ucan.Invocation) ucan.Receipt {
 	t.Helper()
 	return s.sendInvocationWithProofs(t, inv)
+}
+
+// allocateProof delegates /blob/allocate from this node to the upload service,
+// which is how production authorizes it: the node is the subject, so only a
+// delegation it issued lets anyone else invoke over it.
+func (s *RPCSuite) allocateProof(t *testing.T) ucan.Delegation {
+	t.Helper()
+	return testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), s.ServiceID.DID(), blob.Allocate.Command,
+	))(t)
+}
+
+// newAllocateWith builds a /blob/allocate the upload service issues over this
+// node, against a proof from [RPCSuite.allocateProof]. One proof serves any
+// number of invocations.
+func (s *RPCSuite) newAllocateWith(t *testing.T, proof ucan.Delegation, args *blob.AllocateArguments) ucan.Invocation {
+	t.Helper()
+	return testutil.Must(blob.Allocate.Invoke(
+		s.UploadServiceIdentity,
+		s.ServiceID.DID(),
+		args,
+		invocation.WithAudience(s.ServiceID.DID()),
+		invocation.WithProofs(proof.Link()),
+	))(t)
+}
+
+// newAllocate is newAllocateWith plus a proof of its own, for a test that sends
+// a single allocation. The proof has to travel with the invocation, so pass it
+// to sendInvocationWithProofs.
+func (s *RPCSuite) newAllocate(t *testing.T, args *blob.AllocateArguments) (ucan.Invocation, ucan.Delegation) {
+	t.Helper()
+	proof := s.allocateProof(t)
+	return s.newAllocateWith(t, proof, args), proof
 }
 
 // sendInvocationWithProofs is sendInvocation plus a slice of proof
@@ -80,6 +116,23 @@ func assertReceiptOK(t *testing.T, rcpt ucan.Receipt) {
 // name matches expectedName. Decoding the error model lets the test
 // distinguish between e.g. InvalidCause and UnknownCause — assertions
 // against bare IsErr() would conflate every error path.
+// assertNotRejected checks an invocation got past the route's authorization
+// middleware, whatever the command then made of it.
+func assertNotRejected(t *testing.T, rcpt ucan.Receipt) {
+	t.Helper()
+	if !rcpt.Out().IsErr() {
+		return
+	}
+	_, errBytes := rcpt.Out().Unpack()
+	var em datamodel.ErrorModel
+	require.NoError(t, em.UnmarshalCBOR(bytes.NewReader(errBytes)), "decoding error model")
+	require.NotContains(t, []string{
+		middleware.SelfSignedInvocationErrorName,
+		middleware.InvalidSubjectErrorName,
+		middleware.UnauthorizedErrorName,
+	}, em.ErrorName, "invocation was rejected by the route middleware (message: %q)", em.Message)
+}
+
 func assertReceiptFailure(t *testing.T, rcpt ucan.Receipt, expectedName string) {
 	t.Helper()
 	require.True(t, rcpt.Out().IsErr(), "expected receipt failure, got success")

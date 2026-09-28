@@ -20,7 +20,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // RejectDeps is the dependency set populated by fx for the Reject handler.
@@ -45,13 +44,8 @@ func NewBlobRejectHandler(deps RejectDeps) server.Route {
 	return blob.Reject.Route(func(req *binding.Request[*blob.RejectArguments], rsp *binding.Response[*blob.RejectOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider; the space
-		// abandoning its upload travels in the arguments. Authorization that
-		// the upload service may invoke /blob/reject is enforced by the
-		// validator's proof chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The route's middleware has already required an invocation subjected to
+		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
 		if err := Reject(req.Context(), deps, &RejectRequest{
 			Space:  args.Space,
