@@ -1,0 +1,94 @@
+config_version = 1
+network = "fixture"
+
+[identity]
+  key_file = "/keys/piri.pem"
+
+[repo]
+  data_dir = "/data/piri"
+  temp_dir = "/tmp/piri"
+  [repo.database]
+    type = "postgres"
+    [repo.database.postgres]
+      url = "postgres://piri:secret@db.example.com:5432/piri?sslmode=disable"
+      max_open_conns = 0
+      max_idle_conns = 0
+  [repo.s3]
+    endpoint = "s3.example.com:9000"
+    bucket_prefix = "fixture-"
+    [repo.s3.credentials]
+      access_key_id = "fixture-access-key"
+      secret_access_key = "fixture-secret-key"
+
+[server]
+  port = 3000
+  host = "0.0.0.0"
+  public_url = "https://piri.example.com"
+
+[pdp]
+  owner_address = "0x9012345678901234567890123456789012345678"
+  lotus_endpoint = "wss://lotus.example.com/rpc/v1"
+  chain_id = "314159"
+  payer_address = "0x7890123456789012345678901234567890123456"
+  [pdp.signing_service]
+    did = "did:web:signer.example.com"
+    url = "https://signer.example.com"
+  [pdp.contracts]
+    verifier = "0x1234567890123456789012345678901234567890"
+    provider_registry = "0x2345678901234567890123456789012345678901"
+    service = "0x3456789012345678901234567890123456789012"
+    service_view = "0x4567890123456789012345678901234567891234"
+    payments = "0x5678901234567890123456789012345678901234"
+    usdfc_token = "0x6789012345678901234567890123456789012345"
+  [pdp.aggregation]
+    [pdp.aggregation.commp]
+      [pdp.aggregation.commp.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.aggregator]
+      min_aggregate_size = 134217728
+      [pdp.aggregation.aggregator.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.manager]
+      poll_interval = "30s"
+      batch_size = 10
+      [pdp.aggregation.manager.job_queue]
+        workers = 3
+        retries = 50
+        retry_delay = "1m0s"
+
+[ucan]
+  proof_set = 42
+  plc_directory = "https://plc.example.com"
+  [ucan.services]
+    [ucan.services.indexer]
+      did = "did:web:indexer.example.com"
+      url = "https://indexer.example.com"
+      proof = "indexer-proof"
+    [ucan.services.etracker]
+      did = "did:web:etracker.example.com"
+      url = "https://etracker.example.com"
+      receipts_endpoint = "https://etracker.example.com/receipts"
+      max_batch_size_bytes = 10485760
+      proof = "egress-proof"
+    [ucan.services.upload]
+      did = "did:web:upload.example.com"
+      url = "https://upload.example.com"
+    [ucan.services.publisher]
+      ipni_announce_urls = ["https://ipni.example.com"]
+
+[telemetry]
+  environment = "fixture"
+
+  [[telemetry.metrics]]
+    endpoint = "collector.example.com:4318"
+    insecure = true
+    publish_interval = "30s"
+
+  [[telemetry.traces]]
+    endpoint = "collector.example.com:4318"
+    insecure = true
+    publish_interval = "0s"

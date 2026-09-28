@@ -1,0 +1,62 @@
+# Fixture for TestGeneratedConfig: a base config that sets every section
+# `piri init --base-config` reads, so a change to how init carries any of them
+# into the generated config shows up in the golden file.
+
+network = "fixture"
+
+[pdp]
+chain_id = "314159"
+payer_address = "0x7890123456789012345678901234567890123456"
+
+[pdp.signing_service]
+did = "did:web:signer.example.com"
+url = "https://signer.example.com"
+
+[pdp.contracts]
+verifier = "0x1234567890123456789012345678901234567890"
+provider_registry = "0x2345678901234567890123456789012345678901"
+service = "0x3456789012345678901234567890123456789012"
+service_view = "0x4567890123456789012345678901234567891234"
+payments = "0x5678901234567890123456789012345678901234"
+usdfc_token = "0x6789012345678901234567890123456789012345"
+
+[ucan.services.indexer]
+did = "did:web:indexer.example.com"
+url = "https://indexer.example.com"
+
+[ucan.services.etracker]
+did = "did:web:etracker.example.com"
+url = "https://etracker.example.com"
+
+[ucan.services.upload]
+did = "did:web:upload.example.com"
+url = "https://upload.example.com"
+
+[ucan.services.publisher]
+ipni_announce_urls = ["https://ipni.example.com"]
+
+[repo.database]
+type = "postgres"
+
+[repo.database.postgres]
+url = "postgres://piri:secret@db.example.com:5432/piri?sslmode=disable"
+
+[repo.s3]
+endpoint = "s3.example.com:9000"
+bucket_prefix = "fixture-"
+
+[repo.s3.credentials]
+access_key_id = "fixture-access-key"
+secret_access_key = "fixture-secret-key"
+
+[telemetry]
+environment = "fixture"
+
+[[telemetry.metrics]]
+endpoint = "collector.example.com:4318"
+insecure = true
+publish_interval = "30s"
+
+[[telemetry.traces]]
+endpoint = "collector.example.com:4318"
+insecure = true

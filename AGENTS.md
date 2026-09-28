@@ -135,3 +135,8 @@ to cover the new graph shape.
 - Retrieval handler changes affect live client content access.
 - Config changes frequently change the fx graph — see the dependency graph
   validation section above.
+- A change to what `piri init` generates from the same base config and flags
+  needs `config.GeneratedConfigVersion` bumped (`pkg/config/full.go`):
+  deployments re-run init only when it changes. `TestGeneratedConfig` in
+  `cmd/cli/setup` fails until you do; its doc comment says how to re-record
+  the golden file.
