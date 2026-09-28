@@ -1,6 +1,10 @@
 package replica
 
 // TODO(forrest)[ucan1]: not doing
+//
+// If this is revived: the RequireSubject call below is gone. Register the
+// handler into ucanhandlers.RPCHandlersGroupTag and the route's middleware
+// applies the subject check.
 
 /*
 import (

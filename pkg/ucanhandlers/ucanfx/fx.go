@@ -61,27 +61,27 @@ var Module = fx.Module("ucan",
 		// hidden in the X-UCAN-Container header — which downstream
 		// clients (the indexer's blobindexlookup) mis-read as
 		// success-with-empty-body and then choke on CAR decode EOF.
-		ucanhandlers.ProvideRPCOption(func(resolver did.Resolver) server.HTTPOption {
+		fx.Annotate(func(resolver did.Resolver) server.HTTPOption {
 			return server.WithValidationOptions(
 				validator.WithDIDResolver(resolver),
 			)
-		}),
-		ucanhandlers.ProvideRetrievalOption(func(resolver did.Resolver) server.HTTPOption {
+		}, fx.ResultTags(ucanhandlers.RPCOptionsGroupTag)),
+		fx.Annotate(func(resolver did.Resolver) server.HTTPOption {
 			return server.WithValidationOptions(
 				validator.WithDIDResolver(resolver),
 			)
-		}),
+		}, fx.ResultTags(ucanhandlers.RetrievalOptionsGroupTag)),
 
 		// The dispatcher recovers panics raised while executing an
 		// invocation and answers with an ExecutionFailure receipt. Route
 		// the recovered value to piri's logger instead of the standard
 		// log package.
-		ucanhandlers.ProvideRPCOption(func() server.HTTPOption {
+		fx.Annotate(func() server.HTTPOption {
 			return server.WithPanicLogger(logPanic)
-		}),
-		ucanhandlers.ProvideRetrievalOption(func() server.HTTPOption {
+		}, fx.ResultTags(ucanhandlers.RPCOptionsGroupTag)),
+		fx.Annotate(func() server.HTTPOption {
 			return server.WithPanicLogger(logPanic)
-		}),
+		}, fx.ResultTags(ucanhandlers.RetrievalOptionsGroupTag)),
 	),
 
 	access.Module,

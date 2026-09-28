@@ -8,6 +8,6 @@ package replica
 // Disabled during the UCAN 1.0 migration — re-enable: see #15.
 // var Module = fx.Module("ucan/blob/replica",
 //	fx.Provide(
-//		ucanhandlers.ProvideRPC(NewReplicaAllocateHandler),
+//		fx.Annotate(NewReplicaAllocateHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
 //	),
 // )

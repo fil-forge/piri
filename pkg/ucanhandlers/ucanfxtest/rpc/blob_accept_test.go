@@ -134,17 +134,12 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 
 	// --- spaceA: first allocation, then upload, then accept ---
 
-	allocA := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		service,
-		&blob.AllocateArguments{
-			Space: spaceA,
-			Blob:  blob.Blob{Digest: digest, Size: size},
-			Cause: testutil.RandomCID(t),
-		},
-		invocation.WithAudience(service),
-	))(t)
-	okA := decodeAllocateOK(t, s.sendInvocation(t, allocA))
+	allocA, allocProofA := s.newAllocate(t, &blob.AllocateArguments{
+		Space: spaceA,
+		Blob:  blob.Blob{Digest: digest, Size: size},
+		Cause: testutil.RandomCID(t),
+	})
+	okA := decodeAllocateOK(t, s.sendInvocationWithProofs(t, allocA, allocProofA))
 	require.Equal(t, size, okA.Size, "first allocation reserves full size")
 	require.NotNil(t, okA.Address, "first allocation returns an upload URL")
 
@@ -166,17 +161,12 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 
 	// --- spaceB: bytes are already present from spaceA's upload ---
 
-	allocB := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		service,
-		&blob.AllocateArguments{
-			Space: spaceB,
-			Blob:  blob.Blob{Digest: digest, Size: size},
-			Cause: testutil.RandomCID(t),
-		},
-		invocation.WithAudience(service),
-	))(t)
-	okB := decodeAllocateOK(t, s.sendInvocation(t, allocB))
+	allocB, allocProofB := s.newAllocate(t, &blob.AllocateArguments{
+		Space: spaceB,
+		Blob:  blob.Blob{Digest: digest, Size: size},
+		Cause: testutil.RandomCID(t),
+	})
+	okB := decodeAllocateOK(t, s.sendInvocationWithProofs(t, allocB, allocProofB))
 	require.Equal(t, size, okB.Size,
 		"different space gets its own fresh allocation accounting")
 	require.Nil(t, okB.Address,

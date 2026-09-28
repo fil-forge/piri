@@ -1,8 +1,12 @@
 package rpc_test
 
 import (
+	"testing"
+
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/server/middleware"
+	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -10,12 +14,11 @@ import (
 	blobhandler "github.com/fil-forge/piri/pkg/ucanhandlers/blob"
 )
 
-// /blob/allocate is now provider-scoped: the invocation subject is the storage
-// provider (here s.ServiceID, the node's own identity) and the space being
-// allocated into travels in AllocateArguments.Space. Authorization is enforced
-// by the validator's proof chain (rooted at the provider); in this test the
-// provider self-issues, so no proof is needed. Allocations are keyed on
-// (digest, space).
+// /blob/allocate is provider-scoped: the invocation subject is the storage
+// provider and the space being allocated into travels in
+// AllocateArguments.Space. The upload service issues it against a delegation
+// rooted at the provider — see newAllocate — since the route refuses a
+// self-signed invocation. Allocations are keyed on (digest, space).
 
 func (s *RPCSuite) TestBlobAllocate_Basic() {
 	t := s.T()
@@ -24,18 +27,13 @@ func (s *RPCSuite) TestBlobAllocate_Basic() {
 	cause := testutil.RandomCID(t)
 	space := testutil.RandomDID(t)
 
-	inv := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		s.ServiceID.DID(),
-		&blob.AllocateArguments{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
-			Cause: cause,
-		},
-		invocation.WithAudience(s.ServiceID.DID()),
-	))(t)
+	inv, proof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: size},
+		Cause: cause,
+	})
 
-	rcpt := s.sendInvocation(t, inv)
+	rcpt := s.sendInvocationWithProofs(t, inv, proof)
 	ok := decodeAllocateOK(t, rcpt)
 
 	require.Equal(t, size, ok.Size, "size to upload should match request")
@@ -66,18 +64,13 @@ func (s *RPCSuite) TestBlobAllocate_SizeLimitExceeded() {
 	// size is oversized, no bytes are materialized.
 	const overLimit = 266338304 + 1
 
-	inv := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		s.ServiceID.DID(),
-		&blob.AllocateArguments{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: overLimit},
-			Cause: testutil.RandomCID(t),
-		},
-		invocation.WithAudience(s.ServiceID.DID()),
-	))(t)
+	inv, proof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: overLimit},
+		Cause: testutil.RandomCID(t),
+	})
 
-	rcpt := s.sendInvocation(t, inv)
+	rcpt := s.sendInvocationWithProofs(t, inv, proof)
 	assertReceiptFailure(t, rcpt, blobhandler.BlobSizeLimitExceededErrorName)
 
 	_, err := s.Allocations.Get(t.Context(), digest, space)
@@ -96,17 +89,12 @@ func (s *RPCSuite) TestBlobAllocate_RepeatSameBlob() {
 	space := testutil.RandomDID(t)
 
 	allocate := func() *blob.AllocateOK {
-		inv := testutil.Must(blob.Allocate.Invoke(
-			s.ServiceID,
-			s.ServiceID.DID(),
-			&blob.AllocateArguments{
-				Space: space,
-				Blob:  blob.Blob{Digest: digest, Size: size},
-				Cause: cause,
-			},
-			invocation.WithAudience(s.ServiceID.DID()),
-		))(t)
-		return decodeAllocateOK(t, s.sendInvocation(t, inv))
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{
+			Space: space,
+			Blob:  blob.Blob{Digest: digest, Size: size},
+			Cause: cause,
+		})
+		return decodeAllocateOK(t, s.sendInvocationWithProofs(t, inv, proof))
 	}
 
 	// First allocation: blob has never been seen, so the handler reserves
@@ -130,4 +118,43 @@ func (s *RPCSuite) TestBlobAllocate_RepeatSameBlob() {
 	third := allocate()
 	require.Equal(t, uint64(0), third.Size, "post-upload re-allocate returns Size=0")
 	require.Nil(t, third.Address, "post-upload re-allocate omits Address — nothing to upload")
+}
+
+// TestBlobAllocate_RejectsSelfSigned covers the checks the RPC routes are
+// served behind. A self-signed invocation needs no proofs and claims the
+// subject's whole authority, so the node refuses one; and an invocation
+// subjected to anyone but this node is not ours to answer.
+func (s *RPCSuite) TestBlobAllocate_RejectsSelfSigned() {
+	t := s.T()
+	args := &blob.AllocateArguments{
+		Space: testutil.RandomDID(t),
+		Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123},
+		Cause: testutil.RandomCID(t),
+	}
+
+	t.Run("issued by its own subject", func(t *testing.T) {
+		stranger := testutil.RandomIssuer(t)
+		inv := testutil.Must(blob.Allocate.Invoke(
+			stranger,
+			stranger.DID(),
+			args,
+			invocation.WithAudience(s.ServiceID.DID()),
+		))(t)
+		assertReceiptFailure(t, s.sendInvocation(t, inv), middleware.SelfSignedInvocationErrorName)
+	})
+
+	t.Run("subjected to another node", func(t *testing.T) {
+		other := testutil.RandomIssuer(t)
+		proof := testutil.Must(delegation.Delegate(
+			other, s.UploadServiceIdentity.DID(), other.DID(), blob.Allocate.Command,
+		))(t)
+		inv := testutil.Must(blob.Allocate.Invoke(
+			s.UploadServiceIdentity,
+			other.DID(),
+			args,
+			invocation.WithAudience(s.ServiceID.DID()),
+			invocation.WithProofs(proof.Link()),
+		))(t)
+		assertReceiptFailure(t, s.sendInvocationWithProofs(t, inv, proof), middleware.InvalidSubjectErrorName)
+	})
 }

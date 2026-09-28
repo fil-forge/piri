@@ -75,15 +75,31 @@ servers with distinct response shapes:
   `content/retrieve`.
 
 Handlers register through fx group tags. Each handler package has a
-`module.go` that wraps constructors with `ucanhandlers.ProvideRPC` /
-`ProvideRetrieval` (and `ProvideRPCOption` / `ProvideRetrievalOption` for
-server options). The group-tag strings live in `pkg/ucanhandlers/handler.go`
-and appear in both the struct tags and helpers — keep them in sync.
+`module.go` that annotates its constructors into a group:
+`fx.Annotate(NewFooHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag))`.
+The tag constants live in `pkg/ucanhandlers/handler.go` and appear in both the
+struct tags and the constants — keep them in sync.
+
+Which group a handler joins decides the authorization it is served behind
+(applied in `NewRPC` / `NewRetrieval`, from ucantone's `server/middleware`):
+
+- `RPCHandlersGroupTag` — `NotSelfSigned()` + `OnlySubject(nodeDID)`. A
+  self-signed invocation needs no proofs and carries the subject's whole
+  authority, so a capability this node serves for others requires one subjected
+  to the node and issued by someone the node delegated to.
+  `blob/{allocate,accept,release,reject}` and `pdp/info`.
+- `RPCOpenHandlersGroupTag` — no checks. Only `access/grant`, the bootstrap step
+  of the access flow: the issuer has no prior delegation and invokes it
+  self-signed.
+- `RetrievalHandlersGroupTag` — `OnlySubject(nodeDID)`. `blob/retrieve`.
+- `RetrievalSpaceHandlersGroupTag` — no checks: `content/retrieve` is subjected
+  to the space, whose key holder may invoke over it directly.
 
 To add a capability handler: define/import the command from libforge, write
 the handler in the appropriate `pkg/ucanhandlers/<domain>/` package, register
-it in that package's `module.go`, and add coverage via the `ucanfxtest`
-harnesses.
+it in that package's `module.go` under `RPCHandlersGroupTag` unless it has one
+of the shapes above, and add coverage via the `ucanfxtest` harnesses. Put the
+subject check in the registration, not in the handler.
 
 ## Dependency graph validation
 

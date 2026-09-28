@@ -27,7 +27,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // ReleaseDeps is the dependency set populated by fx for the Release handler.
@@ -73,13 +72,8 @@ func NewBlobReleaseHandler(deps ReleaseDeps) server.Route {
 	return blob.Release.Route(func(req *binding.Request[*blob.ReleaseArguments], rsp *binding.Response[*blob.ReleaseOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider; the space
-		// releasing its claim travels in the arguments. Authorization that
-		// the upload service may invoke /blob/release is enforced by the
-		// validator's proof chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The route's middleware has already required an invocation subjected to
+		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
 		// The release must be caused by a /blob/remove invocation rooted at
 		// the space — the node verifies it rather than trusting the upload

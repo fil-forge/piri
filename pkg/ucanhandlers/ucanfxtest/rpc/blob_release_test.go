@@ -124,17 +124,12 @@ func (s *RPCSuite) TestBlobRelease_ReleasesClaimAndBytes() {
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	size := uint64(len(data))
 
-	alloc := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		service,
-		&blob.AllocateArguments{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
-			Cause: testutil.RandomCID(t),
-		},
-		invocation.WithAudience(service),
-	))(t)
-	assertReceiptOK(t, s.sendInvocation(t, alloc))
+	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: size},
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
 	s.Pieces.Put(digest, data)
 
 	acceptProof := testutil.Must(delegation.Delegate(

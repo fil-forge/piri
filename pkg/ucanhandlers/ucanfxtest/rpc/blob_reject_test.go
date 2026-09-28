@@ -28,17 +28,12 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 	size := uint64(len(data))
 	space := testutil.RandomDID(t)
 
-	alloc := testutil.Must(blob.Allocate.Invoke(
-		s.ServiceID,
-		service,
-		&blob.AllocateArguments{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
-			Cause: testutil.RandomCID(t),
-		},
-		invocation.WithAudience(service),
-	))(t)
-	assertReceiptOK(t, s.sendInvocation(t, alloc))
+	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: size},
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
 	s.Pieces.Put(digest, data)
 
 	proof := testutil.Must(delegation.Delegate(

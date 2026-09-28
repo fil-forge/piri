@@ -32,7 +32,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // InternalErrorName is the stable receipt-failure name for invariant
@@ -74,12 +73,8 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 	return blob.Accept.Route(func(req *binding.Request[*blob.AcceptArguments], rsp *binding.Response[*blob.AcceptOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider — the proofs are
-		// rooted at the provider, so authorization for the invoker to call
-		// `/blob/accept` is enforced by the validator's proof chain.
-		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The route's middleware has already required an invocation subjected to
+		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
 		resp, err := Accept(req.Context(), deps, &AcceptRequest{
 			Space: args.Space,
