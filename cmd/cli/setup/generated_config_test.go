@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -18,6 +19,10 @@ import (
 
 var updateGeneratedConfig = flag.Bool("update", false,
 	"record the golden generated config for a new GeneratedConfigVersion")
+
+// goldenCPUs is the CPU count the golden files are written for. See the
+// worker counts in TestGeneratedConfig.
+const goldenCPUs = 4
 
 // TestGeneratedConfig pins what `piri init` writes for a fixed base config and
 // fixed flags, keyed by config.GeneratedConfigVersion. Deployments re-run init
@@ -60,6 +65,19 @@ func TestGeneratedConfig(t *testing.T) {
 		common.HexToAddress("0x9012345678901234567890123456789012345678"),
 		42, "indexer-proof", "egress-proof")
 	require.NoError(t, err)
+
+	// Two job queues default to one worker per CPU of the machine running
+	// init (config.DefaultAggregationConfig), and the base config cannot set
+	// them. Pin them to the count the golden file was recorded with, so the
+	// comparison does not depend on the machine the test runs on.
+	aggregation := &generated.PDPService.Aggregation
+	for _, workers := range []*uint{
+		&aggregation.CommP.JobQueue.Workers,
+		&aggregation.Aggregator.JobQueue.Workers,
+	} {
+		require.Equal(t, uint(runtime.NumCPU()), *workers)
+		*workers = goldenCPUs
+	}
 
 	// The same encoding init uses to write the file.
 	got, err := toml.Marshal(generated)
