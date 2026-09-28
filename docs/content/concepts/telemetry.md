@@ -107,7 +107,9 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
 
 HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
-matched route, so those appear alongside the operation spans above.
+matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,
+`/livez` and `/readyz`) are left out of both these traces and the HTTP server metrics: container
+healthchecks poll them every few seconds.
 
 Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header
 joins the caller's trace and follows its sampling decision; one that arrives without one starts a
