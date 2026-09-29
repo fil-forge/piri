@@ -176,10 +176,12 @@ a unit-less gauge gains `_ratio`. So the four above are queried as
 `system_cpu_utilization_ratio`, `failed_jobs_total`, `job_duration_seconds` and
 `http_server_request_duration_seconds`.
 
-Piri's resource attributes — its version, its node DID as `service.instance.id`
-and its deployment environment — do not become labels on each series. A
-Prometheus-facing collector maps the service name to `job`, the instance ID to
-`instance`, and carries the rest on a `target_info` series to join against.
+Piri reports itself as `service.name` `piri` in `service.namespace` `forge`, the
+namespace Forge's services share. Its other resource attributes — its version,
+its node DID as `service.instance.id` and its deployment environment — do not
+become labels on each series. A Prometheus-facing collector joins the namespace
+and name into `job`, as `forge/piri`, maps the instance ID to `instance`, and
+carries the rest on a `target_info` series to join against.
 
 ## Configuration
 
