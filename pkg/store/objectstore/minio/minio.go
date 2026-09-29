@@ -89,13 +89,12 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 			//
 			// `DisableMultipart: true` is what we want, but we have to consider a few
 			// constraints:
-			// 1. Minio does not allow disabling multipart when size is 0.
-			// 2. If the size exceeds the max blob size (it won't) then don't disable
+			// 1. If the size exceeds the max blob size (it won't) then don't disable
 			//    just do what minio would normally do.
-			// 3. If the max blob size has been increased above the S3 max PutObject
+			// 2. If the max blob size has been increased above the S3 max PutObject
 			//    size or the provided blob is bigger than the max, then it's not
 			//    possible to disable multipart.
-			DisableMultipart: size > 0 && size <= blob.MaxBlobSize && size <= maxSinglePutObjectSize,
+			DisableMultipart: size <= blob.MaxBlobSize && size <= maxSinglePutObjectSize,
 		},
 	)
 	if err != nil {
