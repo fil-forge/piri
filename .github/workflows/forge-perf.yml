@@ -1,0 +1,36 @@
+name: forge-perf
+
+# Comment /forge-perf on a pull request (optionally "/forge-perf pairs=2") to
+# benchmark it. The run builds the pull request's head commit for linux/arm64,
+# pushes it as ghcr.io/fil-forge/piri:pr-<number>-<sha7>, and asks forge-perf's
+# persistent box to run the current main set and then the same set with this
+# image swapped in. Progress and the result come back as a comment on the pull
+# request. Only owners, members and collaborators can trigger it, and only on
+# pull requests from branches of this repository.
+#
+# The build settings below match the image forge-perf tracks for this repo
+# (config/images.tracked in fil-forge/forge-perf), as publish-ghcr.yml builds it.
+# The jobs live in fil-forge/forge-perf's .github/workflows/pr-run.yml.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  perf:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/forge-perf') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    uses: fil-forge/forge-perf/.github/workflows/pr-run.yml@main
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    with:
+      service: piri
+      dockerfile: Dockerfile
