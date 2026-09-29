@@ -11,11 +11,15 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/minio/minio-go/v7"
 
+	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/piri/lib/telemetry"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 var log = logging.Logger("objectstore/minio")
+
+// See https://github.com/minio/minio-go/blob/32e1f32cb176a611dbed3b37c15fda8c2d9ccf36/constants.go#L42
+const maxSinglePutObjectSize = 1024 * 1024 * 1024 * 5
 
 type Store struct {
 	client *minio.Client
@@ -72,7 +76,26 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 		key,
 		body,
 		int64(size),
-		minio.PutObjectOptions{},
+		minio.PutObjectOptions{
+			// Disable multipart. For ~254MiB blobs (the maximum network shard size)
+			// it's faster to PutObject directly rather than using multipart. Minio
+			// would normally split that size into multiple chunks of 16MiB and upload
+			// them sequentially. Conversely if you try to force minio into using
+			// multipart in parallel e.g. `ConcurrentStreamParts: true, NumThreads: 4`
+			// it'll choose 1 as the "optimal" number of parts to send (effectively
+			// disabling parallel multipart) so it's better to just disable multipart
+			// entirely for our use case and avoid 2 round trips creating and
+			// completing a multipart upload.
+			//
+			// `DisableMultipart: true` is what we want, but we have to consider a few
+			// constraints:
+			// 1. If the size exceeds the max blob size (it won't) then don't disable
+			//    just do what minio would normally do.
+			// 2. If the max blob size has been increased above the S3 max PutObject
+			//    size or the provided blob is bigger than the max, then it's not
+			//    possible to disable multipart.
+			DisableMultipart: size <= blob.MaxBlobSize && size <= maxSinglePutObjectSize,
+		},
 	)
 	if err != nil {
 		log.Errorw("failed to put object", "bucket", s.bucket, "key", key, "size", size, "error", err)
