@@ -93,8 +93,9 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 			// 2. If the size exceeds the max blob size (it won't) then don't disable
 			//    just do what minio would normally do.
 			// 3. If the max blob size has been increased above the S3 max PutObject
-			//    size, then it's not possible to disable multipart.
-			DisableMultipart: size > 0 && size <= blob.MaxBlobSize && blob.MaxBlobSize < maxSinglePutObjectSize,
+			//    size or the provided blob is bigger than the max, then it's not
+			//    possible to disable multipart.
+			DisableMultipart: size > 0 && size <= blob.MaxBlobSize && size <= maxSinglePutObjectSize,
 		},
 	)
 	if err != nil {
