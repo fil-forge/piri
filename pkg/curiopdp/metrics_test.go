@@ -79,7 +79,7 @@ func gauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]map[string]
 			for _, dp := range g.DataPoints {
 				key := ""
 				if kv := dp.Attributes.ToSlice(); len(kv) == 1 {
-					key = kv[0].Value.Emit()
+					key = kv[0].Value.AsString()
 				} else {
 					require.Empty(t, kv, "%s has more than one attribute", m.Name)
 				}
