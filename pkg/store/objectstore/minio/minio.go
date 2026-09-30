@@ -72,7 +72,11 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 		key,
 		body,
 		int64(size),
-		minio.PutObjectOptions{},
+		minio.PutObjectOptions{
+			ConcurrentStreamParts: true,
+			NumThreads:            4,
+			PartSize:              16 << 20, // 16 MiB; parallel path otherwise assumes a 5 TiB object
+		},
 	)
 	if err != nil {
 		log.Errorw("failed to put object", "bucket", s.bucket, "key", key, "size", size, "error", err)
