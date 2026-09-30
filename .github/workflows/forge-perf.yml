@@ -10,7 +10,10 @@ name: forge-perf
 #
 # The build settings below match the image forge-perf tracks for this repo
 # (config/images.tracked in fil-forge/forge-perf), as publish-ghcr.yml builds it.
-# The jobs live in fil-forge/forge-perf's .github/workflows/pr-run.yml.
+# The jobs live in fil-forge/forge-perf's .github/workflows/pr-run.yml, pinned
+# below to a forge-perf commit, and they check forge-perf's scripts out at that
+# commit. A newer pr-run.yml reaches this repository only through a pull request
+# that moves the pin (forge-perf docs/operations.md, "Moving the pin").
 
 on:
   issue_comment:
@@ -20,11 +23,17 @@ permissions: {}
 
 jobs:
   perf:
+    # The command alone, or followed by a space, tab or line break, so a
+    # comment such as /forge-performance starts nothing.
     if: >-
       github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/forge-perf') &&
+      (github.event.comment.body == '/forge-perf' ||
+       startsWith(github.event.comment.body, '/forge-perf ') ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\t"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\r"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\n"'))) &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    uses: fil-forge/forge-perf/.github/workflows/pr-run.yml@main
+    uses: fil-forge/forge-perf/.github/workflows/pr-run.yml@7b373a497b969d2cf19ff6a4b1bbae9ce3a7c937 # main
     permissions:
       contents: read
       packages: write
