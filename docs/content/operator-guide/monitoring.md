@@ -40,7 +40,8 @@ Monitor your job queues for stuck or failed jobs:
 | `egress-tracker` | Retrieval event submission |
 
 These are the only two job queues. Piece aggregation and the rest of PDP run on
-a separate scheduler that emits no metrics of its own.
+a separate scheduler (Curio's harmonytask engine), which the queue metrics do
+not cover; see [PDP Proving Health](#pdp-proving-health) for its metrics.
 
 A growing backlog or high failure rate indicates problems. Check logs for error details.
 
@@ -79,6 +80,9 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
+| `piri_chain_head_timestamp_seconds` | When the chain head the PDP pipeline last saw was produced |
+| `piri_pdp_proofset_next_challenge_epoch` | When each proof set's next challenge window opens |
+| `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last succeeded |
 
 ### Setting Up Metrics Collection
 
@@ -96,6 +100,68 @@ publish_interval = "30s"
 [Configuration > telemetry](../configuration/telemetry.md).
 
 Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
+
+### PDP Proving Health
+
+These gauges let an alert tell a node whose chain view has stopped advancing,
+or that has stopped proving, from a healthy one. Piri reports the raw schedule
+and progress and leaves the judgement to the alert.
+
+| Metric | Unit | Labels | What It Tells You |
+|--------|------|--------|-------------------|
+| `piri_chain_head_epoch` | epoch | | Epoch of the last tipset the PDP chain scheduler applied |
+| `piri_chain_head_timestamp_seconds` | unix seconds | | Timestamp of that tipset (its minimum block timestamp) |
+| `piri_pdp_proofset_next_challenge_epoch` | epoch | `proof_set` | Epoch the proof set's next challenge window opens |
+| `piri_pdp_proofset_challenge_window_epochs` | epochs | `proof_set` | Length of the proof set's challenge window |
+| `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
+| `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` last completed successfully on this node |
+
+The names above are what Prometheus sees when the OTLP metrics pass through a
+collector such as Grafana Alloy: gauges keep their names, and a name that
+already ends in `_seconds` gets no extra unit suffix.
+
+The chain head gauges appear once the first tipset arrives after start-up.
+The proof set gauges are read from the database at each collection, and only
+for proof sets that have a next challenge scheduled: between a proof and the
+scheduling of the next proving period a proof set has none, so its series is
+briefly absent. `piri_pdp_task_last_success_timestamp_seconds` has no series
+for a task that has not yet succeeded on this node.
+
+Example alert expressions (Filecoin epochs are 30 seconds; the `node` label
+and `job` value depend on how your collector labels targets):
+
+```promql
+# The chain head has not advanced for 5 minutes (Lotus stalled or
+# unreachable, or Piri's chain subscription stuck).
+time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 300
+
+# A proof set's challenge window has closed without the next proving period
+# being scheduled. The current epoch is extrapolated from the wall clock, so
+# this still fires when the chain head itself is stale. Use a `for:` of a few
+# minutes: the next proving period is scheduled just after the window closes.
+(
+    piri_pdp_proofset_next_challenge_epoch{job="forge/piri"}
+  + piri_pdp_proofset_challenge_window_epochs{job="forge/piri"}
+)
+< on (node) group_left
+(
+    max by (node) (piri_chain_head_epoch{job="forge/piri"})
+  + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
+)
+
+# No successful proof in 1.5 proving periods.
+(
+  time() - max by (node) (piri_pdp_task_last_success_timestamp_seconds{job="forge/piri", task_name="PDPv0_Prove"})
+)
+> on (node)
+(
+  1.5 * 30 * max by (node) (max_over_time(piri_pdp_proofset_proving_period_epochs{job="forge/piri"}[1d]))
+)
+```
+
+The last alert is per node: with several proof sets, one proving successfully
+keeps it quiet while another does not. The challenge-window alert is the
+per-proof-set check.
 
 ## Logs
 
@@ -128,11 +194,12 @@ Recommended alerts:
 | Condition | Severity | Action |
 |-----------|----------|--------|
 | Lotus sync behind by >100 epochs | Critical | Check Lotus node immediately |
-| Proof set in fault state | Critical | Investigate missed proof |
+| Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
+| Proof set past its challenge window (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Investigate missed proof |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
-| No proofs submitted in proving period | Critical | Verify node is running and healthy |
+| No successful proof in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
 
 ## Regular Checks
 
