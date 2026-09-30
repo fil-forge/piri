@@ -217,3 +217,388 @@ func (t *Allocation) UnmarshalCBOR(r io.Reader) (err error) {
 
 	return nil
 }
+func (t *Pending) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+
+	cw := cbg.NewCborWriter(w)
+	fieldCount := 9
+
+	if t.Digest == nil {
+		fieldCount--
+	}
+
+	if _, err := cw.Write(cbg.CborEncodeMajorType(cbg.MajMap, uint64(fieldCount))); err != nil {
+		return err
+	}
+
+	// t.Size (uint64) (uint64)
+	if len("size") > 8192 {
+		return xerrors.Errorf("Value in field \"size\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("size"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("size")); err != nil {
+		return err
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Size)); err != nil {
+		return err
+	}
+
+	// t.Cause (cid.Cid) (struct)
+	if len("cause") > 8192 {
+		return xerrors.Errorf("Value in field \"cause\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("cause"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("cause")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteCid(cw, t.Cause); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Cause: %w", err)
+	}
+
+	// t.Space (did.DID) (struct)
+	if len("space") > 8192 {
+		return xerrors.Errorf("Value in field \"space\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("space"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("space")); err != nil {
+		return err
+	}
+
+	if err := t.Space.MarshalCBOR(cw); err != nil {
+		return err
+	}
+
+	// t.Digest (multihash.Multihash) (slice)
+	if t.Digest != nil {
+
+		if len("digest") > 8192 {
+			return xerrors.Errorf("Value in field \"digest\" was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("digest"))); err != nil {
+			return err
+		}
+		if _, err := cw.WriteString(string("digest")); err != nil {
+			return err
+		}
+
+		if len(t.Digest) > 2097152 {
+			return xerrors.Errorf("Byte array in field t.Digest was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajByteString, uint64(len(t.Digest))); err != nil {
+			return err
+		}
+
+		if _, err := cw.Write(t.Digest); err != nil {
+			return err
+		}
+
+	}
+
+	// t.Expires (ucan.UnixTimestamp) (int64)
+	if len("expires") > 8192 {
+		return xerrors.Errorf("Value in field \"expires\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("expires"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("expires")); err != nil {
+		return err
+	}
+
+	if t.Expires >= 0 {
+		if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.Expires)); err != nil {
+			return err
+		}
+	} else {
+		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.Expires-1)); err != nil {
+			return err
+		}
+	}
+
+	// t.Accepted (bool) (bool)
+	if len("accepted") > 8192 {
+		return xerrors.Errorf("Value in field \"accepted\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("accepted"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("accepted")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteBool(w, t.Accepted); err != nil {
+		return err
+	}
+
+	// t.UploadID (string) (string)
+	if len("uploadID") > 8192 {
+		return xerrors.Errorf("Value in field \"uploadID\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("uploadID"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("uploadID")); err != nil {
+		return err
+	}
+
+	if len(t.UploadID) > 8192 {
+		return xerrors.Errorf("Value in field t.UploadID was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len(t.UploadID))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string(t.UploadID)); err != nil {
+		return err
+	}
+
+	// t.Allocation (cid.Cid) (struct)
+	if len("allocation") > 8192 {
+		return xerrors.Errorf("Value in field \"allocation\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("allocation"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("allocation")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteCid(cw, t.Allocation); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Allocation: %w", err)
+	}
+
+	// t.DigestCode (uint64) (uint64)
+	if len("digestCode") > 8192 {
+		return xerrors.Errorf("Value in field \"digestCode\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("digestCode"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("digestCode")); err != nil {
+		return err
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajUnsignedInt, uint64(t.DigestCode)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (t *Pending) UnmarshalCBOR(r io.Reader) (err error) {
+	*t = Pending{}
+
+	cr := cbg.NewCborReader(r)
+
+	maj, extra, err := cr.ReadHeader()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err == io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	if maj != cbg.MajMap {
+		return fmt.Errorf("cbor input should be of type map")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("Pending: map struct too large (%d)", extra)
+	}
+
+	n := extra
+
+	nameBuf := make([]byte, 10)
+	for i := uint64(0); i < n; i++ {
+		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
+		if err != nil {
+			return err
+		}
+
+		if !ok {
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(cr, func(cid.Cid) {}); err != nil {
+				return err
+			}
+			continue
+		}
+
+		switch string(nameBuf[:nameLen]) {
+		// t.Size (uint64) (uint64)
+		case "size":
+
+			{
+
+				maj, extra, err = cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				if maj != cbg.MajUnsignedInt {
+					return fmt.Errorf("wrong type for uint64 field")
+				}
+				t.Size = uint64(extra)
+
+			}
+			// t.Cause (cid.Cid) (struct)
+		case "cause":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Cause: %w", err)
+				}
+
+				t.Cause = c
+
+			}
+			// t.Space (did.DID) (struct)
+		case "space":
+
+			{
+
+				if err := t.Space.UnmarshalCBOR(cr); err != nil {
+					return xerrors.Errorf("unmarshaling t.Space: %w", err)
+				}
+
+			}
+			// t.Digest (multihash.Multihash) (slice)
+		case "digest":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+
+			if extra > 2097152 {
+				return fmt.Errorf("t.Digest: byte array too large (%d)", extra)
+			}
+			if maj != cbg.MajByteString {
+				return fmt.Errorf("expected byte array")
+			}
+
+			if extra > 0 {
+				t.Digest = make([]uint8, extra)
+			}
+
+			if _, err := io.ReadFull(cr, t.Digest); err != nil {
+				return err
+			}
+
+			// t.Expires (ucan.UnixTimestamp) (int64)
+		case "expires":
+			{
+				maj, extra, err := cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				var extraI int64
+				switch maj {
+				case cbg.MajUnsignedInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 positive overflow")
+					}
+				case cbg.MajNegativeInt:
+					extraI = int64(extra)
+					if extraI < 0 {
+						return fmt.Errorf("int64 negative overflow")
+					}
+					extraI = -1 - extraI
+				default:
+					return fmt.Errorf("wrong type for int64 field: %d", maj)
+				}
+
+				t.Expires = ucan.UnixTimestamp(extraI)
+			}
+			// t.Accepted (bool) (bool)
+		case "accepted":
+
+			maj, extra, err = cr.ReadHeader()
+			if err != nil {
+				return err
+			}
+			if maj != cbg.MajOther {
+				return fmt.Errorf("booleans must be major type 7")
+			}
+			switch extra {
+			case 20:
+				t.Accepted = false
+			case 21:
+				t.Accepted = true
+			default:
+				return fmt.Errorf("booleans are either major type 7, value 20 or 21 (got %d)", extra)
+			}
+			// t.UploadID (string) (string)
+		case "uploadID":
+
+			{
+				sval, err := cbg.ReadStringWithMax(cr, 8192)
+				if err != nil {
+					return err
+				}
+
+				t.UploadID = string(sval)
+			}
+			// t.Allocation (cid.Cid) (struct)
+		case "allocation":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Allocation: %w", err)
+				}
+
+				t.Allocation = c
+
+			}
+			// t.DigestCode (uint64) (uint64)
+		case "digestCode":
+
+			{
+
+				maj, extra, err = cr.ReadHeader()
+				if err != nil {
+					return err
+				}
+				if maj != cbg.MajUnsignedInt {
+					return fmt.Errorf("wrong type for uint64 field")
+				}
+				t.DigestCode = uint64(extra)
+
+			}
+
+		default:
+			// Field doesn't exist on this type, so ignore it
+			if err := cbg.ScanForLinks(r, func(cid.Cid) {}); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}

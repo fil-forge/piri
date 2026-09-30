@@ -11,6 +11,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/pipeline"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
 	"go.uber.org/fx"
@@ -19,6 +20,7 @@ import (
 	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/pdp"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/wallet"
 )
 
@@ -37,6 +39,12 @@ var PDPModule = fx.Module("pdp",
 			fx.As(new(service.ChainClient)),
 		),
 	),
+	// Blobs received without their digest are held by their upload until
+	// the commP task settles them, so every reader of the blobstore reads
+	// through the upload index.
+	fx.Decorate(func(bs blobstore.Blobstore, db *harmonydb.DB) blobstore.Blobstore {
+		return blobstore.WithUploads(bs, service.NewUploadIndex(db))
+	}),
 	smartcontracts.Module,
 	pipeline.Module, // aggregation pipeline (commp/aggregate/add-roots) + removal sweep as harmonytasks
 	curiopdp.Module, // Curio pdpv0 pipeline (harmonytask + prove/proving-period) on harmonydb

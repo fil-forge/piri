@@ -30,7 +30,7 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 
 	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: size},
+		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
@@ -42,10 +42,7 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 	unalloc := testutil.Must(blob.Reject.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
+		ptr(blob.RejectByDigest(space, digest)),
 		invocation.WithAudience(service),
 		invocation.WithProofs(proof.Link()),
 	))(t)
@@ -59,10 +56,7 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 	again := testutil.Must(blob.Reject.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
+		ptr(blob.RejectByDigest(space, digest)),
 		invocation.WithAudience(service),
 		invocation.WithProofs(proof.Link()),
 	))(t)
@@ -88,7 +82,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 		service,
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
+			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -102,10 +96,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	unalloc := testutil.Must(blob.Reject.Invoke(
 		s.UploadServiceIdentity,
 		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
+		ptr(blob.RejectByDigest(space, digest)),
 		invocation.WithAudience(service),
 		invocation.WithProofs(proof.Link()),
 	))(t)

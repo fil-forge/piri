@@ -31,7 +31,7 @@ func (s *RPCSuite) TestHandlerPanic_ReturnsExecutionFailure() {
 	inv := testutil.Must(panicCommand.Invoke(
 		s.ServiceID,
 		s.ServiceID.DID(),
-		&blob.RejectArguments{Space: testutil.RandomDID(t), Digest: testutil.RandomMultihash(t)},
+		ptr(blob.RejectByDigest(testutil.RandomDID(t), testutil.RandomMultihash(t))),
 		invocation.WithAudience(s.ServiceID.DID()),
 	))(t)
 
@@ -54,7 +54,7 @@ func (s *RPCSuite) TestBatch_ConcurrentAllocations() {
 	for range count {
 		invs = append(invs, s.newAllocateWith(t, proof, &blob.AllocateArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123},
+			Blob:  blob.SpecFromBlob(blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123}),
 			Cause: testutil.RandomCID(t),
 		}))
 	}

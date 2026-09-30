@@ -24,8 +24,9 @@ type Reader struct {
 	hasExpectedSize bool
 
 	bytesRead uint64
-	done      bool  // reached EOF
-	finalErr  error // latched terminal error (e.g., mismatch)
+	done      bool   // reached EOF
+	finalErr  error  // latched terminal error (e.g., mismatch)
+	sum       []byte // the digest, once the source is read to EOF
 }
 
 // Option configures a Reader.
@@ -66,6 +67,24 @@ func New(src io.Reader, h hash.Hash, expected []byte, opts ...Option) (*Reader, 
 	return r, nil
 }
 
+// NewHashing returns a Reader that hashes src without checking it against an
+// expected digest: the digest is not known in advance, and [Reader.Sum]
+// reports it once src has been read to EOF. Options apply as for [New], so
+// [WithExpectedSize] still bounds the stream.
+func NewHashing(src io.Reader, h hash.Hash, opts ...Option) (*Reader, error) {
+	if src == nil {
+		return nil, fmt.Errorf("source reader cannot be nil")
+	}
+	if h == nil {
+		return nil, fmt.Errorf("hash function cannot be nil")
+	}
+	r := &Reader{src: src, h: h}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r, nil
+}
+
 func (r *Reader) Read(p []byte) (int, error) {
 	if r.finalErr != nil {
 		return 0, r.finalErr
@@ -100,7 +119,8 @@ func (r *Reader) Read(p []byte) (int, error) {
 			return n, r.finalErr
 		}
 		sum := r.h.Sum(nil)
-		if !bytes.Equal(sum, r.expectedSum) {
+		r.sum = sum
+		if r.expectedSum != nil && !bytes.Equal(sum, r.expectedSum) {
 			r.finalErr = fmt.Errorf("%w: expected %x, got %x", ErrHashMismatch, r.expectedSum, sum)
 			// return n (might be >0) + the error; caller sees last bytes and the failure
 			return n, r.finalErr
@@ -111,6 +131,15 @@ func (r *Reader) Read(p []byte) (int, error) {
 }
 
 func (r *Reader) BytesRead() uint64 { return r.bytesRead }
+
+// Sum returns the digest of the source, and false until the source has been
+// read to EOF without error.
+func (r *Reader) Sum() ([]byte, bool) {
+	if !r.done || r.finalErr != nil {
+		return nil, false
+	}
+	return r.sum, true
+}
 
 func (r *Reader) Validated() bool {
 	return r.done

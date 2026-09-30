@@ -44,6 +44,8 @@ type AllocateDeps struct {
 	ID          app.IdentityConfig
 	Allocations AllocationStore
 	Pieces      PieceAllocator
+	// Pending records allocations made without a digest.
+	Pending PendingAllocations
 	// PieceSize bounds how large a blob this node will accept. Its zero
 	// value reports the defaults, so tests may leave it unset.
 	PieceSize piecesize.Policy
@@ -80,11 +82,23 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 		// invocation is subjected to this provider, and issued by someone it
 		// delegated to, is enforced by the route's middleware (see pkg/ucanhandlers).
 
-		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
-			Space: args.Space,
-			Blob:  args.Blob,
-			Cause: args.Cause,
-		})
+		var resp *AllocateResponse
+		var err error
+		if code, ok := args.Blob.DigestCode(); ok {
+			resp, err = AllocateUnhashed(req.Context(), deps, &AllocateUnhashedRequest{
+				Space:      args.Space,
+				Blob:       code,
+				Cause:      args.Cause,
+				Allocation: req.Invocation().Task().Link(),
+			})
+		} else {
+			b, _ := args.Blob.Blob()
+			resp, err = Allocate(req.Context(), deps, &AllocateRequest{
+				Space: args.Space,
+				Blob:  b,
+				Cause: args.Cause,
+			})
+		}
 		if err != nil {
 			// A named error is a decision about the request, not a server
 			// fault: report it as a receipt failure the caller can act on.
@@ -267,5 +281,94 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	return &AllocateResponse{
 		Size:    size,
 		Address: address,
+	}, nil
+}
+
+type AllocateUnhashedRequest struct {
+	Space did.DID
+	Blob  blob.BlobDigestCode
+	// Cause is the `/blob/add` task link.
+	Cause cid.Cid
+	// Allocation is the `/blob/allocate` task link. It keys the pending
+	// allocation, and the `/http/put` destination resolves to it.
+	Allocation cid.Cid
+}
+
+// AllocateUnhashed allocates space for a blob whose digest is not yet known:
+// the request names only the hash function. There is nothing to deduplicate
+// against, so the data is always uploaded. The node hashes it as it is
+// received and records the digest on the pending allocation, where
+// `/blob/accept` checks it against the one the `/http/put` receipt reports.
+func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhashedRequest) (resp *AllocateResponse, err error) {
+	ctx, span := tracer.Start(ctx, "blob.allocate")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
+	log := log.With("allocation", req.Allocation)
+	log.Infof("%s space: %s", blob.Allocate.Command, req.Space)
+	span.SetAttributes(
+		attribute.Stringer("space.did", req.Space),
+		attribute.Int64("blob.digest_code", int64(req.Blob.DigestCode)),
+		attribute.Int64("blob.size", int64(req.Blob.Size)),
+	)
+
+	name, ok := multihash.Codes[req.Blob.DigestCode]
+	if _, supported := presets.HasherRegistry[name]; !ok || !supported {
+		return nil, errors.New(blob.UnsupportedDigestCodeErrorName,
+			"digest code 0x%x is not supported", req.Blob.DigestCode)
+	}
+	if limitErr := deps.PieceSize.CheckRaw(req.Blob.Size); limitErr != nil {
+		log.Warnw("rejecting oversized blob allocation",
+			"size", req.Blob.Size, "max", deps.PieceSize.MaxRaw())
+		return nil, errors.New(
+			BlobSizeLimitExceededErrorName,
+			"blob size %d exceeds maximum %d", req.Blob.Size, deps.PieceSize.MaxRaw(),
+		)
+	}
+
+	expiresAt := ucan.Now() + ucan.UnixTimestamp(60*60*24) // 1 day
+
+	alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
+		Piece: types.Piece{
+			Name: name,
+			Size: int64(req.Blob.Size),
+		},
+		Allocation: req.Allocation,
+	})
+	if err != nil {
+		log.Errorw("adding to pdp service", "error", err)
+		return nil, fmt.Errorf("adding to pdp service: %w", err)
+	}
+	uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
+	if err != nil {
+		log.Errorw("getting piece write URL", "error", err)
+		return nil, fmt.Errorf("getting piece write URL: %w", err)
+	}
+
+	err = deps.Pending.PutPending(ctx, allocation.Pending{
+		Allocation: req.Allocation,
+		Space:      req.Space,
+		Size:       req.Blob.Size,
+		DigestCode: req.Blob.DigestCode,
+		Cause:      req.Cause,
+		Expires:    expiresAt,
+		UploadID:   alloc.UploadID.String(),
+	})
+	if err != nil {
+		log.Errorw("putting pending allocation", "error", err)
+		return nil, fmt.Errorf("putting pending allocation: %w", err)
+	}
+
+	return &AllocateResponse{
+		Size: req.Blob.Size,
+		Address: &blob.BlobAddress{
+			URL:     commands.CborURL(uploadURL),
+			Expires: int64(expiresAt),
+		},
 	}, nil
 }

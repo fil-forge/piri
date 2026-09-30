@@ -26,15 +26,18 @@ var Module = fx.Module("pdp/pipeline",
 		NewAggregateTask,
 		NewAddRootsTask,
 		NewRemoveSweepTask,
+		NewExpireAllocationsTask,
 
 		fx.Annotate(NewSubmissionManager, fx.As(new(RootSubmitter))),
 		fx.Annotate(NewEntry, fx.As(new(commp.Calculator))),
 		func(s *service.PDPService) RemovalSweeper { return s },
+		func(s *service.PDPService) AllocationExpirer { return s },
 
 		fx.Annotate(asTask[*CommPTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*AggregateTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*AddRootsTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*RemoveSweepTask], fx.ResultTags(taskGroup)),
+		fx.Annotate(asTask[*ExpireAllocationsTask], fx.ResultTags(taskGroup)),
 	),
 )
 

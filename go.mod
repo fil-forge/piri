@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/alanshaw/dag-json-gen v0.0.9
+	github.com/alanshaw/dag-json-gen v0.0.10
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/docker/docker v28.5.2+incompatible
@@ -13,7 +13,7 @@ require (
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
 	github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc
-	github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7
+	github.com/fil-forge/libforge v0.0.0-20260929164726-e388bead4e9c
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2

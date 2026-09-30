@@ -305,8 +305,8 @@ github.com/ajstarks/svgo v0.0.0-20211024235047-1546f124cd8b/go.mod h1:1KcenG0jGW
 github.com/akavel/rsrc v0.8.0/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
 github.com/akavel/rsrc v0.10.2 h1:Zxm8V5eI1hW4gGaYsJQUhxpjkENuG91ki8B4zCrvEsw=
 github.com/akavel/rsrc v0.10.2/go.mod h1:uLoCtb9J+EyAqh+26kdrTgmzRBFPGOolLWKpdxkKq+c=
-github.com/alanshaw/dag-json-gen v0.0.9 h1:q59Ra1mQB6HnFGI1ilFxsZvF1CqGN0XDlUWq16EJ6pw=
-github.com/alanshaw/dag-json-gen v0.0.9/go.mod h1:v1YBZcS4B355MqxtyQr+fGNbEhm0CzHd+gOqOO/MZ+I=
+github.com/alanshaw/dag-json-gen v0.0.10 h1:UXHflszpCdeitrJXSWMiMy2LW2pYwfKfFszkoXFoaF0=
+github.com/alanshaw/dag-json-gen v0.0.10/go.mod h1:v1YBZcS4B355MqxtyQr+fGNbEhm0CzHd+gOqOO/MZ+I=
 github.com/alecthomas/assert/v2 v2.2.2/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/assert/v2 v2.3.0/go.mod h1:pXcQ2Asjp247dahGEmsZ6ru0UVwnkhktn7S0bBDLxvQ=
 github.com/alecthomas/participle/v2 v2.0.0/go.mod h1:rAKZdJldHu8084ojcWevWAL8KmEU+AT+Olodb+WoN2Y=
@@ -552,8 +552,8 @@ github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc h1:fzFl4n4OYukafjHD78DKu0o5UIfI9uKyzBug5cDcYJ4=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc/go.mod h1:5Sfcai2D0OxYqtelvgHU/qQ9CtigawFn+MpzO73cOzk=
-github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7 h1:MUP8oByAzhniP4FxpPIICFRackeyXrqiqJ0A2PB2OHA=
-github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7/go.mod h1:sHUJ6GoVlCwuwvt2auh+ZEhr4Ywi0y+MV7yqDpWV1lc=
+github.com/fil-forge/libforge v0.0.0-20260929164726-e388bead4e9c h1:yG/O9weGcO6eQ1SQhdjCLUEtWOqBg9SepFaizfQpniw=
+github.com/fil-forge/libforge v0.0.0-20260929164726-e388bead4e9c/go.mod h1:sKml7ScjN2ov8F7jTuBIv823EgyWGTJG6cvA8ronPk4=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
 github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3 h1:Ta5ODMWR9mM4zMfRp/K1unAKvnt7f5dhehRA+YHiv7w=

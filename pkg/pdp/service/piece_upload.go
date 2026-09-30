@@ -4,28 +4,35 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash"
 
 	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/hashicorp/go-multierror"
+	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multicodec"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 
+	"github.com/fil-forge/libforge/commands/blob"
+	"github.com/fil-forge/libforge/digestutil"
 	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/verifyread"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
+	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
 func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpload) (retErr error) {
 	var checkHash []byte
 	var checkSize int64
 	var checkHashCodec string
+	var allocationLink *string
 	if err := p.db.QueryRow(ctx,
-		`SELECT check_hash, check_size, check_hash_codec FROM pdp_piece_uploads WHERE id = $1`,
-		pieceUpload.ID.String()).Scan(&checkHash, &checkSize, &checkHashCodec); err != nil {
+		`SELECT check_hash, check_size, check_hash_codec, allocation FROM pdp_piece_uploads WHERE id = $1`,
+		pieceUpload.ID.String()).Scan(&checkHash, &checkSize, &checkHashCodec, &allocationLink); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return types.NewErrorf(types.KindNotFound, "upload ID %s not found", pieceUpload.ID)
 		}
@@ -46,6 +53,17 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 	hasher, ok := presets.HasherRegistry[checkHashCodec]
 	if !ok {
 		return types.NewErrorf(types.KindInvalidInput, "unknown hash code: %s", checkHashCodec)
+	}
+
+	if len(checkHash) == 0 {
+		if allocationLink == nil {
+			return types.NewErrorf(types.KindInternal, "upload %s has neither a digest nor an allocation", pieceUpload.ID)
+		}
+		link, err := cid.Parse(*allocationLink)
+		if err != nil {
+			return types.WrapError(types.KindInternal, "failed to parse upload allocation", err)
+		}
+		return p.uploadUnhashedPiece(ctx, pieceUpload, uint64(checkSize), hasher, link)
 	}
 
 	mh, err := multihash.Decode(checkHash)
@@ -120,5 +138,130 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 		return merr.ErrorOrNil()
 	}
 
+	return nil
+}
+
+// uploadUnhashedPiece receives an upload whose allocation named only the hash
+// function. The data is hashed as it is received and written under the
+// upload's key, since its digest is not known until the last byte, and it
+// stays there: the commP task settles it at the key of its digest later, in
+// the same pass that reads it for commP. The steps run in an order that leaves
+// nothing unclaimed if the node stops between any two of them:
+//
+//  1. the digest is recorded on the pending allocation;
+//  2. the allocation is made to count as a claim on (digest, space), unless
+//     one already does (another upload of the same content in the space);
+//  3. the upload is recorded as holding the digest and its row deleted, in
+//     one transaction; or, when the node already holds that content, the
+//     upload's data is dropped and its row deleted.
+//
+// Until step 3 the upload can be retried, and a retry repeats every step.
+func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.PieceUpload, size uint64, hasher func() hash.Hash, link cid.Cid) error {
+	lg := log.With("upload_id", pieceUpload.ID, "allocation", link, "size", size)
+	pending, err := p.allocationStore.GetPending(ctx, link)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return types.NewErrorf(types.KindNotFound, "allocation %s for upload %s not found", link, pieceUpload.ID)
+		}
+		return types.WrapError(types.KindInternal, "failed to get pending allocation", err)
+	}
+
+	vr, err := verifyread.NewHashing(pieceUpload.Data, hasher(), verifyread.WithExpectedSize(size))
+	if err != nil {
+		return types.WrapError(types.KindInternal, "failed to create hashing reader", err)
+	}
+	id := pieceUpload.ID.String()
+	if err := p.blobstore.PutUpload(ctx, id, size, vr); err != nil {
+		lg.Errorw("failed to write upload to blobstore", "err", err)
+		if delErr := p.blobstore.DeleteUpload(ctx, id); delErr != nil {
+			lg.Errorw("failed to delete data of failed upload", "err", delErr)
+		}
+		if errors.Is(err, verifyread.ErrSizeMismatch) {
+			return types.WrapError(types.KindPayloadTooLarge, "upload does not match its allocated size", err)
+		}
+		return types.WrapError(types.KindInvalidInput, "failed to put piece", err)
+	}
+	sum, ok := vr.Sum()
+	if !ok {
+		return types.NewErrorf(types.KindInternal, "upload %s was stored without being read to the end", pieceUpload.ID)
+	}
+	encoded, err := multihash.Encode(sum, pending.DigestCode)
+	if err != nil {
+		return types.WrapError(types.KindInternal, "failed to encode computed digest", err)
+	}
+	digest := multihash.Multihash(encoded)
+	lg = lg.With("digest", digest.String())
+
+	pending.Digest = digest
+	if err := p.allocationStore.PutPending(ctx, pending); err != nil {
+		return types.WrapError(types.KindInternal, "failed to record computed digest", err)
+	}
+	if _, err := p.allocationStore.Get(ctx, digest, pending.Space); errors.Is(err, store.ErrNotFound) {
+		if err := p.allocationStore.Put(ctx, allocation.Allocation{
+			Space:   pending.Space,
+			Blob:    blob.Blob{Digest: digest, Size: size},
+			Expires: pending.Expires,
+			Cause:   pending.Cause,
+		}); err != nil {
+			return types.WrapError(types.KindInternal, "failed to record allocation for computed digest", err)
+		}
+	} else if err != nil {
+		return types.WrapError(types.KindInternal, "failed to check allocation for computed digest", err)
+	}
+
+	held, err := p.Has(ctx, digest)
+	if err != nil {
+		return types.WrapError(types.KindInternal, "failed to check for existing data", err)
+	}
+	if !held {
+		// The upload holds the digest only if no other upload of the same
+		// content claimed it first.
+		held = true
+		if _, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+			n, err := tx.Exec(`INSERT INTO pdp_blob_uploads (digest, upload_id) VALUES ($1, $2) ON CONFLICT (digest) DO NOTHING`, []byte(digest), id)
+			if err != nil {
+				return false, err
+			}
+			if n == 0 {
+				return false, nil
+			}
+			if _, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
+				return false, err
+			}
+			held = false
+			return true, nil
+		}); err != nil {
+			return types.WrapError(types.KindInternal, "failed to record the upload holding the blob", err)
+		}
+	}
+	if held {
+		if err := p.blobstore.DeleteUpload(ctx, id); err != nil {
+			return types.WrapError(types.KindInternal, "failed to drop duplicate upload data", err)
+		}
+		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
+			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s from pdp_piece_uploads", pieceUpload.ID), err)
+		}
+	}
+	lg.Infow("received upload without a digest", "blob", digestutil.Format(digest), "duplicate", held)
+	return nil
+}
+
+// DiscardUpload drops an upload that has not completed: its row and whatever
+// data it wrote. A completed upload's data may hold a blob that other claims
+// share, so it is left to the blob's removal.
+func (p *PDPService) DiscardUpload(ctx context.Context, uploadID string) error {
+	if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, uploadID); err != nil {
+		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s", uploadID), err)
+	}
+	var holds bool
+	if err := p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_blob_uploads WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {
+		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to check whether upload %s holds a blob", uploadID), err)
+	}
+	if holds {
+		return nil
+	}
+	if err := p.blobstore.DeleteUpload(ctx, uploadID); err != nil {
+		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete data of upload %s", uploadID), err)
+	}
 	return nil
 }

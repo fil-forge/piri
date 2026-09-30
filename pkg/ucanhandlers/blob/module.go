@@ -24,6 +24,7 @@ var Module = fx.Module("ucan/blob",
 			func(a allocationstore.AllocationStore) allocationstore.AllocationStore { return a },
 			fx.As(new(AllocationStore)),
 			fx.As(new(AllocationRemover)),
+			fx.As(new(PendingAllocations)),
 		),
 		fx.Annotate(
 			func(a acceptancestore.AcceptanceStore) acceptancestore.AcceptanceStore { return a },
@@ -34,6 +35,7 @@ var Module = fx.Module("ucan/blob",
 		fx.Annotate(
 			func(p pdptypes.PieceRemoverAPI) pdptypes.PieceRemoverAPI { return p },
 			fx.As(new(PieceRemover)),
+			fx.As(new(UploadDiscarder)),
 		),
 		fx.Annotate(
 			func(p pdptypes.PieceAPI) pdptypes.PieceAPI { return p },

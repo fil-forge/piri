@@ -29,7 +29,7 @@ func (s *RPCSuite) TestBlobAllocate_Basic() {
 
 	inv, proof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: size},
+		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
 		Cause: cause,
 	})
 
@@ -66,7 +66,7 @@ func (s *RPCSuite) TestBlobAllocate_SizeLimitExceeded() {
 
 	inv, proof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: overLimit},
+		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: overLimit}),
 		Cause: testutil.RandomCID(t),
 	})
 
@@ -91,7 +91,7 @@ func (s *RPCSuite) TestBlobAllocate_RepeatSameBlob() {
 	allocate := func() *blob.AllocateOK {
 		inv, proof := s.newAllocate(t, &blob.AllocateArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
+			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
 			Cause: cause,
 		})
 		return decodeAllocateOK(t, s.sendInvocationWithProofs(t, inv, proof))
@@ -128,7 +128,7 @@ func (s *RPCSuite) TestBlobAllocate_RejectsSelfSigned() {
 	t := s.T()
 	args := &blob.AllocateArguments{
 		Space: testutil.RandomDID(t),
-		Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123},
+		Blob:  blob.SpecFromBlob(blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123}),
 		Cause: testutil.RandomCID(t),
 	}
 

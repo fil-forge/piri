@@ -22,6 +22,7 @@ import (
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
@@ -31,6 +32,7 @@ import (
 	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -48,6 +50,9 @@ type AcceptDeps struct {
 	Commp       commp.Calculator
 	ClaimStore  invocationstore.InvocationStore
 	Publisher   publisher.Publisher
+	// Pending resolves the digest of an accept that names only a digest
+	// code. Only the handler uses it; Accept itself always has a digest.
+	Pending PendingAllocations
 }
 
 // AcceptanceStore is the slice of acceptancestore.AcceptanceStore the
@@ -76,17 +81,39 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		// The route's middleware has already required an invocation subjected to
 		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
+		b, hashed := args.Blob.Blob()
+		var pending allocation.Pending
+		if !hashed {
+			code, _ := args.Blob.DigestCode()
+			digest, p, err := resolvePutDigest(req.Context(), deps.Pending, req.Metadata(), args.Space, code, args.Put)
+			if err != nil {
+				var named errors.Named
+				if errors.As(err, &named) {
+					return rsp.SetFailure(named)
+				}
+				return err
+			}
+			b = blob.Blob{Digest: digest, Size: code.Size}
+			pending = p
+		}
+
 		resp, err := Accept(req.Context(), deps, &AcceptRequest{
 			Space: args.Space,
-			Blob: blob.Blob{
-				Digest: args.Blob.Digest,
-				Size:   args.Blob.Size,
-			},
+			Blob:  b,
 			Put:   args.Put,
 			Cause: req.Invocation().Task().Link(),
 		})
 		if err != nil {
 			return err
+		}
+
+		// Reject by allocation refuses once this is recorded. The acceptance
+		// written above already refuses a reject by digest.
+		if !hashed && !pending.Accepted {
+			pending.Accepted = true
+			if err := deps.Pending.PutPending(req.Context(), pending); err != nil {
+				return fmt.Errorf("marking pending allocation accepted: %w", err)
+			}
 		}
 
 		if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {

@@ -3,10 +3,12 @@ package allocationstore
 import (
 	"context"
 	"fmt"
+	"iter"
 
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
 
@@ -41,6 +43,18 @@ type AllocationStore interface {
 	// ListSpaces returns the DID of every space holding an allocation for
 	// the digest. An unknown digest yields an empty list.
 	ListSpaces(context.Context, multihash.Multihash) ([]did.DID, error)
+
+	// PutPending adds or replaces an allocation made without a digest.
+	PutPending(context.Context, allocation.Pending) error
+	// GetPending retrieves the allocation made without a digest by the
+	// `/blob/allocate` task link. It returns
+	// [github.com/fil-forge/piri/pkg/store.ErrNotFound] if there is none.
+	GetPending(context.Context, cid.Cid) (allocation.Pending, error)
+	// DeletePending removes the allocation made without a digest by the
+	// `/blob/allocate` task link. Deleting a missing one succeeds.
+	DeletePending(context.Context, cid.Cid) error
+	// ListPending iterates every allocation made without a digest.
+	ListPending(context.Context) iter.Seq2[allocation.Pending, error]
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -52,15 +66,23 @@ type KeyEncoder interface {
 // Store implements AllocationStore backed by any ListableStore.
 type Store struct {
 	store   *genericstore.Store[allocation.Allocation]
+	pending *genericstore.Store[allocation.Pending]
 	encoder KeyEncoder
 }
+
+// pendingNamespace keys allocations made without a digest by their
+// `/blob/allocate` task link. Allocation keys start with a digest, which never
+// starts with this namespace, so digest-prefix scans never see them.
+const pendingNamespace = "pending/"
 
 var _ AllocationStore = (*Store)(nil)
 
 // New creates an AllocationStore with the given backend and key encoder.
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
+	traced := objectstore.TracedListable("allocations", backend)
 	return &Store{
-		store:   genericstore.New(objectstore.TracedListable("allocations", backend), allocation.Codec{}),
+		store:   genericstore.New(traced, allocation.Codec{}),
+		pending: genericstore.New(traced, allocation.PendingCodec{}, genericstore.WithNamespace(pendingNamespace)),
 		encoder: encoder,
 	}
 }
@@ -113,6 +135,26 @@ func (s *Store) ListSpaces(ctx context.Context, digest multihash.Multihash) ([]d
 		spaces = append(spaces, alloc.Space)
 	}
 	return spaces, nil
+}
+
+func (s *Store) PutPending(ctx context.Context, p allocation.Pending) error {
+	return s.pending.Put(ctx, p.Allocation.String(), p)
+}
+
+func (s *Store) GetPending(ctx context.Context, link cid.Cid) (allocation.Pending, error) {
+	p, err := s.pending.Get(ctx, link.String())
+	if err != nil {
+		return allocation.Pending{}, fmt.Errorf("getting pending allocation: %w", err)
+	}
+	return p, nil
+}
+
+func (s *Store) DeletePending(ctx context.Context, link cid.Cid) error {
+	return s.pending.Delete(ctx, link.String())
+}
+
+func (s *Store) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error] {
+	return s.pending.ListPrefix(ctx, "")
 }
 
 // S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).
