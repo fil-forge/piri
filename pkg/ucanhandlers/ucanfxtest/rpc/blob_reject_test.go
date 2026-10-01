@@ -35,7 +35,7 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 
 	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
@@ -61,7 +61,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	space := testutil.RandomDID(t)
 	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
@@ -75,7 +75,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 		service,
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -107,7 +107,7 @@ func (s *RPCSuite) TestBlobReject_ReplacedAllocationIsLeftAlone() {
 	allocate := func() ucan.Invocation {
 		inv, proof := s.newAllocate(t, &blob.AllocateArguments{
 			Space: space,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))}),
+			Blob:  blob.SpecFromDigest(digest, uint64(len(data))),
 			Cause: testutil.RandomCID(t),
 		})
 		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
@@ -137,7 +137,7 @@ func (s *RPCSuite) TestBlobReject_OnlyTheAcceptedAllocationIsRefused() {
 	service := s.ServiceID.DID()
 	data := testutil.RandomBytes(t, 64)
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
-	spec := blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))})
+	spec := blob.SpecFromDigest(digest, uint64(len(data)))
 	space := testutil.RandomDID(t)
 	allocate := func() ucan.Invocation {
 		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})
@@ -192,7 +192,7 @@ func (s *RPCSuite) TestBlobAccept_FailedAcceptChangesNoAllocation() {
 	service := s.ServiceID.DID()
 	data := testutil.RandomBytes(t, 64)
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
-	spec := blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))})
+	spec := blob.SpecFromDigest(digest, uint64(len(data)))
 	space := testutil.RandomDID(t)
 	allocate := func() ucan.Invocation {
 		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})

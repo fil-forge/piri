@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -324,6 +325,64 @@ func TestUploadUnhashed_DuplicateDiscardedWhileCompleting(t *testing.T) {
 	require.False(t, w.uploadRowExists(t, dup.UploadID))
 	_, err := w.allocs.Get(ctx, digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "the duplicate's claim is released")
+}
+
+// pausingReader hands out its data, pausing at its first read until release
+// is closed.
+type pausingReader struct {
+	r       io.Reader
+	reading chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (p *pausingReader) Read(b []byte) (int, error) {
+	p.once.Do(func() {
+		close(p.reading)
+		<-p.release
+	})
+	return p.r.Read(b)
+}
+
+// TestUploadUnhashed_RetriedPutWhileReceiving: a client retries its PUT while
+// the first is still being received. The retry waits for the first, which
+// completes the upload; the retry is then refused, and undoes nothing.
+func TestUploadUnhashed_RetriedPutWhileReceiving(t *testing.T) {
+	w := setupUploadTest(t)
+	ctx := t.Context()
+	space := testutil.RandomDID(t)
+	data := testutil.RandomBytes(t, 256)
+	digest := mustMultihash(t, string(data))
+	p := w.allocate(t, space, len(data), day())
+	id := uuid.MustParse(p.UploadID)
+
+	first := &pausingReader{r: bytes.NewReader(data), reading: make(chan struct{}), release: make(chan struct{})}
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- w.svc.UploadPiece(ctx, types.PieceUpload{ID: id, Data: first}) }()
+	<-first.reading
+
+	retryDone := make(chan error, 1)
+	go func() { retryDone <- w.svc.UploadPiece(ctx, types.PieceUpload{ID: id, Data: bytes.NewReader(data)}) }()
+	select {
+	case err := <-retryDone:
+		retryDone <- err
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(first.release)
+
+	errs := []error{<-firstDone, <-retryDone}
+	require.NoError(t, errs[0], "the first PUT completes the upload")
+	require.Error(t, errs[1], "the retry finds the upload complete")
+
+	holder, ok := w.holder(t, digest)
+	require.True(t, ok)
+	require.Equal(t, p.UploadID, holder)
+	require.Equal(t, data, w.stored(t, digest), "the staged data is intact")
+	got, err := w.allocs.GetPending(ctx, p.Allocation)
+	require.NoError(t, err, "the pending allocation is kept")
+	require.Equal(t, digest, got.Digest)
+	_, err = w.allocs.Get(ctx, digest, space)
+	require.NoError(t, err, "the claim is kept")
 }
 
 func TestUploadUnhashed_ContentAlreadyHeld(t *testing.T) {

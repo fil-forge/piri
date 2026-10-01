@@ -54,7 +54,7 @@ func (s *RPCSuite) TestBatch_ConcurrentAllocations() {
 	for range count {
 		invs = append(invs, s.newAllocateWith(t, proof, &blob.AllocateArguments{
 			Space: space,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: testutil.RandomMultihash(t), Size: 123}),
+			Blob:  blob.SpecFromDigest(testutil.RandomMultihash(t), 123),
 			Cause: testutil.RandomCID(t),
 		}))
 	}

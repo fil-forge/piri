@@ -25,7 +25,12 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
+// UploadPiece receives the data of an upload. The PUTs of one upload run one
+// at a time: a client retrying a PUT that is still being received waits for
+// it, then finds the upload complete and is refused, instead of completing
+// the same upload twice and undoing the first.
 func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpload) (retErr error) {
+	defer p.uploadLocks.Lock(pieceUpload.ID.String())()
 	var checkHash []byte
 	var checkSize int64
 	var checkHashCodec string

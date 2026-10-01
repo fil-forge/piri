@@ -369,7 +369,7 @@ func (s *RPCSuite) TestBlobUnhashed_RejectHandsClaimToPendingUpload() {
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	hashed, proof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))}),
+		Blob:  blob.SpecFromDigest(digest, uint64(len(data))),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, hashed, proof))

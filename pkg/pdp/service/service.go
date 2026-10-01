@@ -29,6 +29,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -81,6 +82,10 @@ type PDPService struct {
 	signingService signer.SigningService
 
 	commPGroup singleflight.Group
+
+	// uploadLocks serializes the PUTs of one upload, so a retry that overlaps
+	// the PUT it retries waits for it instead of racing it.
+	uploadLocks keylock.Locks
 
 	edc              *eip712.ExtraDataEncoder
 	verifierContract smartcontracts.Verifier

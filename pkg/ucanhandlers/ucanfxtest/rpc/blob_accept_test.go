@@ -55,7 +55,7 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 		s.ServiceID.DID(),
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   putAwait,
 		},
 		invocation.WithAudience(s.ServiceID.DID()),
@@ -136,7 +136,7 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 
 	allocA, allocProofA := s.newAllocate(t, &blob.AllocateArguments{
 		Space: spaceA,
-		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	okA := decodeAllocateOK(t, s.sendInvocationWithProofs(t, allocA, allocProofA))
@@ -151,7 +151,7 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 		service,
 		&blob.AcceptArguments{
 			Space: spaceA,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -163,7 +163,7 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 
 	allocB, allocProofB := s.newAllocate(t, &blob.AllocateArguments{
 		Space: spaceB,
-		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	okB := decodeAllocateOK(t, s.sendInvocationWithProofs(t, allocB, allocProofB))
@@ -177,7 +177,7 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 		service,
 		&blob.AcceptArguments{
 			Space: spaceB,
-			Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: size}),
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
