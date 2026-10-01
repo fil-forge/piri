@@ -256,5 +256,3 @@ func decodeAcceptOK(t *testing.T, rcpt ucan.Receipt) *blob.AcceptOK {
 	require.NoError(t, ok.UnmarshalCBOR(bytes.NewReader(okBytes)), "decoding AcceptOK")
 	return &ok
 }
-
-func ptr[T any](v T) *T { return &v }
