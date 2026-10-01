@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -26,6 +27,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -46,6 +48,7 @@ type ReleaseDeps struct {
 type AllocationRemover interface {
 	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
+	GetByAllocation(ctx context.Context, link cid.Cid) (allocation.Allocation, error)
 }
 
 // AcceptanceRemover is the slice of acceptancestore.AcceptanceStore the

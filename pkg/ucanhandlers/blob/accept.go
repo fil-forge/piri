@@ -81,11 +81,11 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		// The route's middleware has already required an invocation subjected to
 		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
-		b, hashed := args.Blob.Blob()
+		digest, hashed := args.Blob.Digest()
+		b := blob.Blob{Digest: digest, Size: args.Blob.Size()}
 		var pending allocation.Pending
 		if !hashed {
-			code, _ := args.Blob.DigestCode()
-			digest, p, err := resolvePutDigest(req.Context(), deps.Pending, req.Metadata(), args.Space, code, args.Put)
+			digest, p, err := resolvePutDigest(req.Context(), deps.Pending, req.Metadata(), args.Space, args.Blob, args.Put)
 			if err != nil {
 				var named errors.Named
 				if errors.As(err, &named) {
@@ -93,7 +93,7 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 				}
 				return err
 			}
-			b = blob.Blob{Digest: digest, Size: code.Size}
+			b.Digest = digest
 			pending = p
 		}
 

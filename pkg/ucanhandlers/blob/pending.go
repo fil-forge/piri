@@ -63,7 +63,7 @@ func resolvePutDigest(
 	pending PendingAllocations,
 	meta ucan.Container,
 	space did.DID,
-	spec blob.BlobDigestCode,
+	spec blob.BlobSpec,
 	put promise.AwaitOK,
 ) (multihash.Multihash, allocation.Pending, error) {
 	if meta == nil {
@@ -112,8 +112,8 @@ func resolvePutDigest(
 	if err := putArgs.UnmarshalCBOR(bytes.NewReader(putInv.ArgumentsBytes())); err != nil {
 		return nil, allocation.Pending{}, fmt.Errorf("decoding %s arguments: %w", httpcmds.Put.Command, err)
 	}
-	body, ok := putArgs.Body.DigestCode()
-	if !ok || body != spec {
+	if _, hasDigest := putArgs.Body.Digest(); hasDigest ||
+		putArgs.Body.DigestCode() != spec.DigestCode() || putArgs.Body.Size() != spec.Size() {
 		return nil, allocation.Pending{}, fmt.Errorf("%s body does not match the accepted blob", httpcmds.Put.Command)
 	}
 
@@ -124,7 +124,7 @@ func resolvePutDigest(
 		}
 		return nil, allocation.Pending{}, fmt.Errorf("getting pending allocation: %w", err)
 	}
-	if p.Space != space || p.Size != spec.Size || p.DigestCode != spec.DigestCode {
+	if p.Space != space || p.Size != spec.Size() || p.DigestCode != spec.DigestCode() {
 		return nil, allocation.Pending{}, fmt.Errorf("allocation %s is not for this blob", p.Allocation)
 	}
 	if len(p.Digest) == 0 {

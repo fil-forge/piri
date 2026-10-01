@@ -381,9 +381,10 @@ func TestSweep_RevivedClaimCancelsRemoval(t *testing.T) {
 		require.NoError(t, w.bs.Put(t.Context(), blob, 4, bytes.NewReader([]byte("data"))))
 		require.NoError(t, w.svc.RemovePiece(t.Context(), blob))
 		require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-			Space: testutil.RandomDID(t),
-			Blob:  blobcmd.Blob{Digest: blob, Size: 4},
-			Cause: testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blobcmd.Blob{Digest: blob, Size: 4},
+			Cause:      testutil.RandomCID(t),
 		}))
 
 		require.NoError(t, w.svc.processPendingRemovals(t.Context(), noopRemoveRoot))

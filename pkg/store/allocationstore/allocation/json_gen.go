@@ -32,6 +32,28 @@ func (t *Allocation) MarshalDagJSON(w io.Writer) error {
 	}
 	written := false
 
+	// t.Allocation (cid.Cid) (struct)
+	if len("allocation") > 8192 {
+		return fmt.Errorf("string in field \"allocation\" was too long")
+	}
+	if err := jw.WriteString(string("allocation")); err != nil {
+		return fmt.Errorf("writing string for field \"allocation\": %w", err)
+	}
+	if err := jw.WriteObjectColon(); err != nil {
+		return err
+	}
+
+	if err := jw.WriteCid(t.Allocation); err != nil {
+		return fmt.Errorf("writing CID for field t.Allocation: %w", err)
+	}
+
+	written = true
+	if written {
+		if err := jw.WriteComma(); err != nil {
+			return err
+		}
+	}
+
 	// t.Blob (blob.Blob) (struct)
 	if len("blob") > 8192 {
 		return fmt.Errorf("string in field \"blob\" was too long")
@@ -148,7 +170,19 @@ func (t *Allocation) UnmarshalDagJSON(r io.Reader) (err error) {
 			}
 			switch name {
 
-			// t.Blob (blob.Blob) (struct)
+			// t.Allocation (cid.Cid) (struct)
+			case "allocation":
+				{
+
+					c, err := jr.ReadCid()
+					if err != nil {
+						return fmt.Errorf("reading CID for field t.Allocation: %w", err)
+					}
+					t.Allocation = c
+
+				}
+
+				// t.Blob (blob.Blob) (struct)
 			case "blob":
 
 				if err := t.Blob.UnmarshalDagJSON(jr); err != nil {

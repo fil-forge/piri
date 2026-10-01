@@ -83,9 +83,10 @@ func TestRelease_ReleasesClaimAndBytes(t *testing.T) {
 	claimLink := claim.Link()
 	require.NoError(t, w.claims.Put(t.Context(), claim))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     space,
@@ -161,9 +162,10 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 		Site:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: uploadingSpace,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      uploadingSpace,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))

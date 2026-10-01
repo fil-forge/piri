@@ -36,7 +36,7 @@ func ReleasePending(ctx context.Context, s PendingClaims, p allocation.Pending) 
 		case errors.Is(err, store.ErrNotFound):
 		case err != nil:
 			return fmt.Errorf("getting allocation: %w", err)
-		case alloc.Cause == p.Cause:
+		case alloc.Allocation == p.Allocation:
 			if err := handOverClaim(ctx, s, p, alloc); err != nil {
 				return err
 			}
@@ -60,6 +60,7 @@ func handOverClaim(ctx context.Context, s PendingClaims, p allocation.Pending, a
 			continue
 		}
 		alloc.Cause = other.Cause
+		alloc.Allocation = other.Allocation
 		alloc.Expires = other.Expires
 		if err := s.Put(ctx, alloc); err != nil {
 			return fmt.Errorf("handing over allocation: %w", err)

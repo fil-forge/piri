@@ -20,7 +20,8 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
 		alloc := allocation.Allocation{
-			Space: testutil.RandomDID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
 			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
@@ -41,7 +42,8 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
 		alloc := allocation.Allocation{
-			Space: testutil.RandomDID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
 			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
@@ -62,7 +64,8 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		s := NewDatastoreStore(datastore.NewMapDatastore())
 
 		alloc := allocation.Allocation{
-			Space: testutil.RandomDID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
 			Blob: blob.Blob{
 				Digest: testutil.RandomMultihash(t),
 				Size:   uint64(1 + rand.IntN(1000)),
@@ -92,17 +95,19 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		}
 
 		alloc0 := allocation.Allocation{
-			Space:   testutil.RandomDID(t),
-			Blob:    blb,
-			Expires: ucan.UnixTimestamp(time.Now().Unix()),
-			Cause:   testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blb,
+			Expires:    ucan.UnixTimestamp(time.Now().Unix()),
+			Cause:      testutil.RandomCID(t),
 		}
 
 		alloc1 := allocation.Allocation{
-			Space:   testutil.RandomDID(t),
-			Blob:    blb,
-			Expires: ucan.UnixTimestamp(time.Now().Unix()),
-			Cause:   testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blb,
+			Expires:    ucan.UnixTimestamp(time.Now().Unix()),
+			Cause:      testutil.RandomCID(t),
 		}
 
 		err := s.Put(t.Context(), alloc0)
@@ -154,18 +159,20 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		now := ucan.Now()
 		// Expired allocation
 		expiredAlloc := allocation.Allocation{
-			Space:   testutil.RandomDID(t),
-			Blob:    blb,
-			Expires: now - 100, // expired 100 seconds ago
-			Cause:   testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blb,
+			Expires:    now - 100, // expired 100 seconds ago
+			Cause:      testutil.RandomCID(t),
 		}
 
 		// Valid allocation
 		validAlloc := allocation.Allocation{
-			Space:   testutil.RandomDID(t),
-			Blob:    blb,
-			Expires: now + 3600, // expires in 1 hour
-			Cause:   testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blb,
+			Expires:    now + 3600, // expires in 1 hour
+			Cause:      testutil.RandomCID(t),
 		}
 
 		// Put expired first
@@ -191,10 +198,11 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		now := ucan.Now()
 
 		expiredAlloc := allocation.Allocation{
-			Space:   testutil.RandomDID(t),
-			Blob:    blb,
-			Expires: now - 100,
-			Cause:   testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blb,
+			Expires:    now - 100,
+			Cause:      testutil.RandomCID(t),
 		}
 
 		err := s.Put(t.Context(), expiredAlloc)
@@ -213,4 +221,37 @@ func TestDatastoreAllocationStore(t *testing.T) {
 		_, err := s.GetAnyNonExpired(t.Context(), digest, now)
 		require.ErrorIs(t, err, store.ErrNotFound)
 	})
+}
+
+// An allocation is found by its allocate task while it is the space's
+// allocation for its blob, and not once a later allocation replaces it or it
+// is deleted.
+func TestGetByAllocation(t *testing.T) {
+	ctx := t.Context()
+	s := NewDatastoreStore(datastore.NewMapDatastore())
+	space := testutil.RandomDID(t)
+	b := blob.Blob{Digest: testutil.RandomMultihash(t), Size: 1}
+	first := allocation.Allocation{Space: space, Blob: b, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t)}
+	require.NoError(t, s.Put(ctx, first))
+
+	got, err := s.GetByAllocation(ctx, first.Allocation)
+	require.NoError(t, err)
+	require.Equal(t, first, got)
+
+	second := first
+	second.Cause, second.Allocation = testutil.RandomCID(t), testutil.RandomCID(t)
+	require.NoError(t, s.Put(ctx, second))
+	_, err = s.GetByAllocation(ctx, first.Allocation)
+	require.ErrorIs(t, err, store.ErrNotFound, "a replaced allocation is not found")
+	got, err = s.GetByAllocation(ctx, second.Allocation)
+	require.NoError(t, err)
+	require.Equal(t, second, got)
+
+	require.NoError(t, s.Delete(ctx, b.Digest, space))
+	_, err = s.GetByAllocation(ctx, second.Allocation)
+	require.ErrorIs(t, err, store.ErrNotFound, "a deleted allocation is not found")
+	require.NoError(t, s.Delete(ctx, b.Digest, space), "deleting again succeeds")
+
+	_, err = s.GetByAllocation(ctx, testutil.RandomCID(t))
+	require.ErrorIs(t, err, store.ErrNotFound)
 }

@@ -89,10 +89,11 @@ func (s *RPCSuite) upload(t *testing.T, b unhashedBlob) {
 	if _, err := s.Allocations.Get(ctx, b.digest, b.space); err != nil {
 		require.ErrorIs(t, err, store.ErrNotFound)
 		require.NoError(t, s.Allocations.Put(ctx, allocation.Allocation{
-			Space:   b.space,
-			Blob:    blob.Blob{Digest: b.digest, Size: uint64(len(b.data))},
-			Expires: p.Expires,
-			Cause:   p.Cause,
+			Allocation: p.Allocation,
+			Space:      b.space,
+			Blob:       blob.Blob{Digest: b.digest, Size: uint64(len(b.data))},
+			Expires:    p.Expires,
+			Cause:      p.Cause,
 		}))
 	}
 	s.Pieces.Put(b.digest, b.data)
@@ -137,22 +138,6 @@ func (s *RPCSuite) accept(t *testing.T, b unhashedBlob, invs []ucan.Invocation, 
 	return inv, resp.Receipt()
 }
 
-func (s *RPCSuite) rejectAllocation(t *testing.T, space did.DID, link cid.Cid) ucan.Receipt {
-	t.Helper()
-	service := s.ServiceID.DID()
-	proof := testutil.Must(delegation.Delegate(
-		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Reject.Command,
-	))(t)
-	inv := testutil.Must(blob.Reject.Invoke(
-		s.UploadServiceIdentity,
-		service,
-		ptr(blob.RejectByAllocation(space, link)),
-		invocation.WithAudience(service),
-		invocation.WithProofs(proof.Link()),
-	))(t)
-	return s.sendInvocationWithProofs(t, inv, proof)
-}
-
 func (s *RPCSuite) TestBlobUnhashed_AllocateUploadAccept() {
 	t := s.T()
 	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
@@ -180,7 +165,7 @@ func (s *RPCSuite) TestBlobUnhashed_AllocateUploadAccept() {
 	require.NoError(t, err)
 	require.True(t, p.Accepted, "the pending allocation is marked accepted")
 
-	assertReceiptFailure(t, s.rejectAllocation(t, b.space, b.alloc.Task().Link()), blob.BlobAcceptedErrorName)
+	assertReceiptFailure(t, s.rejectAllocation(t, b.alloc.Task().Link()), blob.BlobAcceptedErrorName)
 }
 
 func (s *RPCSuite) TestBlobUnhashed_UnsupportedDigestCode() {
@@ -247,21 +232,12 @@ func (s *RPCSuite) TestBlobUnhashed_RejectBeforeUpload() {
 	p, err := s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
 	require.NoError(t, err)
 
-	assertReceiptOK(t, s.rejectAllocation(t, b.space, b.alloc.Task().Link()))
+	assertReceiptOK(t, s.rejectAllocation(t, b.alloc.Task().Link()))
 	require.Contains(t, s.Pieces.Discarded(), p.UploadID, "the upload is discarded")
 	_, err = s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
 	require.ErrorIs(t, err, store.ErrNotFound, "the pending allocation is deleted")
 
-	assertReceiptOK(t, s.rejectAllocation(t, b.space, b.alloc.Task().Link()))
-}
-
-func (s *RPCSuite) TestBlobUnhashed_RejectOtherSpace() {
-	t := s.T()
-	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
-
-	assertReceiptOK(t, s.rejectAllocation(t, testutil.RandomDID(t), b.alloc.Task().Link()))
-	_, err := s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
-	require.NoError(t, err, "another space cannot reject the allocation")
+	assertReceiptOK(t, s.rejectAllocation(t, b.alloc.Task().Link()))
 }
 
 func (s *RPCSuite) TestBlobUnhashed_RejectAfterUpload() {
@@ -269,7 +245,7 @@ func (s *RPCSuite) TestBlobUnhashed_RejectAfterUpload() {
 	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
 	s.upload(t, b)
 
-	assertReceiptOK(t, s.rejectAllocation(t, b.space, b.alloc.Task().Link()))
+	assertReceiptOK(t, s.rejectAllocation(t, b.alloc.Task().Link()))
 	_, err := s.Allocations.Get(t.Context(), b.digest, b.space)
 	require.ErrorIs(t, err, store.ErrNotFound, "the upload's claim is released")
 	require.Contains(t, s.Pieces.Removed(), b.digest, "unclaimed bytes are released")
@@ -291,7 +267,7 @@ func (s *RPCSuite) TestBlobUnhashed_RejectSharedContent() {
 	require.NoError(t, err)
 	require.Equal(t, first.cause, alloc.Cause, "the first upload holds the claim")
 
-	assertReceiptOK(t, s.rejectAllocation(t, space, first.alloc.Task().Link()))
+	assertReceiptOK(t, s.rejectAllocation(t, first.alloc.Task().Link()))
 
 	alloc, err = s.Allocations.Get(t.Context(), first.digest, space)
 	require.NoError(t, err, "the claim survives")
@@ -315,7 +291,7 @@ func (s *RPCSuite) TestBlobUnhashed_RejectNonHolder() {
 	s.upload(t, first)
 	s.upload(t, second)
 
-	assertReceiptOK(t, s.rejectAllocation(t, space, second.alloc.Task().Link()))
+	assertReceiptOK(t, s.rejectAllocation(t, second.alloc.Task().Link()))
 
 	alloc, err := s.Allocations.Get(t.Context(), first.digest, space)
 	require.NoError(t, err)

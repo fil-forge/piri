@@ -198,10 +198,11 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 	}
 	if _, err := p.allocationStore.Get(ctx, digest, pending.Space); errors.Is(err, store.ErrNotFound) {
 		if err := p.allocationStore.Put(ctx, allocation.Allocation{
-			Space:   pending.Space,
-			Blob:    blob.Blob{Digest: digest, Size: size},
-			Expires: pending.Expires,
-			Cause:   pending.Cause,
+			Space:      pending.Space,
+			Blob:       blob.Blob{Digest: digest, Size: size},
+			Expires:    pending.Expires,
+			Cause:      pending.Cause,
+			Allocation: pending.Allocation,
 		}); err != nil {
 			return types.WrapError(types.KindInternal, "failed to record allocation for computed digest", err)
 		}

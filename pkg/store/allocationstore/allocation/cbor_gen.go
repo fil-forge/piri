@@ -29,7 +29,7 @@ func (t *Allocation) MarshalCBOR(w io.Writer) error {
 
 	cw := cbg.NewCborWriter(w)
 
-	if _, err := cw.Write([]byte{164}); err != nil {
+	if _, err := cw.Write([]byte{165}); err != nil {
 		return err
 	}
 
@@ -103,6 +103,22 @@ func (t *Allocation) MarshalCBOR(w io.Writer) error {
 		}
 	}
 
+	// t.Allocation (cid.Cid) (struct)
+	if len("allocation") > 8192 {
+		return xerrors.Errorf("Value in field \"allocation\" was too long")
+	}
+
+	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("allocation"))); err != nil {
+		return err
+	}
+	if _, err := cw.WriteString(string("allocation")); err != nil {
+		return err
+	}
+
+	if err := cbg.WriteCid(cw, t.Allocation); err != nil {
+		return xerrors.Errorf("failed to write cid field t.Allocation: %w", err)
+	}
+
 	return nil
 }
 
@@ -131,7 +147,7 @@ func (t *Allocation) UnmarshalCBOR(r io.Reader) (err error) {
 
 	n := extra
 
-	nameBuf := make([]byte, 7)
+	nameBuf := make([]byte, 10)
 	for i := uint64(0); i < n; i++ {
 		nameLen, ok, err := cbg.ReadFullStringIntoBuf(cr, nameBuf, 8192)
 		if err != nil {
@@ -205,6 +221,19 @@ func (t *Allocation) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 				t.Expires = ucan.UnixTimestamp(extraI)
+			}
+			// t.Allocation (cid.Cid) (struct)
+		case "allocation":
+
+			{
+
+				c, err := cbg.ReadCid(cr)
+				if err != nil {
+					return xerrors.Errorf("failed to read cid field t.Allocation: %w", err)
+				}
+
+				t.Allocation = c
+
 			}
 
 		default:

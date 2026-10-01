@@ -31,7 +31,7 @@ func (s *RPCSuite) TestHandlerPanic_ReturnsExecutionFailure() {
 	inv := testutil.Must(panicCommand.Invoke(
 		s.ServiceID,
 		s.ServiceID.DID(),
-		ptr(blob.RejectByDigest(testutil.RandomDID(t), testutil.RandomMultihash(t))),
+		&blob.RejectArguments{Allocation: testutil.RandomCID(t)},
 		invocation.WithAudience(s.ServiceID.DID()),
 	))(t)
 

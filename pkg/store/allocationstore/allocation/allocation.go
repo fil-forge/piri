@@ -21,6 +21,9 @@ type Allocation struct {
 	Expires ucan.UnixTimestamp `cborgen:"expires" dagjsongen:"expired"`
 	// Cause is a link to the task that requested the allocation.
 	Cause cid.Cid `cborgen:"cause" dagjsongen:"cause"`
+	// Allocation is the link to the `/blob/allocate` task that made it, which
+	// a `/blob/reject` names it by.
+	Allocation cid.Cid `cborgen:"allocation" dagjsongen:"allocation"`
 }
 
 // Pending is an allocation made without a digest: the `/blob/allocate` named

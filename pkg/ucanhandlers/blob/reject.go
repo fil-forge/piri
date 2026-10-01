@@ -50,17 +50,7 @@ func NewBlobRejectHandler(deps RejectDeps) server.Route {
 		// The route's middleware has already required an invocation subjected to
 		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
-		var err error
-		if link, ok := args.Allocation(); ok {
-			err = RejectAllocation(req.Context(), deps, args.Space(), link)
-		} else {
-			digest, _ := args.Digest()
-			err = Reject(req.Context(), deps, &RejectRequest{
-				Space:  args.Space(),
-				Digest: digest,
-			})
-		}
-		if err != nil {
+		if err := RejectAllocation(req.Context(), deps, args.Allocation); err != nil {
 			var named errors.Named
 			if errors.As(err, &named) {
 				return rsp.SetFailure(named)
@@ -127,14 +117,17 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 	return removeIfUnclaimed(ctx, deps, req.Digest)
 }
 
-// RejectAllocation retires an allocation made without a digest, named by its
-// `/blob/allocate` task. It drops the upload, any staged data and the pending
-// record. Once the data was received, the upload also released its claim on
-// (digest, space), and the bytes are queued for release when nothing else
-// claims them. An allocation this upload has accepted is refused with
-// BlobAccepted. Idempotent: rejecting an unknown or already-rejected
-// allocation succeeds.
-func RejectAllocation(ctx context.Context, deps RejectDeps, space did.DID, link cid.Cid) (err error) {
+// RejectAllocation retires the allocation the `/blob/allocate` task link
+// made, which carries the space and blob it is for. An allocation made
+// without a digest drops its upload, any staged data and its pending record;
+// once its data was received, the upload also released its claim on
+// (digest, space). An allocation made with a digest is rejected as [Reject]
+// rejects the blob, while it is still the space's allocation for it. Either
+// way the bytes are queued for release when nothing else claims them. An
+// allocation whose blob the space has accepted is refused with BlobAccepted.
+// Idempotent: rejecting an unknown, replaced or already-rejected allocation
+// succeeds.
+func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err error) {
 	ctx, span := tracer.Start(ctx, "blob.reject")
 	defer func() {
 		if err != nil {
@@ -145,34 +138,34 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, space did.DID, link 
 	}()
 
 	log := log.With("allocation", link)
-	span.SetAttributes(
-		attribute.Stringer("space.did", space),
-		attribute.Stringer("blob.allocation", link),
-	)
+	span.SetAttributes(attribute.Stringer("blob.allocation", link))
 
 	p, err := deps.Pending.GetPending(ctx, link)
 	if errors.Is(err, store.ErrNotFound) {
-		log.Infof("%s space: %s (unknown allocation)", blob.Reject.Command, space)
-		return nil
+		alloc, err := deps.Allocations.GetByAllocation(ctx, link)
+		if errors.Is(err, store.ErrNotFound) {
+			log.Infof("%s (unknown allocation)", blob.Reject.Command)
+			return nil
+		} else if err != nil {
+			log.Errorw("getting allocation", "error", err)
+			return fmt.Errorf("getting allocation: %w", err)
+		}
+		return Reject(ctx, deps, &RejectRequest{Space: alloc.Space, Digest: alloc.Blob.Digest})
 	} else if err != nil {
 		log.Errorw("getting pending allocation", "error", err)
 		return fmt.Errorf("getting pending allocation: %w", err)
 	}
+	span.SetAttributes(attribute.Stringer("space.did", p.Space))
 	// Once the data was received its digest is known, and is what the blob is
 	// logged by everywhere else.
 	if len(p.Digest) > 0 {
 		log = log.With("blob", digestutil.Format(p.Digest))
 	}
-	log.Infof("%s space: %s", blob.Reject.Command, space)
-	// Another space's allocation is not this space's to reject; report it as
-	// unknown, as the digest path does.
-	if p.Space != space {
-		return nil
-	}
+	log.Infof("%s space: %s", blob.Reject.Command, p.Space)
 	if p.Accepted {
 		return errors.New(blob.BlobAcceptedErrorName,
 			"allocation %s has been accepted by %s; release the claim via %s",
-			link, space, blob.Remove.Command)
+			link, p.Space, blob.Remove.Command)
 	}
 
 	digest, err := releasePending(ctx, deps.Pending, deps.Uploads, p)

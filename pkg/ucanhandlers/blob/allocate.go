@@ -84,19 +84,20 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 
 		var resp *AllocateResponse
 		var err error
-		if code, ok := args.Blob.DigestCode(); ok {
-			resp, err = AllocateUnhashed(req.Context(), deps, &AllocateUnhashedRequest{
+		if digest, ok := args.Blob.Digest(); ok {
+			resp, err = Allocate(req.Context(), deps, &AllocateRequest{
 				Space:      args.Space,
-				Blob:       code,
+				Blob:       blob.Blob{Digest: digest, Size: args.Blob.Size()},
 				Cause:      args.Cause,
 				Allocation: req.Invocation().Task().Link(),
 			})
 		} else {
-			b, _ := args.Blob.Blob()
-			resp, err = Allocate(req.Context(), deps, &AllocateRequest{
-				Space: args.Space,
-				Blob:  b,
-				Cause: args.Cause,
+			resp, err = AllocateUnhashed(req.Context(), deps, &AllocateUnhashedRequest{
+				Space:      args.Space,
+				DigestCode: args.Blob.DigestCode(),
+				Size:       args.Blob.Size(),
+				Cause:      args.Cause,
+				Allocation: req.Invocation().Task().Link(),
 			})
 		}
 		if err != nil {
@@ -128,6 +129,9 @@ type AllocateRequest struct {
 	Space did.DID
 	Blob  blob.Blob
 	Cause cid.Cid
+	// Allocation is the link to the allocating task, which a `/blob/reject`
+	// names the allocation by.
+	Allocation cid.Cid
 }
 
 type AllocateResponse struct {
@@ -268,10 +272,11 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	// even if a previous allocation was made in this space, we create
 	// another for the new invocation.
 	err = deps.Allocations.Put(ctx, allocation.Allocation{
-		Space:   req.Space,
-		Blob:    req.Blob,
-		Expires: expiresAt,
-		Cause:   req.Cause,
+		Space:      req.Space,
+		Blob:       req.Blob,
+		Expires:    expiresAt,
+		Cause:      req.Cause,
+		Allocation: req.Allocation,
 	})
 	if err != nil {
 		log.Errorw("putting allocation", "error", err)
@@ -286,7 +291,10 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 
 type AllocateUnhashedRequest struct {
 	Space did.DID
-	Blob  blob.BlobDigestCode
+	// DigestCode is the multihash function the blob's digest is computed
+	// with; Size is its length.
+	DigestCode uint64
+	Size       uint64
 	// Cause is the `/blob/add` task link.
 	Cause cid.Cid
 	// Allocation is the `/blob/allocate` task link. It keys the pending
@@ -313,21 +321,21 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 	log.Infof("%s space: %s", blob.Allocate.Command, req.Space)
 	span.SetAttributes(
 		attribute.Stringer("space.did", req.Space),
-		attribute.Int64("blob.digest_code", int64(req.Blob.DigestCode)),
-		attribute.Int64("blob.size", int64(req.Blob.Size)),
+		attribute.Int64("blob.digest_code", int64(req.DigestCode)),
+		attribute.Int64("blob.size", int64(req.Size)),
 	)
 
-	name, ok := multihash.Codes[req.Blob.DigestCode]
+	name, ok := multihash.Codes[req.DigestCode]
 	if _, supported := presets.HasherRegistry[name]; !ok || !supported {
 		return nil, errors.New(blob.UnsupportedDigestCodeErrorName,
-			"digest code 0x%x is not supported", req.Blob.DigestCode)
+			"digest code 0x%x is not supported", req.DigestCode)
 	}
-	if limitErr := deps.PieceSize.CheckRaw(req.Blob.Size); limitErr != nil {
+	if limitErr := deps.PieceSize.CheckRaw(req.Size); limitErr != nil {
 		log.Warnw("rejecting oversized blob allocation",
-			"size", req.Blob.Size, "max", deps.PieceSize.MaxRaw())
+			"size", req.Size, "max", deps.PieceSize.MaxRaw())
 		return nil, errors.New(
 			BlobSizeLimitExceededErrorName,
-			"blob size %d exceeds maximum %d", req.Blob.Size, deps.PieceSize.MaxRaw(),
+			"blob size %d exceeds maximum %d", req.Size, deps.PieceSize.MaxRaw(),
 		)
 	}
 
@@ -336,7 +344,7 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 	alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
 		Piece: types.Piece{
 			Name: name,
-			Size: int64(req.Blob.Size),
+			Size: int64(req.Size),
 		},
 		Allocation: req.Allocation,
 	})
@@ -353,8 +361,8 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 	err = deps.Pending.PutPending(ctx, allocation.Pending{
 		Allocation: req.Allocation,
 		Space:      req.Space,
-		Size:       req.Blob.Size,
-		DigestCode: req.Blob.DigestCode,
+		Size:       req.Size,
+		DigestCode: req.DigestCode,
 		Cause:      req.Cause,
 		Expires:    expiresAt,
 		UploadID:   alloc.UploadID.String(),
@@ -365,7 +373,7 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 	}
 
 	return &AllocateResponse{
-		Size: req.Blob.Size,
+		Size: req.Size,
 		Address: &blob.BlobAddress{
 			URL:     commands.CborURL(uploadURL),
 			Expires: int64(expiresAt),

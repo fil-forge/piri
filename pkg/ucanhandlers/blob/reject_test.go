@@ -49,9 +49,10 @@ func TestReject_ParkedBlobDeletesBytes(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
@@ -79,9 +80,10 @@ func TestReject_AcceptedBlobRefused(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     space,
@@ -113,9 +115,10 @@ func TestReject_OtherSpaceAcceptanceDoesNotBlock(t *testing.T) {
 	accepted := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: rejecting,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      rejecting,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     accepted,
@@ -143,14 +146,16 @@ func TestReject_OtherSpaceAllocationRetainsBytes(t *testing.T) {
 	uploading := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: abandoning,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      abandoning,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: uploading,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      uploading,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
