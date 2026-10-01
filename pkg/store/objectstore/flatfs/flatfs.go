@@ -256,8 +256,11 @@ func (fs *Store) makeDirNoSync(dir string) (created bool, err error) {
 	return true, nil
 }
 
-// This function always runs under an opLock. Therefore, only one thread is
-// touching the affected files.
+// rename moves a file into place, retrying transient errors. Put calls it
+// under the destination key's opLock. Move calls it directly: the op map
+// coalesces concurrent writes to one key rather than serializing them, so a
+// move routed through it could be skipped by a concurrent Put. Callers of Move
+// serialize it with deletes of the same keys themselves.
 func (fs *Store) rename(tmpPath, path string) error {
 	var err error
 	for i := 0; i < RetryAttempts; i++ {
