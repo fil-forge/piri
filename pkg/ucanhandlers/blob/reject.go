@@ -150,6 +150,21 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err e
 			log.Errorw("getting allocation", "error", err)
 			return fmt.Errorf("getting allocation: %w", err)
 		}
+		// The space's acceptance of the blob refuses the reject only if it
+		// accepted this allocation; one accepted through another allocation
+		// of the same content holds the claim, and this reject drops nothing.
+		// An acceptance that does not say which allocation it accepted
+		// refuses, as any acceptance once did.
+		acc, err := deps.Acceptances.Get(ctx, alloc.Blob.Digest, alloc.Space)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+		case err != nil:
+			log.Errorw("getting acceptance", "error", err)
+			return fmt.Errorf("getting acceptance: %w", err)
+		case acc.Allocation != nil && *acc.Allocation != link:
+			log.Infof("%s (another allocation of the blob was accepted)", blob.Reject.Command)
+			return nil
+		}
 		return Reject(ctx, deps, &RejectRequest{Space: alloc.Space, Digest: alloc.Blob.Digest})
 	} else if err != nil {
 		log.Errorw("getting pending allocation", "error", err)
@@ -162,7 +177,12 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err e
 		log = log.With("blob", digestutil.Format(p.Digest))
 	}
 	log.Infof("%s space: %s", blob.Reject.Command, p.Space)
-	if p.Accepted {
+	accepted, err := acceptancestore.AcceptedAllocation(ctx, deps.Acceptances, p.Digest, p.Space, p.Allocation)
+	if err != nil {
+		log.Errorw("checking acceptance", "error", err)
+		return err
+	}
+	if accepted {
 		return errors.New(blob.BlobAcceptedErrorName,
 			"allocation %s has been accepted by %s; release the claim via %s",
 			link, p.Space, blob.Remove.Command)

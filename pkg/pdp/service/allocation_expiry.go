@@ -11,6 +11,7 @@ import (
 	"github.com/ipfs/go-cid"
 
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
@@ -49,11 +50,18 @@ func (p *PDPService) ProcessExpiredAllocations(ctx context.Context) error {
 	if err := p.discardOrphanUploads(ctx); err != nil {
 		merr = multierror.Append(merr, err)
 	}
+	if err := p.reapDiscardedUploads(ctx); err != nil {
+		merr = multierror.Append(merr, err)
+	}
 	return merr.ErrorOrNil()
 }
 
 func (p *PDPService) expireAllocation(ctx context.Context, pending allocation.Pending) error {
-	if pending.Accepted {
+	accepted, err := acceptancestore.AcceptedAllocation(ctx, p.acceptanceStore, pending.Digest, pending.Space, pending.Allocation)
+	if err != nil {
+		return err
+	}
+	if accepted {
 		return p.allocationStore.DeletePending(ctx, pending.Allocation)
 	}
 	if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
@@ -79,7 +87,7 @@ func (p *PDPService) discardOrphanUploads(ctx context.Context) error {
 	}
 	if err := p.db.Select(ctx, &rows,
 		`SELECT id, allocation FROM pdp_piece_uploads
-		 WHERE allocation IS NOT NULL AND created_at < $1`,
+		 WHERE allocation IS NOT NULL AND discarded_at IS NULL AND created_at < $1`,
 		time.Now().Add(-orphanUploadAge)); err != nil {
 		return fmt.Errorf("listing uploads without a digest: %w", err)
 	}
@@ -101,6 +109,36 @@ func (p *PDPService) discardOrphanUploads(ctx context.Context) error {
 			continue
 		}
 		log.Infow("discarded orphaned upload", "upload_id", row.ID, "allocation", link)
+	}
+	return merr.ErrorOrNil()
+}
+
+// reapDiscardedUploads drops the data and the rows of uploads discarded at
+// least orphanUploadAge ago. Their upload has completed or stopped by then:
+// one that completed after its discard already dropped both, so a row left is
+// one whose upload stopped before completing, and whose data, if it wrote
+// any, nothing else refers to.
+func (p *PDPService) reapDiscardedUploads(ctx context.Context) error {
+	var rows []struct {
+		ID string `db:"id"`
+	}
+	if err := p.db.Select(ctx, &rows,
+		`SELECT id FROM pdp_piece_uploads WHERE discarded_at < $1`,
+		time.Now().Add(-orphanUploadAge)); err != nil {
+		return fmt.Errorf("listing discarded uploads: %w", err)
+	}
+	var merr *multierror.Error
+	for _, row := range rows {
+		id := row.ID
+		if err := p.blobstore.Unstage(ctx, id); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("dropping data of discarded upload %s: %w", id, err))
+			continue
+		}
+		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
+			merr = multierror.Append(merr, fmt.Errorf("deleting discarded upload %s: %w", id, err))
+			continue
+		}
+		log.Infow("reaped discarded upload", "upload_id", id)
 	}
 	return merr.ErrorOrNil()
 }

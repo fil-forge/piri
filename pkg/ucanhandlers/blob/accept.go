@@ -97,23 +97,27 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 			pending = p
 		}
 
-		resp, err := Accept(req.Context(), deps, &AcceptRequest{
+		accReq := &AcceptRequest{
 			Space: args.Space,
 			Blob:  b,
 			Put:   args.Put,
 			Cause: req.Invocation().Task().Link(),
-		})
+		}
+		if !hashed {
+			accReq.Allocation = &pending.Allocation
+		} else if link, ok := putAllocation(req.Metadata(), args.Put.Task, digest); ok {
+			// The accept names the allocation its put was made to. That
+			// allocation becomes the space's allocation of the blob again if a
+			// later allocate replaced it, so a reject of it finds the
+			// acceptance and a reject of the later one finds nothing to drop.
+			if err := currentAllocation(req.Context(), deps.Pending, args.Space, digest, link); err != nil {
+				return err
+			}
+			accReq.Allocation = &link
+		}
+		resp, err := Accept(req.Context(), deps, accReq)
 		if err != nil {
 			return err
-		}
-
-		// Reject by allocation refuses once this is recorded. The acceptance
-		// written above already refuses a reject by digest.
-		if !hashed && !pending.Accepted {
-			pending.Accepted = true
-			if err := deps.Pending.PutPending(req.Context(), pending); err != nil {
-				return fmt.Errorf("marking pending allocation accepted: %w", err)
-			}
 		}
 
 		if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
@@ -133,6 +137,10 @@ type AcceptRequest struct {
 	Put   promise.AwaitOK
 	// Cause is a link to the `blob/accept` or `blob/replica/transfer` invocation.
 	Cause cid.Cid
+	// Allocation links the `/blob/allocate` task whose allocation is accepted,
+	// when the accept identifies it. It is recorded on the acceptance, which
+	// a reject of that allocation refuses on.
+	Allocation *cid.Cid
 }
 
 type AcceptResponse struct {
@@ -226,7 +234,8 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		PDPAccept:  promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
 		// The claim link is the digest→claim index /blob/release uses to
 		// delete the location claim when this space's acceptance is removed.
-		Site: claim.Link(),
+		Site:       claim.Link(),
+		Allocation: req.Allocation,
 	}
 	// The acceptance is written BEFORE the pipeline enqueue so "an
 	// acceptance exists" is a conservative superset of "the blob entered

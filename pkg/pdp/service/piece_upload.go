@@ -32,7 +32,7 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 	var checkHashCodec string
 	var allocationLink *string
 	if err := p.db.QueryRow(ctx,
-		`SELECT check_hash, check_size, check_hash_codec, allocation FROM pdp_piece_uploads WHERE id = $1`,
+		`SELECT check_hash, check_size, check_hash_codec, allocation FROM pdp_piece_uploads WHERE id = $1 AND discarded_at IS NULL`,
 		pieceUpload.ID.String()).Scan(&checkHash, &checkSize, &checkHashCodec, &allocationLink); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return types.NewErrorf(types.KindNotFound, "upload ID %s not found", pieceUpload.ID)
@@ -217,16 +217,16 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to check for existing data", err)
 	}
-	// The upload completes by deleting its row. Discarding an upload deletes
-	// the same row first, so whichever deletes it wins: an upload whose row is
-	// already gone was discarded while it completed, and records nothing.
+	// The upload completes by deleting its row. Discarding an upload marks the
+	// same row first, so whichever gets to it first wins: an upload whose row
+	// is marked was discarded while it completed, and records nothing.
 	discarded := false
 	if !held {
 		// The upload holds the digest only if no other upload of the same
 		// content claimed it first.
 		held = true
 		if _, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, id)
+			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1 AND discarded_at IS NULL`, id)
 			if err != nil {
 				return false, err
 			}
@@ -253,7 +253,7 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 		if err := p.blobstore.Unstage(ctx, id); err != nil {
 			return types.WrapError(types.KindInternal, "failed to drop duplicate upload data", err)
 		}
-		n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id)
+		n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1 AND discarded_at IS NULL`, id)
 		if err != nil {
 			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s from pdp_piece_uploads", pieceUpload.ID), err)
 		}
@@ -270,9 +270,13 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 // recorded: its data, and the digest and claim on its pending allocation,
 // which the release may have read before they were recorded. The claim's
 // bytes, if any, are queued for removal, which re-checks every claim first.
+// The upload writes nothing more, so its marked row goes once its data has.
 func (p *PDPService) releaseDiscardedUpload(ctx context.Context, id string, pending allocation.Pending) error {
 	if err := p.blobstore.Unstage(ctx, id); err != nil {
 		return types.WrapError(types.KindInternal, "failed to drop data of discarded upload", err)
+	}
+	if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
+		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete discarded upload ID %s", id), err)
 	}
 	released, err := allocationstore.ReleasePending(ctx, p.allocationStore, pending)
 	if err != nil {
@@ -286,17 +290,23 @@ func (p *PDPService) releaseDiscardedUpload(ctx context.Context, id string, pend
 	return types.NewErrorf(types.KindNotFound, "allocation %s was released while upload %s completed", pending.Allocation, id)
 }
 
-// DiscardUpload drops an upload that has not completed: its row and whatever
-// data it wrote. A completed upload's data may hold a blob that other claims
-// share, so it is left to the blob's removal.
+// DiscardUpload drops an upload that has not completed: whatever data it
+// wrote, and its row once nothing can be writing more. A completed upload's
+// data may hold a blob that other claims share, so it is left to the blob's
+// removal.
 //
-// The row goes first. An upload completing at the same time completes by
-// deleting the same row, so once it is gone here the upload can no longer
-// record its data as a staged blob, and the check below cannot miss an entry
-// recorded after it.
+// The row is marked first. An upload completing at the same time completes by
+// deleting the row only while it is unmarked, so once it is marked here the
+// upload can no longer record its data as a staged blob, and the check below
+// cannot miss an entry recorded after it. The row stays, marked, because an
+// upload still being written may write its data after this drops it: the
+// upload drops it again when it completes, and the expiry task drops the data
+// and the row of one that never does.
 func (p *PDPService) DiscardUpload(ctx context.Context, uploadID string) error {
-	if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, uploadID); err != nil {
-		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s", uploadID), err)
+	if _, err := p.db.Exec(ctx, `
+		UPDATE pdp_piece_uploads SET discarded_at = now() WHERE id = $1 AND discarded_at IS NULL
+	`, uploadID); err != nil {
+		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to mark piece upload ID %s discarded", uploadID), err)
 	}
 	var holds bool
 	if err := p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_staged_blobs WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {

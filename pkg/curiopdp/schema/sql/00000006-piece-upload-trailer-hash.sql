@@ -6,6 +6,12 @@
 ALTER TABLE pdp_piece_uploads ALTER COLUMN check_hash DROP NOT NULL;
 ALTER TABLE pdp_piece_uploads ADD COLUMN allocation text;
 
+-- NB(piri): a discarded upload keeps its row, marked, until whatever wrote its
+-- data is known to have stopped: an upload completing after its discard
+-- finds the mark and drops its own data, and the expiry task drops the data
+-- and the row of one that never completes, which nothing else would find.
+ALTER TABLE pdp_piece_uploads ADD COLUMN discarded_at timestamp with time zone;
+
 -- NB(piri): the upload's bytes stay staged under the upload's key once their
 -- digest is known, until the settle task moves them to the key of their digest.
 -- Until then this maps the digest to the staged upload, and reads go through

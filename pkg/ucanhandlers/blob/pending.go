@@ -152,3 +152,47 @@ func releasePending(ctx context.Context, pending PendingAllocations, uploads Upl
 	}
 	return released.Digest, nil
 }
+
+// putAllocation returns the allocation the `/http/put` task put was made to,
+// when the put invocation travels in meta and its body is the blob digest. An
+// upload service that sends only the task link leaves the allocation unknown.
+func putAllocation(meta ucan.Container, put cid.Cid, digest multihash.Multihash) (cid.Cid, bool) {
+	if meta == nil {
+		return cid.Undef, false
+	}
+	for _, inv := range meta.Invocations() {
+		if inv.Task().Link() != put || inv.Command() != httpcmds.Put.Command {
+			continue
+		}
+		var args httpcmds.PutArguments
+		if err := args.UnmarshalCBOR(bytes.NewReader(inv.ArgumentsBytes())); err != nil {
+			return cid.Undef, false
+		}
+		if d, ok := args.Body.Digest(); !ok || !bytes.Equal(d, digest) {
+			return cid.Undef, false
+		}
+		return args.Destination.Task, args.Destination.Task.Defined()
+	}
+	return cid.Undef, false
+}
+
+// currentAllocation makes link the space's allocation of digest, if a later
+// allocation replaced it. A space without an allocation of digest is left
+// alone.
+func currentAllocation(ctx context.Context, allocs PendingAllocations, space did.DID, digest multihash.Multihash, link cid.Cid) error {
+	alloc, err := allocs.Get(ctx, digest, space)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("getting allocation: %w", err)
+	}
+	if alloc.Allocation == link {
+		return nil
+	}
+	alloc.Allocation = link
+	if err := allocs.Put(ctx, alloc); err != nil {
+		return fmt.Errorf("recording accepted allocation: %w", err)
+	}
+	return nil
+}

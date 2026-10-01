@@ -16,11 +16,14 @@ import (
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/fil-forge/ucantone/ucan/promise"
 
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
@@ -34,9 +37,10 @@ type uploadWorld struct {
 	svc *PDPService
 	// base is the blobstore under the upload index; bs reads through it, as
 	// the node's blobstore does.
-	base   blobstore.Blobstore
-	bs     *blobstore.StagingStore
-	allocs *allocationstore.Store
+	base    blobstore.Blobstore
+	bs      *blobstore.StagingStore
+	allocs  *allocationstore.Store
+	accepts *acceptancestore.Store
 }
 
 func setupUploadTest(t *testing.T) *uploadWorld {
@@ -50,9 +54,10 @@ func setupUploadTest(t *testing.T) *uploadWorld {
 	require.NoError(t, err)
 	base := blobstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	w := &uploadWorld{
-		base:   base,
-		bs:     blobstore.NewStagingStore(base, NewStagingIndex(db)),
-		allocs: allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
+		base:    base,
+		bs:      blobstore.NewStagingStore(base, NewStagingIndex(db)),
+		allocs:  allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
+		accepts: acceptancestore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 	}
 	reader, err := piece.NewStoreReader(w.bs)
 	require.NoError(t, err)
@@ -60,6 +65,7 @@ func setupUploadTest(t *testing.T) *uploadWorld {
 		db:              db,
 		blobstore:       w.bs,
 		allocationStore: w.allocs,
+		acceptanceStore: w.accepts,
 		pieceReader:     reader,
 	}
 	return w
@@ -95,6 +101,25 @@ func (w *uploadWorld) upload(t *testing.T, p allocation.Pending, data []byte) er
 		ID:   uuid.MustParse(p.UploadID),
 		Data: bytes.NewReader(data),
 	})
+}
+
+// uploadLive reports whether upload id has a row that is not discarded.
+func (w *uploadWorld) uploadLive(t *testing.T, id string) bool {
+	t.Helper()
+	var n int
+	require.NoError(t, w.svc.db.QueryRow(t.Context(),
+		`SELECT count(*) FROM pdp_piece_uploads WHERE id = $1 AND discarded_at IS NULL`, id).Scan(&n))
+	return n > 0
+}
+
+// ageDiscards makes every discarded upload old enough for the expiry task to
+// reap.
+func (w *uploadWorld) ageDiscards(t *testing.T) {
+	t.Helper()
+	_, err := w.svc.db.Exec(t.Context(),
+		`UPDATE pdp_piece_uploads SET discarded_at = $1 WHERE discarded_at IS NOT NULL`,
+		time.Now().Add(-2*orphanUploadAge))
+	require.NoError(t, err)
 }
 
 func (w *uploadWorld) uploadRowExists(t *testing.T, id string) bool {
@@ -375,10 +400,14 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	acceptedSpace := testutil.RandomDID(t)
 	accepted := w.allocate(t, acceptedSpace, len(acceptedData), past)
 	require.NoError(t, w.upload(t, accepted, acceptedData))
-	accepted, err := w.allocs.GetPending(ctx, accepted.Allocation)
-	require.NoError(t, err)
-	accepted.Accepted = true
-	require.NoError(t, w.allocs.PutPending(ctx, accepted))
+	require.NoError(t, w.accepts.Put(ctx, acceptance.Acceptance{
+		Space:      acceptedSpace,
+		Blob:       acceptance.Blob{Digest: acceptedDigest, Size: uint64(len(acceptedData))},
+		PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Cause:      testutil.RandomCID(t),
+		Site:       testutil.RandomCID(t),
+		Allocation: &accepted.Allocation,
+	}))
 
 	// Not yet expired.
 	live := w.allocate(t, testutil.RandomDID(t), 64, day())
@@ -399,7 +428,7 @@ func TestProcessExpiredAllocations(t *testing.T) {
 		_, err := w.allocs.GetPending(ctx, p.Allocation)
 		require.ErrorIs(t, err, store.ErrNotFound, "expired pending allocations are deleted")
 	}
-	require.False(t, w.uploadRowExists(t, idle.UploadID), "the idle upload is discarded")
+	require.False(t, w.uploadLive(t, idle.UploadID), "the idle upload is discarded")
 
 	_, err = w.allocs.Get(ctx, digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "the received upload's claim is released")
@@ -415,5 +444,34 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	require.NoError(t, err, "a live allocation is kept")
 	require.True(t, w.uploadRowExists(t, live.UploadID))
 
-	require.False(t, w.uploadRowExists(t, orphan.UploadID.String()), "the orphaned upload is discarded")
+	require.False(t, w.uploadLive(t, orphan.UploadID.String()), "the orphaned upload is discarded")
+
+	w.ageDiscards(t)
+	require.NoError(t, w.svc.ProcessExpiredAllocations(ctx))
+	require.False(t, w.uploadRowExists(t, idle.UploadID), "a discarded upload's row is reaped")
+	require.False(t, w.uploadRowExists(t, orphan.UploadID.String()))
+	require.True(t, w.uploadRowExists(t, live.UploadID))
+}
+
+// TestUploadUnhashed_DiscardedWhileWriting: the allocation is rejected while
+// its upload is still being written, and the upload stops before it completes.
+// The data it wrote after the discard is found and dropped by the expiry task;
+// an upload that arrives after the discard is refused.
+func TestUploadUnhashed_DiscardedWhileWriting(t *testing.T) {
+	w := setupUploadTest(t)
+	ctx := t.Context()
+	data := testutil.RandomBytes(t, 256)
+	p := w.allocate(t, testutil.RandomDID(t), len(data), day())
+
+	require.NoError(t, w.svc.DiscardUpload(ctx, p.UploadID))
+	// The upload's write lands after the discard, and the upload stops there.
+	require.NoError(t, w.bs.Stage(ctx, p.UploadID, uint64(len(data)), bytes.NewReader(data)))
+	require.True(t, w.uploadRowExists(t, p.UploadID), "the discarded row is kept while its upload may still write")
+
+	require.Error(t, w.upload(t, p, data), "an upload to a discarded row is refused")
+
+	w.ageDiscards(t)
+	require.NoError(t, w.svc.ProcessExpiredAllocations(ctx))
+	require.False(t, w.uploadData(t, p.UploadID), "the data written after the discard is dropped")
+	require.False(t, w.uploadRowExists(t, p.UploadID))
 }

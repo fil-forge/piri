@@ -253,26 +253,6 @@ func (t *Pending) MarshalDagJSON(w io.Writer) error {
 	}
 	written := false
 
-	// t.Accepted (bool) (bool)
-	if len("accepted") > 8192 {
-		return fmt.Errorf("string in field \"accepted\" was too long")
-	}
-	if err := jw.WriteString(string("accepted")); err != nil {
-		return fmt.Errorf("writing string for field \"accepted\": %w", err)
-	}
-	if err := jw.WriteObjectColon(); err != nil {
-		return err
-	}
-	if err := jw.WriteBool(t.Accepted); err != nil {
-		return fmt.Errorf("writing bool for field t.Accepted: %w", err)
-	}
-	written = true
-	if written {
-		if err := jw.WriteComma(); err != nil {
-			return err
-		}
-	}
-
 	// t.Allocation (cid.Cid) (struct)
 	if len("allocation") > 8192 {
 		return fmt.Errorf("string in field \"allocation\" was too long")
@@ -487,15 +467,7 @@ func (t *Pending) UnmarshalDagJSON(r io.Reader) (err error) {
 			}
 			switch name {
 
-			// t.Accepted (bool) (bool)
-			case "accepted":
-				bval, err := jr.ReadBool()
-				if err != nil {
-					return fmt.Errorf("reading bool for field t.Accepted: %w", err)
-				}
-				t.Accepted = bval
-
-				// t.Allocation (cid.Cid) (struct)
+			// t.Allocation (cid.Cid) (struct)
 			case "allocation":
 				{
 

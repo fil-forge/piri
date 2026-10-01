@@ -161,9 +161,8 @@ func (s *RPCSuite) TestBlobUnhashed_AllocateUploadAccept() {
 	require.Equal(t, inv.Task().Link(), acc.Cause)
 	require.Equal(t, ok.Site, acc.Site)
 
-	p, err = s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
-	require.NoError(t, err)
-	require.True(t, p.Accepted, "the pending allocation is marked accepted")
+	require.NotNil(t, acc.Allocation)
+	require.Equal(t, b.alloc.Task().Link(), *acc.Allocation, "the acceptance names the allocation it accepted")
 
 	assertReceiptFailure(t, s.rejectAllocation(t, b.alloc.Task().Link()), blob.BlobAcceptedErrorName)
 }

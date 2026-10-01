@@ -253,7 +253,7 @@ func (t *Pending) MarshalCBOR(w io.Writer) error {
 	}
 
 	cw := cbg.NewCborWriter(w)
-	fieldCount := 9
+	fieldCount := 8
 
 	if t.Digest == nil {
 		fieldCount--
@@ -359,22 +359,6 @@ func (t *Pending) MarshalCBOR(w io.Writer) error {
 		if err := cw.WriteMajorTypeHeader(cbg.MajNegativeInt, uint64(-t.Expires-1)); err != nil {
 			return err
 		}
-	}
-
-	// t.Accepted (bool) (bool)
-	if len("accepted") > 8192 {
-		return xerrors.Errorf("Value in field \"accepted\" was too long")
-	}
-
-	if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("accepted"))); err != nil {
-		return err
-	}
-	if _, err := cw.WriteString(string("accepted")); err != nil {
-		return err
-	}
-
-	if err := cbg.WriteBool(w, t.Accepted); err != nil {
-		return err
 	}
 
 	// t.UploadID (string) (string)
@@ -562,24 +546,6 @@ func (t *Pending) UnmarshalCBOR(r io.Reader) (err error) {
 				}
 
 				t.Expires = ucan.UnixTimestamp(extraI)
-			}
-			// t.Accepted (bool) (bool)
-		case "accepted":
-
-			maj, extra, err = cr.ReadHeader()
-			if err != nil {
-				return err
-			}
-			if maj != cbg.MajOther {
-				return fmt.Errorf("booleans must be major type 7")
-			}
-			switch extra {
-			case 20:
-				t.Accepted = false
-			case 21:
-				t.Accepted = true
-			default:
-				return fmt.Errorf("booleans are either major type 7, value 20 or 21 (got %d)", extra)
 			}
 			// t.UploadID (string) (string)
 		case "uploadID":

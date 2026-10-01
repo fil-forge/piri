@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	"github.com/fil-forge/libforge/commands/blob"
+	httpcmds "github.com/fil-forge/libforge/commands/http"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/errors/datamodel"
+	"github.com/fil-forge/ucantone/multikey/ed25519"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -124,6 +126,63 @@ func (s *RPCSuite) TestBlobReject_ReplacedAllocationIsLeftAlone() {
 	_, err = s.Allocations.Get(t.Context(), digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound)
 	require.Contains(t, s.Pieces.Removed(), digest)
+}
+
+// Two allocations of the same blob in the same space, the second replacing
+// the first; the upload to the first is accepted, its /http/put travelling
+// with the accept. Rejecting the second drops nothing, and rejecting the
+// first is refused: the acceptance names the allocation it accepted.
+func (s *RPCSuite) TestBlobReject_OnlyTheAcceptedAllocationIsRefused() {
+	t := s.T()
+	service := s.ServiceID.DID()
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	spec := blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))})
+	space := testutil.RandomDID(t)
+	allocate := func() ucan.Invocation {
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})
+		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
+		return inv
+	}
+	first, second := allocate(), allocate()
+	s.Pieces.Put(digest, data)
+
+	putter := testutil.Must(ed25519.GenerateIssuer())(t)
+	put := testutil.Must(httpcmds.Put.Invoke(
+		putter,
+		putter.DID(),
+		&httpcmds.PutArguments{Body: spec, Destination: promise.AwaitOK{Task: first.Task().Link()}},
+		invocation.WithAudience(putter.DID()),
+	))(t)
+	acceptProof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Accept.Command,
+	))(t)
+	accept := testutil.Must(blob.Accept.Invoke(
+		s.UploadServiceIdentity,
+		service,
+		&blob.AcceptArguments{Space: space, Blob: spec, Put: promise.AwaitOK{Task: put.Task().Link()}},
+		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProof.Link()),
+	))(t)
+	assertReceiptOK(t, s.sendInvocationWith(t, accept, []ucan.Invocation{put}, acceptProof))
+
+	acc, err := s.Acceptances.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.NotNil(t, acc.Allocation)
+	require.Equal(t, first.Task().Link(), *acc.Allocation, "the acceptance names the allocation the put was made to")
+	alloc, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.Equal(t, first.Task().Link(), alloc.Allocation, "the accepted allocation is the space's allocation again")
+
+	assertReceiptOK(t, s.rejectAllocation(t, second.Task().Link()))
+	_, err = s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err, "rejecting the allocation that was not accepted drops nothing")
+	require.NotContains(t, s.Pieces.Removed(), digest)
+
+	_, err = blob.Reject.Unpack(s.rejectAllocation(t, first.Task().Link()))
+	var em datamodel.ErrorModel
+	require.ErrorAs(t, err, &em)
+	require.Equal(t, blob.BlobAcceptedErrorName, em.Name())
 }
 
 // rejectAllocation sends a /blob/reject of the allocation the allocate task

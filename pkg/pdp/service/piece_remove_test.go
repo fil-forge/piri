@@ -314,6 +314,42 @@ func TestSweep_InFlightCommPWaits(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
+// TestSweep_InFlightSettleWaits: a staged blob's settle task is still live
+// when its removal is swept. The sweep leaves the row until the task is done,
+// then removes the blob from wherever the settle left it.
+func TestSweep_InFlightSettleWaits(t *testing.T) {
+	w := setupRemovalTest(t)
+	ctx := t.Context()
+	blob := mustMultihash(t, "blob-settling")
+	require.NoError(t, w.bs.Put(ctx, blob, 4, bytes.NewReader([]byte("data"))))
+	_, err := w.db.Exec(ctx, `
+		INSERT INTO pdp_blob_pipeline (digest, staged, settle_task_id) VALUES ($1, true, 43)
+	`, []byte(blob))
+	require.NoError(t, err)
+	_, err = w.db.Exec(ctx, `
+		INSERT INTO harmony_task (id, posted_time, added_by, name)
+		VALUES (43, now(), 1, 'PDPSettle')
+	`)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.RemovePiece(ctx, blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Equal(t, 1, w.count(t, "pdp_blob_pipeline"), "a row with a live settle task is not cancelled")
+	require.Equal(t, 1, w.count(t, "pdp_pending_piece_removals"), "removal waits")
+
+	// The settle task finishes: the blob is settled and the task is gone.
+	_, err = w.db.Exec(ctx, `UPDATE pdp_blob_pipeline SET staged = false WHERE digest = $1`, []byte(blob))
+	require.NoError(t, err)
+	_, err = w.db.Exec(ctx, `DELETE FROM harmony_task WHERE id = 43`)
+	require.NoError(t, err)
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"))
+	require.Zero(t, w.count(t, "pdp_pending_piece_removals"))
+	_, err = w.bs.Get(ctx, blob)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
 // TestSweep_GivenUpCommPCancelled: a commp task that exhausted its retries is
 // gone from harmony_task, and its row is cancelled like any pre-commp row.
 func TestSweep_GivenUpCommPCancelled(t *testing.T) {

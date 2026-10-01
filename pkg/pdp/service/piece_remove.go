@@ -43,7 +43,7 @@ func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) 
 //     the removal — a racing accept or a re-upload revived the blob.
 //  2. Cancels the blob's pipeline row if it hasn't been folded into an
 //     aggregate (transactional delete, serialized against the fold's row
-//     locks) and no commp task is working on it. A commp task that is still
+//     locks) and no settle or commp task is working on it. A commp task that is still
 //     live is waited for: it records the mapping and parks the piece, which
 //     finalization then cleans up.
 //  3. Resolves the commp mapping. A blob with no mapping and no pipeline
@@ -279,12 +279,19 @@ func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Mu
 // and leave those rows behind. A task that gave up is gone from harmony_task,
 // and its row is cancelled. A row cancelled before its task starts makes the
 // task a noop.
+//
+// A staged row is left the same way while its settle task is live. The
+// staging store serializes a settle against the blob's deletion within one
+// process; waiting for the task keeps that true however the tasks are
+// placed.
 func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Multihash) (active bool, err error) {
 	if _, err := p.db.Exec(ctx, `
 		DELETE FROM pdp_blob_pipeline
 		WHERE digest = $1 AND aggregate_root IS NULL
 		  AND (commp IS NOT NULL OR commp_task_id IS NULL
 		       OR NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.commp_task_id))
+		  AND NOT (staged AND settle_task_id IS NOT NULL
+		       AND EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.settle_task_id))
 	`, []byte(blob)); err != nil {
 		return false, fmt.Errorf("cancelling pipeline row for %s: %w", blob.String(), err)
 	}

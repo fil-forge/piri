@@ -52,6 +52,4 @@ type Pending struct {
 	// Digest is the digest computed as the data was received. It is empty
 	// until the upload completes.
 	Digest multihash.Multihash `cborgen:"digest,omitempty" dagjsongen:"digest,omitempty"`
-	// Accepted records that `/blob/accept` committed this allocation.
-	Accepted bool `cborgen:"accepted" dagjsongen:"accepted"`
 }
