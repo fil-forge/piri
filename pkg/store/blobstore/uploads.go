@@ -77,10 +77,11 @@ func (s *uploadStore) Delete(ctx context.Context, digest multihash.Multihash) er
 }
 
 // Settle writes the upload's bytes to the key of digest as read consumes them.
-// The entry is dropped only once that write is complete, and the upload only
-// after the entry, so a reader always finds the bytes at one key or the other.
-// A settle interrupted after the write finds the blob at its key next time,
-// and only finishes the cleanup.
+// Once that write is complete the upload is deleted, and its entry after it,
+// so the entry stays until the cleanup it records is done. A settle
+// interrupted after the write finds the entry and the blob at its key next
+// time, and only finishes the cleanup. A reader that finds the entry after the
+// upload is gone reads the blob from its key, as Get does.
 func (s *uploadStore) Settle(ctx context.Context, digest multihash.Multihash, read func(r io.Reader, size int64) error) (bool, error) {
 	id, ok, err := s.uploads.Upload(ctx, digest)
 	if err != nil {
@@ -130,11 +131,11 @@ func (s *uploadStore) Settle(ctx context.Context, digest multihash.Multihash, re
 }
 
 func (s *uploadStore) forgetUpload(ctx context.Context, digest multihash.Multihash, id string) error {
-	if err := s.uploads.Forget(ctx, digest); err != nil {
-		return fmt.Errorf("forgetting upload of blob: %w", err)
-	}
 	if err := s.Blobstore.DeleteUpload(ctx, id); err != nil {
 		return fmt.Errorf("deleting settled upload: %w", err)
+	}
+	if err := s.uploads.Forget(ctx, digest); err != nil {
+		return fmt.Errorf("forgetting upload of blob: %w", err)
 	}
 	return nil
 }

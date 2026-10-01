@@ -20,6 +20,8 @@ import (
 type mapIndex struct {
 	mu sync.Mutex
 	m  map[string]string
+	// forgetErr fails the next Forget, as a crash before it would leave it.
+	forgetErr error
 }
 
 func (i *mapIndex) Upload(_ context.Context, digest multihash.Multihash) (string, bool, error) {
@@ -32,6 +34,10 @@ func (i *mapIndex) Upload(_ context.Context, digest multihash.Multihash) (string
 func (i *mapIndex) Forget(_ context.Context, digest multihash.Multihash) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	if err := i.forgetErr; err != nil {
+		i.forgetErr = nil
+		return err
+	}
 	delete(i.m, string(digest))
 	return nil
 }
@@ -163,6 +169,38 @@ func TestUploads(t *testing.T) {
 		require.ErrorIs(t, err, store.ErrNotFound)
 		_, held, _ := idx.Upload(ctx, digest)
 		require.False(t, held)
+	})
+
+	t.Run("settle interrupted before forgetting the upload leaves nothing unreferenced", func(t *testing.T) {
+		bs, base, idx, data, digest, id := uploaded(t)
+		crash := errors.New("crashed")
+		idx.forgetErr = crash
+		_, err := bs.Settle(ctx, digest, func(r io.Reader, _ int64) error {
+			_, err := io.Copy(io.Discard, r)
+			return err
+		})
+		require.ErrorIs(t, err, crash)
+		_, err = base.GetUpload(ctx, id)
+		require.ErrorIs(t, err, store.ErrNotFound, "the upload went before its entry")
+		held, ok, _ := idx.Upload(ctx, digest)
+		require.True(t, ok, "the entry still records the cleanup owed")
+		require.Equal(t, id, held)
+
+		obj, err := bs.Get(ctx, digest)
+		require.NoError(t, err, "the blob reads from its key while the entry remains")
+		require.Equal(t, data, readAll(t, obj))
+
+		settled, err := bs.Settle(ctx, digest, func(io.Reader, int64) error {
+			t.Fatal("read called for a blob already at its key")
+			return nil
+		})
+		require.NoError(t, err)
+		require.False(t, settled)
+		_, ok, _ = idx.Upload(ctx, digest)
+		require.False(t, ok, "the retry forgot the upload")
+		obj, err = bs.Get(ctx, digest)
+		require.NoError(t, err)
+		require.Equal(t, data, readAll(t, obj))
 	})
 
 	t.Run("delete removes a blob held by its upload", func(t *testing.T) {
