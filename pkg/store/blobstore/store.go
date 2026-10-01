@@ -49,15 +49,17 @@ func NewDatastoreStore(ds datastore.Datastore) *Store {
 }
 
 func (s *Store) Get(ctx context.Context, digest multihash.Multihash, opts ...GetOption) (Object, error) {
-	return s.get(ctx, s.encoder.EncodeKey(digest), opts...)
+	return getObject(ctx, s.backend, s.encoder.EncodeKey(digest), opts...)
 }
 
-func (s *Store) get(ctx context.Context, key string, opts ...GetOption) (Object, error) {
+// getObject gets key from backend, translating the backend's errors to the
+// blobstore's.
+func getObject(ctx context.Context, backend objectstore.Store, key string, opts ...GetOption) (Object, error) {
 	o := &GetOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
-	obj, err := s.backend.Get(ctx, key, objectstore.WithRange(objectstore.Range(o.ByteRange)))
+	obj, err := backend.Get(ctx, key, objectstore.WithRange(objectstore.Range(o.ByteRange)))
 	if err != nil {
 		if errors.Is(err, objectstore.ErrNotExist) {
 			return nil, store.ErrNotFound
@@ -77,32 +79,4 @@ func (s *Store) Put(ctx context.Context, digest multihash.Multihash, size uint64
 
 func (s *Store) Delete(ctx context.Context, digest multihash.Multihash) error {
 	return s.backend.Delete(ctx, s.encoder.EncodeKey(digest))
-}
-
-// uploadKey is the key of an upload. It is valid in every backend and cannot
-// collide with a digest key, which never starts with "upload-".
-func uploadKey(id string) string {
-	return "upload-" + id
-}
-
-func (s *Store) PutUpload(ctx context.Context, id string, size uint64, body io.Reader) error {
-	return s.backend.Put(ctx, uploadKey(id), size, body)
-}
-
-func (s *Store) GetUpload(ctx context.Context, id string, opts ...GetOption) (Object, error) {
-	return s.get(ctx, uploadKey(id), opts...)
-}
-
-func (s *Store) DeleteUpload(ctx context.Context, id string) error {
-	err := s.backend.Delete(ctx, uploadKey(id))
-	if errors.Is(err, objectstore.ErrNotExist) {
-		return nil
-	}
-	return err
-}
-
-// Settle reports false: without an [UploadIndex] no upload is known to hold a
-// blob. [WithUploads] provides one.
-func (s *Store) Settle(context.Context, multihash.Multihash, func(io.Reader, int64) error) (bool, error) {
-	return false, nil
 }

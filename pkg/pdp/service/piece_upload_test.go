@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 )
 
 // Uploads to an allocation made without a digest are hashed as they are
@@ -34,7 +36,7 @@ type uploadWorld struct {
 	// base is the blobstore under the upload index; bs reads through it, as
 	// the node's blobstore does.
 	base   blobstore.Blobstore
-	bs     blobstore.Blobstore
+	bs     *blobstore.StagingStore
 	allocs *allocationstore.Store
 }
 
@@ -47,10 +49,11 @@ func setupUploadTest(t *testing.T) *uploadWorld {
 		VALUES (1, $1, 'storacha') ON CONFLICT DO NOTHING
 	`, []byte{1})
 	require.NoError(t, err)
-	base := blobstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	ds := dssync.MutexWrap(datastore.NewMapDatastore())
+	base := blobstore.NewDatastoreStore(ds)
 	w := &uploadWorld{
 		base:   base,
-		bs:     blobstore.WithUploads(base, NewUploadIndex(db)),
+		bs:     blobstore.NewStagingStore(base, dsadapter.New(ds), NewStagingIndex(db)),
 		allocs: allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 	}
 	reader, err := piece.NewStoreReader(w.bs)
@@ -116,7 +119,7 @@ func (w *uploadWorld) stored(t *testing.T, digest multihash.Multihash) []byte {
 // uploadData reports whether upload id's data is stored.
 func (w *uploadWorld) uploadData(t *testing.T, id string) bool {
 	t.Helper()
-	obj, err := w.base.GetUpload(t.Context(), id)
+	obj, err := w.bs.GetStaged(t.Context(), id)
 	if err == nil {
 		_ = obj.Body().Close()
 		return true
@@ -140,7 +143,7 @@ func (w *uploadWorld) atDigestKey(t *testing.T, digest multihash.Multihash) bool
 // holder returns the upload the index records as holding the blob.
 func (w *uploadWorld) holder(t *testing.T, digest multihash.Multihash) (string, bool) {
 	t.Helper()
-	id, ok, err := NewUploadIndex(w.svc.db).Upload(t.Context(), digest)
+	id, ok, err := NewStagingIndex(w.svc.db).GetID(t.Context(), digest)
 	require.NoError(t, err)
 	return id, ok
 }
@@ -215,6 +218,82 @@ func TestUploadUnhashed_DiscardKeepsHeldBlob(t *testing.T) {
 	require.False(t, w.uploadData(t, p.UploadID), "removing the blob removes the upload's data")
 	_, ok := w.holder(t, digest)
 	require.False(t, ok)
+}
+
+// discardingAllocations runs discard once, just before the first claim on
+// (digest, space) is recorded: after the upload's data is staged and before it
+// is recorded as the staged copy of its blob.
+type discardingAllocations struct {
+	allocationstore.AllocationStore
+	discard func()
+}
+
+func (d *discardingAllocations) Put(ctx context.Context, alloc allocation.Allocation) error {
+	if f := d.discard; f != nil {
+		d.discard = nil
+		f()
+	}
+	return d.AllocationStore.Put(ctx, alloc)
+}
+
+// TestUploadUnhashed_DiscardedWhileCompleting: the allocation is rejected
+// while its upload completes. The reject discards the upload and releases the
+// pending record it read before the digest was recorded. Neither side may
+// leave an entry for staged bytes that are gone, or a claim nothing releases.
+func TestUploadUnhashed_DiscardedWhileCompleting(t *testing.T) {
+	w := setupUploadTest(t)
+	ctx := t.Context()
+	space := testutil.RandomDID(t)
+	data := testutil.RandomBytes(t, 256)
+	digest := mustMultihash(t, string(data))
+	p := w.allocate(t, space, len(data), day())
+	w.svc.allocationStore = &discardingAllocations{AllocationStore: w.allocs, discard: func() {
+		require.NoError(t, w.svc.DiscardUpload(ctx, p.UploadID))
+		_, err := allocationstore.ReleasePending(ctx, w.allocs, p)
+		require.NoError(t, err)
+	}}
+
+	require.Error(t, w.upload(t, p, data), "the upload's allocation was released")
+
+	_, ok := w.holder(t, digest)
+	require.False(t, ok, "no entry for a discarded upload")
+	require.False(t, w.uploadData(t, p.UploadID), "the discarded upload's data is gone")
+	require.False(t, w.uploadRowExists(t, p.UploadID))
+	_, err := w.allocs.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no claim is left on the digest")
+	_, err = w.allocs.GetPending(ctx, p.Allocation)
+	require.ErrorIs(t, err, store.ErrNotFound, "no pending record is left")
+}
+
+// TestUploadUnhashed_DuplicateDiscardedWhileCompleting: the same, for an
+// upload of content another upload already staged. The discard releases only
+// what the duplicate recorded; the staged copy and its entry stay.
+func TestUploadUnhashed_DuplicateDiscardedWhileCompleting(t *testing.T) {
+	w := setupUploadTest(t)
+	ctx := t.Context()
+	data := testutil.RandomBytes(t, 256)
+	digest := mustMultihash(t, string(data))
+	first := w.allocate(t, testutil.RandomDID(t), len(data), day())
+	require.NoError(t, w.upload(t, first, data))
+
+	space := testutil.RandomDID(t)
+	dup := w.allocate(t, space, len(data), day())
+	w.svc.allocationStore = &discardingAllocations{AllocationStore: w.allocs, discard: func() {
+		require.NoError(t, w.svc.DiscardUpload(ctx, dup.UploadID))
+		_, err := allocationstore.ReleasePending(ctx, w.allocs, dup)
+		require.NoError(t, err)
+	}}
+
+	require.Error(t, w.upload(t, dup, data), "the duplicate's allocation was released")
+
+	holder, ok := w.holder(t, digest)
+	require.True(t, ok)
+	require.Equal(t, first.UploadID, holder, "the first upload still holds the blob")
+	require.Equal(t, data, w.stored(t, digest))
+	require.False(t, w.uploadData(t, dup.UploadID))
+	require.False(t, w.uploadRowExists(t, dup.UploadID))
+	_, err := w.allocs.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "the duplicate's claim is released")
 }
 
 func TestUploadUnhashed_ContentAlreadyHeld(t *testing.T) {

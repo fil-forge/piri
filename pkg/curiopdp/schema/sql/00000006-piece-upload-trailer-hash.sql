@@ -6,12 +6,12 @@
 ALTER TABLE pdp_piece_uploads ALTER COLUMN check_hash DROP NOT NULL;
 ALTER TABLE pdp_piece_uploads ADD COLUMN allocation text;
 
--- NB(piri): the upload's bytes stay under the upload's key once their digest is
--- known, until the commP task reads them and settles them at the key of their
--- digest in the same pass. Until then this maps the digest to the upload, and
--- reads go through it. One upload holds a digest: a second upload of the same
--- content drops its own bytes.
-CREATE TABLE pdp_blob_uploads (
+-- NB(piri): the upload's bytes stay staged under the upload's key once their
+-- digest is known, until the commP task reads them and settles them at the key
+-- of their digest in the same pass. Until then this maps the digest to the
+-- staged upload, and reads go through it. One staged upload holds a digest: a
+-- second upload of the same content drops its own bytes.
+CREATE TABLE pdp_staged_blobs (
     digest     bytea PRIMARY KEY,
     upload_id  text NOT NULL UNIQUE,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP

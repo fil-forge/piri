@@ -59,11 +59,12 @@ func (p *PDPService) expireAllocation(ctx context.Context, pending allocation.Pe
 	if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
 		return err
 	}
-	if err := allocationstore.ReleasePending(ctx, p.allocationStore, pending); err != nil {
+	released, err := allocationstore.ReleasePending(ctx, p.allocationStore, pending)
+	if err != nil {
 		return err
 	}
-	if len(pending.Digest) > 0 {
-		if err := p.RemovePiece(ctx, pending.Digest); err != nil {
+	if len(released.Digest) > 0 {
+		if err := p.RemovePiece(ctx, released.Digest); err != nil {
 			return err
 		}
 	}

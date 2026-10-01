@@ -22,6 +22,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
@@ -155,7 +156,9 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 //     one transaction; or, when the node already holds that content, the
 //     upload's data is dropped and its row deleted.
 //
-// Until step 3 the upload can be retried, and a retry repeats every step.
+// Until step 3 the upload can be retried, and a retry repeats every step. If
+// the allocation is released while the upload completes, step 3 finds the
+// row gone, and the upload undoes steps 1 and 2 and drops its data.
 func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.PieceUpload, size uint64, hasher func() hash.Hash, link cid.Cid) error {
 	lg := log.With("upload_id", pieceUpload.ID, "allocation", link, "size", size)
 	pending, err := p.allocationStore.GetPending(ctx, link)
@@ -171,9 +174,9 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 		return types.WrapError(types.KindInternal, "failed to create hashing reader", err)
 	}
 	id := pieceUpload.ID.String()
-	if err := p.blobstore.PutUpload(ctx, id, size, vr); err != nil {
+	if err := p.blobstore.Stage(ctx, id, size, vr); err != nil {
 		lg.Errorw("failed to write upload to blobstore", "err", err)
-		if delErr := p.blobstore.DeleteUpload(ctx, id); delErr != nil {
+		if delErr := p.blobstore.Unstage(ctx, id); delErr != nil {
 			lg.Errorw("failed to delete data of failed upload", "err", delErr)
 		}
 		if errors.Is(err, verifyread.ErrSizeMismatch) {
@@ -214,54 +217,95 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to check for existing data", err)
 	}
+	// The upload completes by deleting its row. Discarding an upload deletes
+	// the same row first, so whichever deletes it wins: an upload whose row is
+	// already gone was discarded while it completed, and records nothing.
+	discarded := false
 	if !held {
 		// The upload holds the digest only if no other upload of the same
 		// content claimed it first.
 		held = true
 		if _, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-			n, err := tx.Exec(`INSERT INTO pdp_blob_uploads (digest, upload_id) VALUES ($1, $2) ON CONFLICT (digest) DO NOTHING`, []byte(digest), id)
+			n, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, id)
+			if err != nil {
+				return false, err
+			}
+			if n == 0 {
+				discarded = true
+				return false, nil
+			}
+			n, err = tx.Exec(`INSERT INTO pdp_staged_blobs (digest, upload_id) VALUES ($1, $2) ON CONFLICT (digest) DO NOTHING`, []byte(digest), id)
 			if err != nil {
 				return false, err
 			}
 			if n == 0 {
 				return false, nil
 			}
-			if _, err := tx.Exec(`DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
-				return false, err
-			}
 			held = false
 			return true, nil
 		}); err != nil {
-			return types.WrapError(types.KindInternal, "failed to record the upload holding the blob", err)
+			return types.WrapError(types.KindInternal, "failed to record the staged blob", err)
 		}
 	}
-	if held {
-		if err := p.blobstore.DeleteUpload(ctx, id); err != nil {
+	if held && !discarded {
+		// The data goes before the row, so a node stopping in between leaves
+		// a row the expiry task reaps, never data nothing refers to.
+		if err := p.blobstore.Unstage(ctx, id); err != nil {
 			return types.WrapError(types.KindInternal, "failed to drop duplicate upload data", err)
 		}
-		if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
+		n, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id)
+		if err != nil {
 			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s from pdp_piece_uploads", pieceUpload.ID), err)
 		}
+		discarded = n == 0
+	}
+	if discarded {
+		return p.releaseDiscardedUpload(ctx, id, pending)
 	}
 	lg.Infow("received upload without a digest", "blob", digestutil.Format(digest), "duplicate", held)
 	return nil
 }
 
+// releaseDiscardedUpload undoes what an upload discarded while it completed
+// recorded: its data, and the digest and claim on its pending allocation,
+// which the release may have read before they were recorded. The claim's
+// bytes, if any, are queued for removal, which re-checks every claim first.
+func (p *PDPService) releaseDiscardedUpload(ctx context.Context, id string, pending allocation.Pending) error {
+	if err := p.blobstore.Unstage(ctx, id); err != nil {
+		return types.WrapError(types.KindInternal, "failed to drop data of discarded upload", err)
+	}
+	released, err := allocationstore.ReleasePending(ctx, p.allocationStore, pending)
+	if err != nil {
+		return types.WrapError(types.KindInternal, "failed to release allocation of discarded upload", err)
+	}
+	if len(released.Digest) > 0 {
+		if err := p.RemovePiece(ctx, released.Digest); err != nil {
+			return types.WrapError(types.KindInternal, "failed to queue removal of discarded upload", err)
+		}
+	}
+	return types.NewErrorf(types.KindNotFound, "allocation %s was released while upload %s completed", pending.Allocation, id)
+}
+
 // DiscardUpload drops an upload that has not completed: its row and whatever
 // data it wrote. A completed upload's data may hold a blob that other claims
 // share, so it is left to the blob's removal.
+//
+// The row goes first. An upload completing at the same time completes by
+// deleting the same row, so once it is gone here the upload can no longer
+// record its data as a staged blob, and the check below cannot miss an entry
+// recorded after it.
 func (p *PDPService) DiscardUpload(ctx context.Context, uploadID string) error {
 	if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, uploadID); err != nil {
 		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete piece upload ID %s", uploadID), err)
 	}
 	var holds bool
-	if err := p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_blob_uploads WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {
+	if err := p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_staged_blobs WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {
 		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to check whether upload %s holds a blob", uploadID), err)
 	}
 	if holds {
 		return nil
 	}
-	if err := p.blobstore.DeleteUpload(ctx, uploadID); err != nil {
+	if err := p.blobstore.Unstage(ctx, uploadID); err != nil {
 		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete data of upload %s", uploadID), err)
 	}
 	return nil

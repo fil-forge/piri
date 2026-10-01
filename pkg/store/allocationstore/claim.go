@@ -17,6 +17,7 @@ import (
 
 // PendingClaims is the slice of AllocationStore that ReleasePending needs.
 type PendingClaims interface {
+	GetPending(ctx context.Context, link cid.Cid) (allocation.Pending, error)
 	DeletePending(ctx context.Context, link cid.Cid) error
 	ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error]
 	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (allocation.Allocation, error)
@@ -29,23 +30,34 @@ type PendingClaims interface {
 // space may share that claim, in which case the claim is handed to it rather
 // than deleted; a claim this upload does not hold is left alone. The caller
 // discards the upload itself first.
-func ReleasePending(ctx context.Context, s PendingClaims, p allocation.Pending) error {
+//
+// The record is read again first: the upload may have recorded its digest
+// since p was read, if it completed while the allocation was released. It
+// returns the record it released, whose Digest is set if the data was
+// received.
+func ReleasePending(ctx context.Context, s PendingClaims, p allocation.Pending) (allocation.Pending, error) {
+	latest, err := s.GetPending(ctx, p.Allocation)
+	if err == nil {
+		p = latest
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return p, fmt.Errorf("getting pending allocation: %w", err)
+	}
 	if len(p.Digest) > 0 {
 		alloc, err := s.Get(ctx, p.Digest, p.Space)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 		case err != nil:
-			return fmt.Errorf("getting allocation: %w", err)
+			return p, fmt.Errorf("getting allocation: %w", err)
 		case alloc.Allocation == p.Allocation:
 			if err := handOverClaim(ctx, s, p, alloc); err != nil {
-				return err
+				return p, err
 			}
 		}
 	}
 	if err := s.DeletePending(ctx, p.Allocation); err != nil {
-		return fmt.Errorf("deleting pending allocation: %w", err)
+		return p, fmt.Errorf("deleting pending allocation: %w", err)
 	}
-	return nil
+	return p, nil
 }
 
 // handOverClaim gives the (digest, space) allocation that p holds to another

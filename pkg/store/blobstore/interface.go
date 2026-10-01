@@ -88,25 +88,6 @@ type Blobstore interface {
 	Put(ctx context.Context, digest multihash.Multihash, size uint64, body io.Reader) error
 	// Delete removes the object identified by the passed digest.
 	Delete(ctx context.Context, digest multihash.Multihash) error
-
-	// PutUpload stores an upload whose digest is not yet known under a key
-	// named by id, the upload's identifier. The bytes stay there once their
-	// digest is known: an [UploadIndex] maps the digest to id, and
-	// [WithUploads] reads through it, until [Blobstore.Settle] moves them.
-	PutUpload(ctx context.Context, id string, size uint64, body io.Reader) error
-	// GetUpload retrieves the upload id. Returns [ErrNotFound] if it does not
-	// exist.
-	GetUpload(ctx context.Context, id string, opts ...GetOption) (Object, error)
-	// DeleteUpload removes the upload id. Deleting an upload that does not
-	// exist succeeds.
-	DeleteUpload(ctx context.Context, id string) error
-	// Settle moves the bytes of digest from the upload that holds them to the
-	// key of digest, handing them to read on the way so the move costs no
-	// read of its own. read gets the blob's bytes and size; the move
-	// completes once read returns without error. It reports false, without
-	// calling read, when no upload holds the blob, which is always so for a
-	// store without an [UploadIndex].
-	Settle(ctx context.Context, digest multihash.Multihash, read func(r io.Reader, size int64) error) (bool, error)
 }
 
 type GetConfig interface {

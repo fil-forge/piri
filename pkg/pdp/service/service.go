@@ -49,11 +49,13 @@ type EthClient interface {
 }
 
 type PDPService struct {
-	cfg             appconfig.PDPServiceConfig
-	id              ucan.Issuer
-	endpoint        url.URL
-	address         common.Address
-	blobstore       blobstore.Blobstore
+	cfg      appconfig.PDPServiceConfig
+	id       ucan.Issuer
+	endpoint url.URL
+	address  common.Address
+	// blobstore is the staging store: blobs that arrived without their digest
+	// are staged and settled in it, and read through it.
+	blobstore       *blobstore.StagingStore
 	acceptanceStore acceptancestore.AcceptanceStore
 	allocationStore allocationstore.AllocationStore
 	receiptStore    receiptstore.ReceiptStore
@@ -98,7 +100,7 @@ func New(
 	id ucan.Issuer,
 	endpoint url.URL,
 	db *harmonydb.DB, // curio harmonydb — single DB surface
-	bs blobstore.Blobstore,
+	bs *blobstore.StagingStore,
 	acceptanceStore acceptancestore.AcceptanceStore,
 	allocationStore allocationstore.AllocationStore,
 	receiptStore receiptstore.ReceiptStore,

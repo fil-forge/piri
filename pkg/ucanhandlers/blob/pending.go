@@ -146,8 +146,9 @@ func releasePending(ctx context.Context, pending PendingAllocations, uploads Upl
 	if err := uploads.DiscardUpload(ctx, p.UploadID); err != nil {
 		return nil, fmt.Errorf("discarding upload: %w", err)
 	}
-	if err := allocationstore.ReleasePending(ctx, pending, p); err != nil {
+	released, err := allocationstore.ReleasePending(ctx, pending, p)
+	if err != nil {
 		return nil, err
 	}
-	return p.Digest, nil
+	return released.Digest, nil
 }

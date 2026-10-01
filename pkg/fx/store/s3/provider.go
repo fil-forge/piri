@@ -13,6 +13,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -138,9 +139,17 @@ func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {
 	return receiptstore.NewS3Store(stores.Receipts)
 }
 
+// PDPStores is the PDP blob store and the object store it is kept in, where
+// uploads whose digest is not yet known are staged under keys of their own.
+type PDPStores struct {
+	fx.Out
+	Blobs   blobstore.Blobstore `name:"pdp_blobs"`
+	Staging objectstore.Store   `name:"pdp_staging"`
+}
+
 // NewPDPStore provides the blob store backing PDP piece storage.
-func NewPDPStore(stores *Stores) blobstore.Blobstore {
-	return blobstore.NewS3Store(stores.PDP)
+func NewPDPStore(stores *Stores) PDPStores {
+	return PDPStores{Blobs: blobstore.NewS3Store(stores.PDP), Staging: stores.PDP}
 }
 
 func NewConsolidationStore(stores *Stores) consolidationstore.Store {

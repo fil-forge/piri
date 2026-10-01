@@ -21,6 +21,7 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/pdp"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/wallet"
 )
 
@@ -39,12 +40,18 @@ var PDPModule = fx.Module("pdp",
 			fx.As(new(service.ChainClient)),
 		),
 	),
-	// Blobs received without their digest are held by their upload until
-	// the commP task settles them, so every reader of the blobstore reads
-	// through the upload index.
-	fx.Decorate(func(bs blobstore.Blobstore, db *harmonydb.DB) blobstore.Blobstore {
-		return blobstore.WithUploads(bs, service.NewUploadIndex(db))
-	}),
+	// Blobs received without their digest are staged until the commP task
+	// settles them, so the blobstore every reader gets is the staging store,
+	// reading through the staging index.
+	fx.Provide(
+		fx.Annotate(
+			func(blobs blobstore.Blobstore, staging objectstore.Store, db *harmonydb.DB) *blobstore.StagingStore {
+				return blobstore.NewStagingStore(blobs, staging, service.NewStagingIndex(db))
+			},
+			fx.ParamTags(`name:"pdp_blobs"`, `name:"pdp_staging"`),
+		),
+		func(staging *blobstore.StagingStore) blobstore.Blobstore { return staging },
+	),
 	smartcontracts.Module,
 	pipeline.Module, // aggregation pipeline (commp/aggregate/add-roots) + removal sweep as harmonytasks
 	curiopdp.Module, // Curio pdpv0 pipeline (harmonytask + prove/proving-period) on harmonydb
