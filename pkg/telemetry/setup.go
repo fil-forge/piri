@@ -6,6 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	semconvhttp "go.opentelemetry.io/otel/semconv/v1.37.0/httpconv"
 
 	"github.com/fil-forge/piri/lib/telemetry"
@@ -14,6 +16,11 @@ import (
 	"github.com/fil-forge/piri/pkg/build"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
+
+// serviceNamespace groups Piri with the other Forge services, so their
+// telemetry can be selected together without listing each service.name. It
+// also becomes the prefix of the Prometheus job label: forge/piri.
+const serviceNamespace = "forge"
 
 // defaultPublishInterval is how often a metrics collector that does not
 // configure an interval of its own publishes. The provider rejects an interval
@@ -86,6 +93,7 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 		traces.Config{
 			Collectors: traceCollectors,
 		},
+		resource.WithAttributes(semconv.ServiceNamespace(serviceNamespace)),
 	)
 }
 
