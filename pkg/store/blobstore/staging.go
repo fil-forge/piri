@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync"
 
 	"github.com/multiformats/go-multihash"
 
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
@@ -38,9 +38,7 @@ type StagingIndex interface {
 type StagingStore struct {
 	blobs *Store
 	index StagingIndex
-
-	mu    sync.Mutex
-	locks map[string]*digestLock
+	locks keylock.Locks
 }
 
 var _ Blobstore = (*StagingStore)(nil)
@@ -50,11 +48,7 @@ var _ Blobstore = (*StagingStore)(nil)
 // area is blobs' own object store, under keys that cannot collide with blob
 // keys, so a backend that can move objects settles a blob without reading it.
 func NewStagingStore(blobs *Store, index StagingIndex) *StagingStore {
-	return &StagingStore{
-		blobs: blobs,
-		index: index,
-		locks: map[string]*digestLock{},
-	}
+	return &StagingStore{blobs: blobs, index: index}
 }
 
 // stagedKey is the key of a staged blob. No blob key starts with "staged-":
@@ -98,35 +92,9 @@ func (s *StagingStore) Put(ctx context.Context, digest multihash.Multihash, size
 	return s.blobs.Put(ctx, digest, size, body)
 }
 
-type digestLock struct {
-	sync.Mutex
-	// waiters counts the holder and everyone waiting; the lock is dropped
-	// from the map when it reaches zero.
-	waiters int
-}
-
 // lock serializes Settle and Delete of digest, and returns the unlock.
 func (s *StagingStore) lock(digest multihash.Multihash) func() {
-	key := string(digest)
-	s.mu.Lock()
-	l, ok := s.locks[key]
-	if !ok {
-		l = &digestLock{}
-		s.locks[key] = l
-	}
-	l.waiters++
-	s.mu.Unlock()
-
-	l.Lock()
-	return func() {
-		l.Unlock()
-		s.mu.Lock()
-		l.waiters--
-		if l.waiters == 0 {
-			delete(s.locks, key)
-		}
-		s.mu.Unlock()
-	}
+	return s.locks.Lock(string(digest))
 }
 
 // Get tries the key of digest first: every blob that has been settled, and

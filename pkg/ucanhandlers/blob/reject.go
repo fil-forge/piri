@@ -65,6 +65,9 @@ func NewBlobRejectHandler(deps RejectDeps) server.Route {
 type RejectRequest struct {
 	Space  did.DID
 	Digest multihash.Multihash
+	// Allocation links the `/blob/allocate` task whose allocation is
+	// rejected. A later allocation that replaced it is left in place.
+	Allocation cid.Cid
 }
 
 // Reject retires a parked blob — the "don't accept" exit of the
@@ -110,9 +113,14 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 		return fmt.Errorf("checking acceptance: %w", err)
 	}
 
-	if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
+	deleted, err := deps.Allocations.DeleteByTask(ctx, req.Allocation)
+	if err != nil {
 		log.Errorw("deleting allocation", "error", err)
 		return fmt.Errorf("deleting allocation: %w", err)
+	}
+	if !deleted {
+		log.Infof("%s (allocation replaced)", blob.Reject.Command)
+		return nil
 	}
 	return removeIfUnclaimed(ctx, deps, req.Digest)
 }
@@ -142,7 +150,7 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err e
 
 	p, err := deps.Pending.GetPending(ctx, link)
 	if errors.Is(err, store.ErrNotFound) {
-		alloc, err := deps.Allocations.GetByAllocation(ctx, link)
+		alloc, err := deps.Allocations.GetByTask(ctx, link)
 		if errors.Is(err, store.ErrNotFound) {
 			log.Infof("%s (unknown allocation)", blob.Reject.Command)
 			return nil
@@ -165,7 +173,7 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err e
 			log.Infof("%s (another allocation of the blob was accepted)", blob.Reject.Command)
 			return nil
 		}
-		return Reject(ctx, deps, &RejectRequest{Space: alloc.Space, Digest: alloc.Blob.Digest})
+		return Reject(ctx, deps, &RejectRequest{Space: alloc.Space, Digest: alloc.Blob.Digest, Allocation: link})
 	} else if err != nil {
 		log.Errorw("getting pending allocation", "error", err)
 		return fmt.Errorf("getting pending allocation: %w", err)

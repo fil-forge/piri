@@ -48,7 +48,8 @@ type ReleaseDeps struct {
 type AllocationRemover interface {
 	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
-	GetByAllocation(ctx context.Context, link cid.Cid) (allocation.Allocation, error)
+	GetByTask(ctx context.Context, link cid.Cid) (allocation.Allocation, error)
+	DeleteByTask(ctx context.Context, link cid.Cid) (bool, error)
 }
 
 // AcceptanceRemover is the slice of acceptancestore.AcceptanceStore the

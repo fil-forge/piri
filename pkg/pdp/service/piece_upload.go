@@ -22,7 +22,6 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
-	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
@@ -199,18 +198,14 @@ func (p *PDPService) uploadUnhashedPiece(ctx context.Context, pieceUpload types.
 	if err := p.allocationStore.PutPending(ctx, pending); err != nil {
 		return types.WrapError(types.KindInternal, "failed to record computed digest", err)
 	}
-	if _, err := p.allocationStore.Get(ctx, digest, pending.Space); errors.Is(err, store.ErrNotFound) {
-		if err := p.allocationStore.Put(ctx, allocation.Allocation{
-			Space:      pending.Space,
-			Blob:       blob.Blob{Digest: digest, Size: size},
-			Expires:    pending.Expires,
-			Cause:      pending.Cause,
-			Allocation: pending.Allocation,
-		}); err != nil {
-			return types.WrapError(types.KindInternal, "failed to record allocation for computed digest", err)
-		}
-	} else if err != nil {
-		return types.WrapError(types.KindInternal, "failed to check allocation for computed digest", err)
+	if _, err := p.allocationStore.Claim(ctx, allocation.Allocation{
+		Space:      pending.Space,
+		Blob:       blob.Blob{Digest: digest, Size: size},
+		Expires:    pending.Expires,
+		Cause:      pending.Cause,
+		Allocation: pending.Allocation,
+	}); err != nil {
+		return types.WrapError(types.KindInternal, "failed to record allocation for computed digest", err)
 	}
 
 	held, err := p.Has(ctx, digest)
@@ -278,7 +273,7 @@ func (p *PDPService) releaseDiscardedUpload(ctx context.Context, id string, pend
 	if _, err := p.db.Exec(ctx, `DELETE FROM pdp_piece_uploads WHERE id = $1`, id); err != nil {
 		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete discarded upload ID %s", id), err)
 	}
-	released, err := allocationstore.ReleasePending(ctx, p.allocationStore, pending)
+	released, err := p.allocationStore.ReleasePending(ctx, pending)
 	if err != nil {
 		return types.WrapError(types.KindInternal, "failed to release allocation of discarded upload", err)
 	}

@@ -250,20 +250,20 @@ func TestUploadUnhashed_DiscardKeepsHeldBlob(t *testing.T) {
 	require.False(t, ok)
 }
 
-// discardingAllocations runs discard once, just before the first claim on
-// (digest, space) is recorded: after the upload's data is staged and before it
-// is recorded as the staged copy of its blob.
+// discardingAllocations runs discard once, just before the upload claims
+// (digest, space): after its data is staged and before it is recorded as the
+// staged copy of its blob.
 type discardingAllocations struct {
 	allocationstore.AllocationStore
 	discard func()
 }
 
-func (d *discardingAllocations) Put(ctx context.Context, alloc allocation.Allocation) error {
+func (d *discardingAllocations) Claim(ctx context.Context, alloc allocation.Allocation) (bool, error) {
 	if f := d.discard; f != nil {
 		d.discard = nil
 		f()
 	}
-	return d.AllocationStore.Put(ctx, alloc)
+	return d.AllocationStore.Claim(ctx, alloc)
 }
 
 // TestUploadUnhashed_DiscardedWhileCompleting: the allocation is rejected
@@ -279,7 +279,7 @@ func TestUploadUnhashed_DiscardedWhileCompleting(t *testing.T) {
 	p := w.allocate(t, space, len(data), day())
 	w.svc.allocationStore = &discardingAllocations{AllocationStore: w.allocs, discard: func() {
 		require.NoError(t, w.svc.DiscardUpload(ctx, p.UploadID))
-		_, err := allocationstore.ReleasePending(ctx, w.allocs, p)
+		_, err := w.allocs.ReleasePending(ctx, p)
 		require.NoError(t, err)
 	}}
 
@@ -310,7 +310,7 @@ func TestUploadUnhashed_DuplicateDiscardedWhileCompleting(t *testing.T) {
 	dup := w.allocate(t, space, len(data), day())
 	w.svc.allocationStore = &discardingAllocations{AllocationStore: w.allocs, discard: func() {
 		require.NoError(t, w.svc.DiscardUpload(ctx, dup.UploadID))
-		_, err := allocationstore.ReleasePending(ctx, w.allocs, dup)
+		_, err := w.allocs.ReleasePending(ctx, dup)
 		require.NoError(t, err)
 	}}
 

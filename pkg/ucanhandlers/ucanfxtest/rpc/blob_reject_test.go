@@ -185,6 +185,48 @@ func (s *RPCSuite) TestBlobReject_OnlyTheAcceptedAllocationIsRefused() {
 	require.Equal(t, blob.BlobAcceptedErrorName, em.Name())
 }
 
+// An accept that fails leaves the allocations as they were: the allocation
+// its put was made to is not made the space's allocation again.
+func (s *RPCSuite) TestBlobAccept_FailedAcceptChangesNoAllocation() {
+	t := s.T()
+	service := s.ServiceID.DID()
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	spec := blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))})
+	space := testutil.RandomDID(t)
+	allocate := func() ucan.Invocation {
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})
+		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
+		return inv
+	}
+	first, second := allocate(), allocate()
+
+	putter := testutil.Must(ed25519.GenerateIssuer())(t)
+	put := testutil.Must(httpcmds.Put.Invoke(
+		putter,
+		putter.DID(),
+		&httpcmds.PutArguments{Body: spec, Destination: promise.AwaitOK{Task: first.Task().Link()}},
+		invocation.WithAudience(putter.DID()),
+	))(t)
+	acceptProof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Accept.Command,
+	))(t)
+	accept := testutil.Must(blob.Accept.Invoke(
+		s.UploadServiceIdentity,
+		service,
+		&blob.AcceptArguments{Space: space, Blob: spec, Put: promise.AwaitOK{Task: put.Task().Link()}},
+		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProof.Link()),
+	))(t)
+	// The data never arrived, so the accept fails.
+	_, err := blob.Accept.Unpack(s.sendInvocationWith(t, accept, []ucan.Invocation{put}, acceptProof))
+	require.Error(t, err)
+
+	alloc, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.Equal(t, second.Task().Link(), alloc.Allocation, "the later allocation stays the space's allocation")
+}
+
 // rejectAllocation sends a /blob/reject of the allocation the allocate task
 // link made, issued by the upload service as in production.
 func (s *RPCSuite) rejectAllocation(t *testing.T, link cid.Cid) ucan.Receipt {

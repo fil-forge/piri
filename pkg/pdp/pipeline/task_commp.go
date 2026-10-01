@@ -132,7 +132,7 @@ func (t *CommPTask) TypeDetails() harmonytask.TaskTypeDetails {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`
 					UPDATE pdp_blob_pipeline SET commp_task_id = $1
-					WHERE digest = (
+					WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged AND digest = (
 						SELECT digest FROM pdp_blob_pipeline
 						WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged
 						ORDER BY created_at LIMIT 1

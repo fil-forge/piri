@@ -35,8 +35,8 @@ type PendingAllocations interface {
 	DeletePending(ctx context.Context, link cid.Cid) error
 	ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error]
 	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (allocation.Allocation, error)
-	Put(ctx context.Context, alloc allocation.Allocation) error
-	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
+	MakeCurrent(ctx context.Context, digest multihash.Multihash, space did.DID, link cid.Cid) error
+	ReleasePending(ctx context.Context, p allocation.Pending) (allocation.Pending, error)
 }
 
 // UploadDiscarder is the slice of the PDP piece-remover API that drops an
@@ -146,7 +146,7 @@ func releasePending(ctx context.Context, pending PendingAllocations, uploads Upl
 	if err := uploads.DiscardUpload(ctx, p.UploadID); err != nil {
 		return nil, fmt.Errorf("discarding upload: %w", err)
 	}
-	released, err := allocationstore.ReleasePending(ctx, pending, p)
+	released, err := pending.ReleasePending(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -174,25 +174,4 @@ func putAllocation(meta ucan.Container, put cid.Cid, digest multihash.Multihash)
 		return args.Destination.Task, args.Destination.Task.Defined()
 	}
 	return cid.Undef, false
-}
-
-// currentAllocation makes link the space's allocation of digest, if a later
-// allocation replaced it. A space without an allocation of digest is left
-// alone.
-func currentAllocation(ctx context.Context, allocs PendingAllocations, space did.DID, digest multihash.Multihash, link cid.Cid) error {
-	alloc, err := allocs.Get(ctx, digest, space)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("getting allocation: %w", err)
-	}
-	if alloc.Allocation == link {
-		return nil
-	}
-	alloc.Allocation = link
-	if err := allocs.Put(ctx, alloc); err != nil {
-		return fmt.Errorf("recording accepted allocation: %w", err)
-	}
-	return nil
 }

@@ -12,7 +12,6 @@ import (
 
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
-	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
@@ -67,7 +66,7 @@ func (p *PDPService) expireAllocation(ctx context.Context, pending allocation.Pe
 	if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
 		return err
 	}
-	released, err := allocationstore.ReleasePending(ctx, p.allocationStore, pending)
+	released, err := p.allocationStore.ReleasePending(ctx, pending)
 	if err != nil {
 		return err
 	}

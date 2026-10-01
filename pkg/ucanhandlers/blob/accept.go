@@ -106,18 +106,21 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		if !hashed {
 			accReq.Allocation = &pending.Allocation
 		} else if link, ok := putAllocation(req.Metadata(), args.Put.Task, digest); ok {
-			// The accept names the allocation its put was made to. That
-			// allocation becomes the space's allocation of the blob again if a
-			// later allocate replaced it, so a reject of it finds the
-			// acceptance and a reject of the later one finds nothing to drop.
-			if err := currentAllocation(req.Context(), deps.Pending, args.Space, digest, link); err != nil {
-				return err
-			}
 			accReq.Allocation = &link
 		}
 		resp, err := Accept(req.Context(), deps, accReq)
 		if err != nil {
 			return err
+		}
+		// The accepted allocation becomes the space's allocation of the blob
+		// again if a later allocation of the same content replaced it, so a
+		// reject of it finds the acceptance and a reject of the other finds
+		// nothing to drop. It waits for the accept to succeed: a failed accept
+		// leaves the allocations as they were.
+		if accReq.Allocation != nil {
+			if err := deps.Pending.MakeCurrent(req.Context(), b.Digest, args.Space, *accReq.Allocation); err != nil {
+				return fmt.Errorf("recording accepted allocation: %w", err)
+			}
 		}
 
 		if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {

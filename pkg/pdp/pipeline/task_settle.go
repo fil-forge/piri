@@ -111,12 +111,14 @@ func (t *SettleTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 50,
 		RetryWait:   taskhelp.RetryWaitLinear(5*time.Second, 5*time.Second),
-		// Scavenge staged rows whose task spawn was lost.
+		// Scavenge staged rows whose task spawn was lost. The outer WHERE
+		// repeats the claim condition: a row another scavenger claimed after
+		// this one selected it is left to that one.
 		IAmBored: func(add harmonytask.AddTaskFunc) error {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`
 					UPDATE pdp_blob_pipeline SET settle_task_id = $1
-					WHERE digest = (
+					WHERE staged AND settle_task_id IS NULL AND digest = (
 						SELECT digest FROM pdp_blob_pipeline
 						WHERE staged AND settle_task_id IS NULL
 						ORDER BY created_at LIMIT 1

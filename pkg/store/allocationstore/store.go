@@ -16,6 +16,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/genericstore"
+	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
@@ -28,9 +29,6 @@ type AllocationStore interface {
 	// returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if the allocation
 	// does not exist.
 	Get(context.Context, multihash.Multihash, did.DID) (allocation.Allocation, error)
-	// GetAny retrieves any allocation for a blob (digest), regardless of space.
-	// Returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if no allocation exists.
-	GetAny(context.Context, multihash.Multihash) (allocation.Allocation, error)
 	// GetAnyNonExpired retrieves any allocation for a blob that has not expired.
 	// The now parameter should be the current unix timestamp in seconds.
 	// Returns [github.com/fil-forge/piri/pkg/store.ErrNotFound] if no non-expired allocation exists.
@@ -42,14 +40,26 @@ type AllocationStore interface {
 	// Delete removes the allocation for a blob (digest) in a space.
 	// Deleting a missing allocation succeeds (idempotent).
 	Delete(context.Context, multihash.Multihash, did.DID) error
+	// DeleteByTask removes the allocation the `/blob/allocate` task link made,
+	// while it is still the space's allocation for its blob, and reports
+	// whether it did. An allocation since replaced by a later one is left in
+	// place.
+	DeleteByTask(ctx context.Context, link cid.Cid) (bool, error)
+	// Claim adds alloc unless the space already holds an allocation for the
+	// blob, and reports whether it did.
+	Claim(context.Context, allocation.Allocation) (bool, error)
+	// MakeCurrent makes the `/blob/allocate` task link the space's allocation
+	// for the blob, if a later allocation replaced it. A space with no
+	// allocation for the blob is left alone.
+	MakeCurrent(ctx context.Context, digest multihash.Multihash, space did.DID, link cid.Cid) error
 	// ListSpaces returns the DID of every space holding an allocation for
 	// the digest. An unknown digest yields an empty list.
 	ListSpaces(context.Context, multihash.Multihash) ([]did.DID, error)
-	// GetByAllocation retrieves the allocation the `/blob/allocate` task link
+	// GetByTask retrieves the allocation the `/blob/allocate` task link
 	// made, while it is still the space's allocation for its blob. It returns
 	// [github.com/fil-forge/piri/pkg/store.ErrNotFound] once the allocation is
 	// deleted or replaced by a later allocation of the same blob in the space.
-	GetByAllocation(context.Context, cid.Cid) (allocation.Allocation, error)
+	GetByTask(context.Context, cid.Cid) (allocation.Allocation, error)
 
 	// PutPending adds or replaces an allocation made without a digest.
 	PutPending(context.Context, allocation.Pending) error
@@ -62,6 +72,11 @@ type AllocationStore interface {
 	DeletePending(context.Context, cid.Cid) error
 	// ListPending iterates every allocation made without a digest.
 	ListPending(context.Context) iter.Seq2[allocation.Pending, error]
+	// ReleasePending deletes an allocation made without a digest and, once
+	// its data was received, its claim on (digest, space), handing the claim
+	// to another received upload of the same content in the space if there
+	// is one. It returns the record it released.
+	ReleasePending(context.Context, allocation.Pending) (allocation.Pending, error)
 }
 
 // KeyEncoder defines how to encode keys for a specific backend.
@@ -70,14 +85,19 @@ type KeyEncoder interface {
 	EncodeKeyPrefix(digest multihash.Multihash) string
 }
 
-// Store implements AllocationStore backed by any ListableStore.
+// Store implements AllocationStore backed by any ListableStore. Every change to
+// a (digest, space) allocation runs under that key's lock, so a change that
+// reads the allocation first acts on the allocation it read. The lock is held
+// in this process, which is the only one using the store.
 type Store struct {
+	locks keylock.Locks
+
 	store *genericstore.Store[allocation.Allocation]
-	// byAllocation indexes store by `/blob/allocate` task link: a copy of each
+	// byTask indexes store by `/blob/allocate` task link: a copy of each
 	// allocation, which locates the (digest, space) record.
-	byAllocation *genericstore.Store[allocation.Allocation]
-	pending      *genericstore.Store[allocation.Pending]
-	encoder      KeyEncoder
+	byTask  *genericstore.Store[allocation.Allocation]
+	pending *genericstore.Store[allocation.Pending]
+	encoder KeyEncoder
 }
 
 // pendingNamespace keys allocations made without a digest by their
@@ -85,9 +105,9 @@ type Store struct {
 // starts with this namespace, so digest-prefix scans never see them.
 const pendingNamespace = "pending/"
 
-// byAllocationNamespace keys the allocation index by `/blob/allocate` task
+// byTaskNamespace keys the allocation index by `/blob/allocate` task
 // link. Like pendingNamespace, it never prefixes an allocation key.
-const byAllocationNamespace = "by-allocation/"
+const byTaskNamespace = "by-task/"
 
 var _ AllocationStore = (*Store)(nil)
 
@@ -95,10 +115,10 @@ var _ AllocationStore = (*Store)(nil)
 func New(backend objectstore.ListableStore, encoder KeyEncoder) *Store {
 	traced := objectstore.TracedListable("allocations", backend)
 	return &Store{
-		store:        genericstore.New(traced, allocation.Codec{}),
-		byAllocation: genericstore.New(traced, allocation.Codec{}, genericstore.WithNamespace(byAllocationNamespace)),
-		pending:      genericstore.New(traced, allocation.PendingCodec{}, genericstore.WithNamespace(pendingNamespace)),
-		encoder:      encoder,
+		store:   genericstore.New(traced, allocation.Codec{}),
+		byTask:  genericstore.New(traced, allocation.Codec{}, genericstore.WithNamespace(byTaskNamespace)),
+		pending: genericstore.New(traced, allocation.PendingCodec{}, genericstore.WithNamespace(pendingNamespace)),
+		encoder: encoder,
 	}
 }
 
@@ -106,14 +126,6 @@ func (s *Store) Get(ctx context.Context, digest multihash.Multihash, space did.D
 	alloc, err := s.store.Get(ctx, s.encoder.EncodeKey(digest, space))
 	if err != nil {
 		return allocation.Allocation{}, fmt.Errorf("getting allocation: %w", err)
-	}
-	return alloc, nil
-}
-
-func (s *Store) GetAny(ctx context.Context, digest multihash.Multihash) (allocation.Allocation, error) {
-	alloc, err := s.store.GetAny(ctx, s.encoder.EncodeKeyPrefix(digest))
-	if err != nil {
-		return allocation.Allocation{}, fmt.Errorf("getting any allocation: %w", err)
 	}
 	return alloc, nil
 }
@@ -133,32 +145,26 @@ func (s *Store) Exists(ctx context.Context, digest multihash.Multihash) (bool, e
 	return s.store.ExistsWithPrefix(ctx, s.encoder.EncodeKeyPrefix(digest))
 }
 
-// Put writes the index entry before the record, so a failure in between leaves
-// a stale entry, which GetByAllocation ignores, never a record it cannot find.
-// A replaced allocation's entry is dropped.
 func (s *Store) Put(ctx context.Context, alloc allocation.Allocation) error {
 	key := s.encoder.EncodeKey(alloc.Blob.Digest, alloc.Space)
-	prev, err := s.store.Get(ctx, key)
-	switch {
-	case err == nil:
-		if prev.Allocation.Defined() && prev.Allocation != alloc.Allocation {
-			if err := s.byAllocation.Delete(ctx, prev.Allocation.String()); err != nil {
-				return fmt.Errorf("dropping replaced allocation from index: %w", err)
-			}
-		}
-	case !errors.Is(err, store.ErrNotFound):
-		return fmt.Errorf("getting allocation: %w", err)
-	}
-	if err := s.byAllocation.Put(ctx, alloc.Allocation.String(), alloc); err != nil {
-		return fmt.Errorf("indexing allocation: %w", err)
-	}
-	return s.store.Put(ctx, key, alloc)
+	defer s.locks.Lock(key)()
+	return s.put(ctx, key, alloc)
 }
 
-// Delete removes the record before its index entry, so a failure in between
-// leaves only a stale entry.
-func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+func (s *Store) Claim(ctx context.Context, alloc allocation.Allocation) (bool, error) {
+	key := s.encoder.EncodeKey(alloc.Blob.Digest, alloc.Space)
+	defer s.locks.Lock(key)()
+	if _, err := s.store.Get(ctx, key); err == nil {
+		return false, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return false, fmt.Errorf("getting allocation: %w", err)
+	}
+	return true, s.put(ctx, key, alloc)
+}
+
+func (s *Store) MakeCurrent(ctx context.Context, digest multihash.Multihash, space did.DID, link cid.Cid) error {
 	key := s.encoder.EncodeKey(digest, space)
+	defer s.locks.Lock(key)()
 	alloc, err := s.store.Get(ctx, key)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -166,17 +172,86 @@ func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space di
 	if err != nil {
 		return fmt.Errorf("getting allocation: %w", err)
 	}
+	if alloc.Allocation == link {
+		return nil
+	}
+	alloc.Allocation = link
+	return s.put(ctx, key, alloc)
+}
+
+// put writes the index entry before the record, so a failure in between leaves
+// a stale entry, which GetByTask ignores, never a record it cannot find.
+// A replaced allocation's entry is dropped. The caller holds key's lock.
+func (s *Store) put(ctx context.Context, key string, alloc allocation.Allocation) error {
+	prev, err := s.store.Get(ctx, key)
+	switch {
+	case err == nil:
+		if prev.Allocation.Defined() && prev.Allocation != alloc.Allocation {
+			if err := s.byTask.Delete(ctx, prev.Allocation.String()); err != nil {
+				return fmt.Errorf("dropping replaced allocation from index: %w", err)
+			}
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		return fmt.Errorf("getting allocation: %w", err)
+	}
+	if err := s.byTask.Put(ctx, alloc.Allocation.String(), alloc); err != nil {
+		return fmt.Errorf("indexing allocation: %w", err)
+	}
+	return s.store.Put(ctx, key, alloc)
+}
+
+func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	key := s.encoder.EncodeKey(digest, space)
+	defer s.locks.Lock(key)()
+	alloc, err := s.store.Get(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("getting allocation: %w", err)
+	}
+	return s.delete(ctx, key, alloc)
+}
+
+func (s *Store) DeleteByTask(ctx context.Context, link cid.Cid) (bool, error) {
+	// A replaced allocation's index entry is dropped, so a link with no
+	// entry made no current allocation.
+	indexed, err := s.byTask.Get(ctx, link.String())
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("getting allocation by allocate task: %w", err)
+	}
+	key := s.encoder.EncodeKey(indexed.Blob.Digest, indexed.Space)
+	defer s.locks.Lock(key)()
+	alloc, err := s.store.Get(ctx, key)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("getting allocation: %w", err)
+	}
+	if alloc.Allocation != link {
+		return false, nil
+	}
+	return true, s.delete(ctx, key, alloc)
+}
+
+// delete removes the record before its index entry, so a failure in between
+// leaves only a stale entry. The caller holds key's lock.
+func (s *Store) delete(ctx context.Context, key string, alloc allocation.Allocation) error {
 	if err := s.store.Delete(ctx, key); err != nil {
 		return err
 	}
 	if !alloc.Allocation.Defined() {
 		return nil
 	}
-	return s.byAllocation.Delete(ctx, alloc.Allocation.String())
+	return s.byTask.Delete(ctx, alloc.Allocation.String())
 }
 
-func (s *Store) GetByAllocation(ctx context.Context, link cid.Cid) (allocation.Allocation, error) {
-	indexed, err := s.byAllocation.Get(ctx, link.String())
+func (s *Store) GetByTask(ctx context.Context, link cid.Cid) (allocation.Allocation, error) {
+	indexed, err := s.byTask.Get(ctx, link.String())
 	if err != nil {
 		return allocation.Allocation{}, fmt.Errorf("getting allocation by allocate task: %w", err)
 	}

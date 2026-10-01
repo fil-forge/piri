@@ -297,3 +297,41 @@ func (s *RPCSuite) TestBlobUnhashed_RejectNonHolder() {
 	require.Equal(t, first.cause, alloc.Cause, "the holder keeps its claim")
 	require.NotContains(t, s.Pieces.Removed(), first.digest)
 }
+
+// Two uploads of the same content in a space share one claim, held by the
+// first. Accepting the second makes it the space's allocation of the blob, so
+// once its pending record is gone a reject of it still finds the acceptance,
+// and a reject of the first drops nothing the acceptance needs.
+func (s *RPCSuite) TestBlobUnhashed_AcceptMakesAllocationCurrent() {
+	t := s.T()
+	ctx := t.Context()
+	space := testutil.RandomDID(t)
+	data := testutil.RandomBytes(t, 64)
+	first := s.allocateUnhashed(t, space, data)
+	second := s.allocateUnhashed(t, space, data)
+	s.upload(t, first)
+	s.upload(t, second)
+	alloc, err := s.Allocations.Get(ctx, first.digest, space)
+	require.NoError(t, err)
+	require.Equal(t, first.alloc.Task().Link(), alloc.Allocation, "the first upload holds the claim")
+
+	_, rcpt := s.accept(t, second,
+		[]ucan.Invocation{second.put},
+		[]ucan.Receipt{putReceipt(t, second, second.putter, second.digest)})
+	decodeAcceptOK(t, rcpt)
+	alloc, err = s.Allocations.Get(ctx, first.digest, space)
+	require.NoError(t, err)
+	require.Equal(t, second.alloc.Task().Link(), alloc.Allocation, "the accepted allocation is the space's allocation")
+
+	// The accepted upload's pending record expires.
+	require.NoError(t, s.Allocations.DeletePending(ctx, second.alloc.Task().Link()))
+	assertReceiptFailure(t, s.rejectAllocation(t, second.alloc.Task().Link()), blob.BlobAcceptedErrorName)
+
+	assertReceiptOK(t, s.rejectAllocation(t, first.alloc.Task().Link()))
+	alloc, err = s.Allocations.Get(ctx, first.digest, space)
+	require.NoError(t, err, "the accepted upload keeps its claim")
+	require.Equal(t, second.alloc.Task().Link(), alloc.Allocation)
+	_, err = s.Acceptances.Get(ctx, first.digest, space)
+	require.NoError(t, err)
+	require.NotContains(t, s.Pieces.Removed(), first.digest)
+}
