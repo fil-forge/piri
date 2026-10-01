@@ -335,3 +335,58 @@ func (s *RPCSuite) TestBlobUnhashed_AcceptMakesAllocationCurrent() {
 	require.NoError(t, err)
 	require.NotContains(t, s.Pieces.Removed(), first.digest)
 }
+
+// A retried allocate gets the upload the first attempt made.
+func (s *RPCSuite) TestBlobUnhashed_RetriedAllocateReusesUpload() {
+	t := s.T()
+	inv, proof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: testutil.RandomDID(t),
+		Blob:  blob.SpecFromDigestCode(multihash.SHA2_256, 64),
+		Cause: testutil.RandomCID(t),
+	})
+	first := decodeAllocateOK(t, s.sendInvocationWithProofs(t, inv, proof))
+	p, err := s.Allocations.GetPending(t.Context(), inv.Task().Link())
+	require.NoError(t, err)
+
+	again := decodeAllocateOK(t, s.sendInvocationWithProofs(t, inv, proof))
+	require.Equal(t, first.Size, again.Size)
+	require.NotNil(t, again.Address)
+	require.Equal(t, first.Address.URL, again.Address.URL, "the retry gets the same upload")
+	retried, err := s.Allocations.GetPending(t.Context(), inv.Task().Link())
+	require.NoError(t, err)
+	require.Equal(t, p.UploadID, retried.UploadID)
+}
+
+// An allocation made with the digest holds the claim when an upload of the
+// same content without its digest arrives in the space. Rejecting it hands
+// the claim to that upload, whose data stays; rejecting that one too releases
+// the data.
+func (s *RPCSuite) TestBlobUnhashed_RejectHandsClaimToPendingUpload() {
+	t := s.T()
+	ctx := t.Context()
+	space := testutil.RandomDID(t)
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	hashed, proof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.SpecFromBlob(blob.Blob{Digest: digest, Size: uint64(len(data))}),
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, hashed, proof))
+	pending := s.allocateUnhashed(t, space, data)
+	s.upload(t, pending)
+	alloc, err := s.Allocations.Get(ctx, digest, space)
+	require.NoError(t, err)
+	require.Equal(t, hashed.Task().Link(), alloc.Allocation, "the allocation made with the digest holds the claim")
+
+	assertReceiptOK(t, s.rejectAllocation(t, hashed.Task().Link()))
+	alloc, err = s.Allocations.Get(ctx, digest, space)
+	require.NoError(t, err, "the claim is handed over")
+	require.Equal(t, pending.alloc.Task().Link(), alloc.Allocation)
+	require.NotContains(t, s.Pieces.Removed(), digest, "the pending upload's data stays")
+
+	assertReceiptOK(t, s.rejectAllocation(t, pending.alloc.Task().Link()))
+	_, err = s.Allocations.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	require.Contains(t, s.Pieces.Removed(), digest)
+}

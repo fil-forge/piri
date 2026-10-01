@@ -49,7 +49,7 @@ type AllocationRemover interface {
 	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
 	GetByTask(ctx context.Context, link cid.Cid) (allocation.Allocation, error)
-	DeleteByTask(ctx context.Context, link cid.Cid) (bool, error)
+	ReleaseByTask(ctx context.Context, link cid.Cid) (bool, error)
 }
 
 // AcceptanceRemover is the slice of acceptancestore.AcceptanceStore the
@@ -198,7 +198,8 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 		log.Errorw("getting acceptance", "error", err)
 		return fmt.Errorf("getting acceptance: %w", err)
 	}
-	if err == nil && acc.Site.Defined() {
+	accepted := err == nil
+	if accepted && acc.Site.Defined() {
 		// The claim's advertisement may still be queued rather than
 		// published; a location for a released blob must not go out. The
 		// withdrawal waits for any batch mid-publish, so it cannot slip in
@@ -217,13 +218,23 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 		}
 	}
 
+	// The allocation goes before the acceptance, which records the allocation
+	// it accepted: a release retried after a failure in between still finds
+	// it. Releasing that allocation, rather than whatever is the space's
+	// allocation now, leaves a later allocation of the same content alone and
+	// hands the claim to another upload of it the space has not accepted yet.
+	if accepted && acc.Allocation != nil {
+		if _, err := deps.Allocations.ReleaseByTask(ctx, *acc.Allocation); err != nil {
+			log.Errorw("releasing allocation", "error", err)
+			return fmt.Errorf("releasing allocation: %w", err)
+		}
+	} else if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
+		log.Errorw("deleting allocation", "error", err)
+		return fmt.Errorf("deleting allocation: %w", err)
+	}
 	if err := deps.Acceptances.Delete(ctx, req.Digest, req.Space); err != nil {
 		log.Errorw("deleting acceptance", "error", err)
 		return fmt.Errorf("deleting acceptance: %w", err)
-	}
-	if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
-		log.Errorw("deleting allocation", "error", err)
-		return fmt.Errorf("deleting allocation: %w", err)
 	}
 
 	// Physical deletion is gated on zero claims across all spaces, in both

@@ -40,11 +40,13 @@ type AllocationStore interface {
 	// Delete removes the allocation for a blob (digest) in a space.
 	// Deleting a missing allocation succeeds (idempotent).
 	Delete(context.Context, multihash.Multihash, did.DID) error
-	// DeleteByTask removes the allocation the `/blob/allocate` task link made,
-	// while it is still the space's allocation for its blob, and reports
+	// ReleaseByTask releases the allocation the `/blob/allocate` task link
+	// made, while it is still the space's allocation for its blob, and reports
 	// whether it did. An allocation since replaced by a later one is left in
-	// place.
-	DeleteByTask(ctx context.Context, link cid.Cid) (bool, error)
+	// place. The space's claim on the blob is handed to another received
+	// upload of the same content in the space, if there is one, rather than
+	// deleted.
+	ReleaseByTask(ctx context.Context, link cid.Cid) (bool, error)
 	// Claim adds alloc unless the space already holds an allocation for the
 	// blob, and reports whether it did.
 	Claim(context.Context, allocation.Allocation) (bool, error)
@@ -179,25 +181,28 @@ func (s *Store) MakeCurrent(ctx context.Context, digest multihash.Multihash, spa
 	return s.put(ctx, key, alloc)
 }
 
-// put writes the index entry before the record, so a failure in between leaves
-// a stale entry, which GetByTask ignores, never a record it cannot find.
-// A replaced allocation's entry is dropped. The caller holds key's lock.
+// put writes the index entry, then the record, then drops a replaced
+// allocation's entry. A failure at any point leaves the current record
+// indexed, plus at most a stale entry, which GetByTask ignores. The caller
+// holds key's lock.
 func (s *Store) put(ctx context.Context, key string, alloc allocation.Allocation) error {
 	prev, err := s.store.Get(ctx, key)
-	switch {
-	case err == nil:
-		if prev.Allocation.Defined() && prev.Allocation != alloc.Allocation {
-			if err := s.byTask.Delete(ctx, prev.Allocation.String()); err != nil {
-				return fmt.Errorf("dropping replaced allocation from index: %w", err)
-			}
-		}
-	case !errors.Is(err, store.ErrNotFound):
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("getting allocation: %w", err)
 	}
+	replaced := err == nil && prev.Allocation.Defined() && prev.Allocation != alloc.Allocation
 	if err := s.byTask.Put(ctx, alloc.Allocation.String(), alloc); err != nil {
 		return fmt.Errorf("indexing allocation: %w", err)
 	}
-	return s.store.Put(ctx, key, alloc)
+	if err := s.store.Put(ctx, key, alloc); err != nil {
+		return err
+	}
+	if replaced {
+		if err := s.byTask.Delete(ctx, prev.Allocation.String()); err != nil {
+			return fmt.Errorf("dropping replaced allocation from index: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error {
@@ -213,9 +218,9 @@ func (s *Store) Delete(ctx context.Context, digest multihash.Multihash, space di
 	return s.delete(ctx, key, alloc)
 }
 
-func (s *Store) DeleteByTask(ctx context.Context, link cid.Cid) (bool, error) {
-	// A replaced allocation's index entry is dropped, so a link with no
-	// entry made no current allocation.
+func (s *Store) ReleaseByTask(ctx context.Context, link cid.Cid) (bool, error) {
+	// A link with no entry made no current allocation. An entry can be stale,
+	// so the record it locates is checked to name the link.
 	indexed, err := s.byTask.Get(ctx, link.String())
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
@@ -235,7 +240,7 @@ func (s *Store) DeleteByTask(ctx context.Context, link cid.Cid) (bool, error) {
 	if alloc.Allocation != link {
 		return false, nil
 	}
-	return true, s.delete(ctx, key, alloc)
+	return true, s.handOverClaim(ctx, key, link, alloc)
 }
 
 // delete removes the record before its index entry, so a failure in between

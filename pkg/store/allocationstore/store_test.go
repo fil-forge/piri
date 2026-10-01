@@ -246,7 +246,7 @@ func TestConditionalChanges(t *testing.T) {
 	require.False(t, claimed, "a held claim is not taken")
 
 	require.NoError(t, s.Put(ctx, second))
-	deleted, err := s.DeleteByTask(ctx, first.Allocation)
+	deleted, err := s.ReleaseByTask(ctx, first.Allocation)
 	require.NoError(t, err)
 	require.False(t, deleted, "a replaced allocation's delete leaves the later one")
 	got, err := s.Get(ctx, b.Digest, space)
@@ -260,7 +260,7 @@ func TestConditionalChanges(t *testing.T) {
 	_, err = s.GetByTask(ctx, second.Allocation)
 	require.ErrorIs(t, err, store.ErrNotFound)
 
-	deleted, err = s.DeleteByTask(ctx, first.Allocation)
+	deleted, err = s.ReleaseByTask(ctx, first.Allocation)
 	require.NoError(t, err)
 	require.True(t, deleted)
 	_, err = s.Get(ctx, b.Digest, space)
@@ -317,4 +317,38 @@ func TestReleasePendingConcurrently(t *testing.T) {
 			require.ErrorIs(t, err, store.ErrNotFound)
 		}
 	}
+}
+
+// Releasing an allocation hands its claim to another received upload of the
+// same content in the space, rather than deleting it under that upload.
+func TestReleaseByTaskHandsOver(t *testing.T) {
+	ctx := t.Context()
+	s := NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	space := testutil.RandomDID(t)
+	b := blob.Blob{Digest: testutil.RandomMultihash(t), Size: 1}
+	held := allocation.Allocation{Space: space, Blob: b, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t)}
+	require.NoError(t, s.Put(ctx, held))
+	waiting := allocation.Pending{
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Size:       1,
+		DigestCode: 0x12,
+		Cause:      testutil.RandomCID(t),
+		UploadID:   "upload",
+		Digest:     b.Digest,
+	}
+	require.NoError(t, s.PutPending(ctx, waiting))
+
+	released, err := s.ReleaseByTask(ctx, held.Allocation)
+	require.NoError(t, err)
+	require.True(t, released)
+	got, err := s.Get(ctx, b.Digest, space)
+	require.NoError(t, err, "the claim is handed over, not deleted")
+	require.Equal(t, waiting.Allocation, got.Allocation)
+	_, err = s.GetByTask(ctx, waiting.Allocation)
+	require.NoError(t, err)
+
+	released, err = s.ReleaseByTask(ctx, held.Allocation)
+	require.NoError(t, err)
+	require.False(t, released, "a released allocation is not released again")
 }

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
+
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
@@ -32,7 +34,7 @@ func (s *Store) ReleasePending(ctx context.Context, p allocation.Pending) (alloc
 		case err != nil:
 			return p, fmt.Errorf("getting allocation: %w", err)
 		case alloc.Allocation == p.Allocation:
-			if err := s.handOverClaim(ctx, key, p, alloc); err != nil {
+			if err := s.handOverClaim(ctx, key, p.Allocation, alloc); err != nil {
 				return p, err
 			}
 		}
@@ -43,15 +45,15 @@ func (s *Store) ReleasePending(ctx context.Context, p allocation.Pending) (alloc
 	return p, nil
 }
 
-// handOverClaim gives the (digest, space) allocation that p holds to another
-// received upload of the same content in the same space, or deletes it when
-// there is none. The caller holds key's lock.
-func (s *Store) handOverClaim(ctx context.Context, key string, p allocation.Pending, alloc allocation.Allocation) error {
+// handOverClaim gives the (digest, space) allocation that the task link
+// released held to another received upload of the same content in the same
+// space, or deletes it when there is none. The caller holds key's lock.
+func (s *Store) handOverClaim(ctx context.Context, key string, released cid.Cid, alloc allocation.Allocation) error {
 	for other, err := range s.ListPending(ctx) {
 		if err != nil {
 			return fmt.Errorf("listing pending allocations: %w", err)
 		}
-		if other.Allocation == p.Allocation || other.Space != p.Space || !bytes.Equal(other.Digest, p.Digest) {
+		if other.Allocation == released || other.Space != alloc.Space || !bytes.Equal(other.Digest, alloc.Blob.Digest) {
 			continue
 		}
 		alloc.Cause = other.Cause

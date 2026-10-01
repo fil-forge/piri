@@ -6,7 +6,6 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/alanshaw/dag-json-gen v0.0.10
 	github.com/cenkalti/backoff/v5 v5.0.3
-	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/ethereum/go-ethereum v1.17.5
 	github.com/exaring/otelpgx v0.12.0
@@ -107,6 +106,7 @@ require (
 	github.com/crate-crypto/go-eth-kzg v1.5.0 // indirect
 	github.com/curiostorage/harmonyquery v1.0.2 // indirect
 	github.com/daaku/go.zipexe v1.0.2 // indirect
+	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/detailyang/go-fallocate v0.0.0-20180908115635-432fa640bd2e // indirect
 	github.com/dgraph-io/badger/v2 v2.2007.4 // indirect

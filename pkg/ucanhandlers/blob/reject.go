@@ -113,12 +113,14 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 		return fmt.Errorf("checking acceptance: %w", err)
 	}
 
-	deleted, err := deps.Allocations.DeleteByTask(ctx, req.Allocation)
+	// Another received upload of the same content in the space takes over the
+	// claim, if there is one, so its data is not removed under it.
+	released, err := deps.Allocations.ReleaseByTask(ctx, req.Allocation)
 	if err != nil {
-		log.Errorw("deleting allocation", "error", err)
-		return fmt.Errorf("deleting allocation: %w", err)
+		log.Errorw("releasing allocation", "error", err)
+		return fmt.Errorf("releasing allocation: %w", err)
 	}
-	if !deleted {
+	if !released {
 		log.Infof("%s (allocation replaced)", blob.Reject.Command)
 		return nil
 	}

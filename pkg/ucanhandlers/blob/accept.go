@@ -112,16 +112,6 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		if err != nil {
 			return err
 		}
-		// The accepted allocation becomes the space's allocation of the blob
-		// again if a later allocation of the same content replaced it, so a
-		// reject of it finds the acceptance and a reject of the other finds
-		// nothing to drop. It waits for the accept to succeed: a failed accept
-		// leaves the allocations as they were.
-		if accReq.Allocation != nil {
-			if err := deps.Pending.MakeCurrent(req.Context(), b.Digest, args.Space, *accReq.Allocation); err != nil {
-				return fmt.Errorf("recording accepted allocation: %w", err)
-			}
-		}
 
 		if err := rsp.SetMetadata(container.New(container.WithInvocations(resp.Claim, resp.PDP))); err != nil {
 			return fmt.Errorf("setting metadata on response: %w", err)
@@ -259,6 +249,18 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 			log.Errorw("compensating acceptance delete after enqueue failure", "error", derr)
 		}
 		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
+	}
+
+	// The acceptance stands from here on, so the allocation it accepted
+	// becomes the space's allocation of the blob again if a later allocation
+	// of the same content replaced it: a reject of it then finds the
+	// acceptance, and a reject of the other finds nothing to drop. An accept
+	// that failed before this point leaves the allocations as they were.
+	if req.Allocation != nil {
+		if err := deps.Pending.MakeCurrent(ctx, req.Blob.Digest, req.Space, *req.Allocation); err != nil {
+			log.Errorw("recording accepted allocation", "error", err)
+			return nil, fmt.Errorf("recording accepted allocation: %w", err)
+		}
 	}
 
 	err = deps.ClaimStore.Put(ctx, claim)
