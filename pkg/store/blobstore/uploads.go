@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/multiformats/go-multihash"
 
@@ -24,13 +25,53 @@ type UploadIndex interface {
 // WithUploads returns bs reading through uploads: a blob not at the key of its
 // digest is read from the upload that holds it. Settle moves it there, and
 // Delete removes it wherever it is.
+//
+// Settle and Delete of the same digest run one at a time. A Delete during a
+// Settle would otherwise remove the upload and its entry while the Settle is
+// still reading it, and the Settle would then write a copy of the removed blob
+// to its key that nothing refers to. The lock is held in this process, which
+// is the only one using the store.
 func WithUploads(bs Blobstore, uploads UploadIndex) Blobstore {
-	return &uploadStore{Blobstore: bs, uploads: uploads}
+	return &uploadStore{Blobstore: bs, uploads: uploads, locks: map[string]*digestLock{}}
 }
 
 type uploadStore struct {
 	Blobstore
 	uploads UploadIndex
+
+	mu    sync.Mutex
+	locks map[string]*digestLock
+}
+
+type digestLock struct {
+	sync.Mutex
+	// waiters counts the holder and everyone waiting; the lock is dropped
+	// from the map when it reaches zero.
+	waiters int
+}
+
+// lock serializes Settle and Delete of digest, and returns the unlock.
+func (s *uploadStore) lock(digest multihash.Multihash) func() {
+	key := string(digest)
+	s.mu.Lock()
+	l, ok := s.locks[key]
+	if !ok {
+		l = &digestLock{}
+		s.locks[key] = l
+	}
+	l.waiters++
+	s.mu.Unlock()
+
+	l.Lock()
+	return func() {
+		l.Unlock()
+		s.mu.Lock()
+		l.waiters--
+		if l.waiters == 0 {
+			delete(s.locks, key)
+		}
+		s.mu.Unlock()
+	}
 }
 
 // Get tries the key of digest first: every blob that has been settled, and
@@ -60,6 +101,7 @@ func (s *uploadStore) Get(ctx context.Context, digest multihash.Multihash, opts 
 // holds it, if any. The upload's bytes go before its entry, so a failure in
 // between leaves an entry for a blob being removed, never unreferenced bytes.
 func (s *uploadStore) Delete(ctx context.Context, digest multihash.Multihash) error {
+	defer s.lock(digest)()
 	if err := s.Blobstore.Delete(ctx, digest); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
@@ -83,6 +125,7 @@ func (s *uploadStore) Delete(ctx context.Context, digest multihash.Multihash) er
 // time, and only finishes the cleanup. A reader that finds the entry after the
 // upload is gone reads the blob from its key, as Get does.
 func (s *uploadStore) Settle(ctx context.Context, digest multihash.Multihash, read func(r io.Reader, size int64) error) (bool, error) {
+	defer s.lock(digest)()
 	id, ok, err := s.uploads.Upload(ctx, digest)
 	if err != nil {
 		return false, fmt.Errorf("looking up upload of blob: %w", err)

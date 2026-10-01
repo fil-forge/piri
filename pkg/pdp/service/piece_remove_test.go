@@ -254,8 +254,9 @@ func TestSweep_NeverAggregatedFinalizes(t *testing.T) {
 
 // TestSweep_PreCommpPipelineEntryCancelled is the accepted-then-removed
 // pre-commp hole: the blob is in the pipeline but its commp hasn't been
-// computed. The sweep cancels the row (the in-flight commp task no-ops on
-// the missing row) and only then releases the bytes.
+// computed, and no commp task is live. The sweep cancels the row (a task
+// that starts later no-ops on the missing row) and only then releases the
+// bytes.
 func TestSweep_PreCommpPipelineEntryCancelled(t *testing.T) {
 	w := setupRemovalTest(t)
 	blob := mustMultihash(t, "blob-precommp")
@@ -269,6 +270,64 @@ func TestSweep_PreCommpPipelineEntryCancelled(t *testing.T) {
 		"pre-aggregation pipeline row cancelled")
 	_, err := w.bs.Get(t.Context(), blob)
 	require.ErrorIs(t, err, store.ErrNotFound, "bytes released after cancellation")
+}
+
+// TestSweep_InFlightCommPWaits: the commp task is still working on the blob
+// when its removal is swept. The task records the mapping and parks the piece
+// whatever the sweep does, so the sweep leaves the row until the task is done
+// and then cleans up what the task wrote.
+func TestSweep_InFlightCommPWaits(t *testing.T) {
+	w := setupRemovalTest(t)
+	ctx := t.Context()
+	blob := mustMultihash(t, "blob-inflight")
+	commpV2, commpV1 := testPiece(t, "piece-inflight")
+	require.NoError(t, w.bs.Put(ctx, blob, 4, bytes.NewReader([]byte("data"))))
+	w.seedPipeline(t, blob, "", "")
+	_, err := w.db.Exec(ctx, `
+		INSERT INTO harmony_task (id, posted_time, added_by, name)
+		VALUES (42, now(), 1, 'PDPCommP')
+	`)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.RemovePiece(ctx, blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Equal(t, 1, w.count(t, "pdp_blob_pipeline"), "a row with a live commp task is not cancelled")
+	require.Equal(t, 1, w.count(t, "pdp_pending_piece_removals"), "removal waits")
+	_, err = w.bs.Get(ctx, blob)
+	require.NoError(t, err, "bytes the task is reading are kept")
+
+	// The task finishes as CommPTask.Do does: mapping, parked piece, commp.
+	w.seedMapping(t, blob, commpV2, commpV1)
+	w.seedParkedChain(t, commpV2)
+	_, err = w.db.Exec(ctx, `UPDATE pdp_blob_pipeline SET commp = $1 WHERE digest = $2`, commpV2, []byte(blob))
+	require.NoError(t, err)
+	_, err = w.db.Exec(ctx, `DELETE FROM harmony_task WHERE id = 42`)
+	require.NoError(t, err)
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"))
+	require.Zero(t, w.count(t, "pdp_pending_piece_removals"))
+	require.Zero(t, w.count(t, "pdp_piece_mh_to_commp"), "the task's mapping is cleaned up")
+	require.Zero(t, w.count(t, "pdp_piecerefs"), "the task's parked piece is cleaned up")
+	require.Zero(t, w.count(t, "parked_pieces"))
+	_, err = w.bs.Get(ctx, blob)
+	require.ErrorIs(t, err, store.ErrNotFound)
+}
+
+// TestSweep_GivenUpCommPCancelled: a commp task that exhausted its retries is
+// gone from harmony_task, and its row is cancelled like any pre-commp row.
+func TestSweep_GivenUpCommPCancelled(t *testing.T) {
+	w := setupRemovalTest(t)
+	blob := mustMultihash(t, "blob-givenup")
+	require.NoError(t, w.bs.Put(t.Context(), blob, 4, bytes.NewReader([]byte("data"))))
+	w.seedPipeline(t, blob, "", "") // commp_task_id 42, no harmony_task row
+	require.NoError(t, w.svc.RemovePiece(t.Context(), blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(t.Context(), noopRemoveRoot))
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"))
+	require.Zero(t, w.count(t, "pdp_pending_piece_removals"))
+	_, err := w.bs.Get(t.Context(), blob)
+	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
 // TestSweep_BufferedPieceCancelled: a commP'd piece waiting in the

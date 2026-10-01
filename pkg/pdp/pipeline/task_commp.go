@@ -23,8 +23,9 @@ const CommPTaskName = "PDPCommP"
 // claimed via commp_task_id. Every step is idempotent — CalculateCommP
 // dedups its mapping, parking is skipped when the piece already has refs,
 // and the aggregation handoff dedups on agg_task_id — so a crashed task
-// re-runs safely. A row deleted mid-run (removal-sweep cancel) makes the
-// task complete as a noop.
+// re-runs safely. The removal sweep cancels a row only while no live task
+// holds it, so a task never records commp for a removed blob; a row cancelled
+// before the task starts makes it complete as a noop.
 type CommPTask struct {
 	db  *harmonydb.DB
 	api types.PieceAPI

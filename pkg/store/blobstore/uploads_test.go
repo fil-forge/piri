@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/ipfs/go-datastore"
@@ -201,6 +202,43 @@ func TestUploads(t *testing.T) {
 		obj, err = bs.Get(ctx, digest)
 		require.NoError(t, err)
 		require.Equal(t, data, readAll(t, obj))
+	})
+
+	t.Run("a delete during a settle leaves nothing at the digest key", func(t *testing.T) {
+		bs, base, idx, _, digest, id := uploaded(t)
+		reading := make(chan struct{})
+		release := make(chan struct{})
+		settled := make(chan error, 1)
+		go func() {
+			_, err := bs.Settle(ctx, digest, func(r io.Reader, _ int64) error {
+				close(reading)
+				<-release
+				_, err := io.Copy(io.Discard, r)
+				return err
+			})
+			settled <- err
+		}()
+		<-reading
+
+		// The removal sweep deletes the blob while the commP task is still
+		// reading it from its upload.
+		deleted := make(chan error, 1)
+		go func() { deleted <- bs.Delete(ctx, digest) }()
+		select {
+		case err := <-deleted:
+			deleted <- err
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(release)
+		require.NoError(t, <-settled)
+		require.NoError(t, <-deleted)
+
+		_, err := base.Get(ctx, digest)
+		require.ErrorIs(t, err, store.ErrNotFound, "no copy of the removed blob is left at its key")
+		_, err = base.GetUpload(ctx, id)
+		require.ErrorIs(t, err, store.ErrNotFound)
+		_, held, _ := idx.Upload(ctx, digest)
+		require.False(t, held)
 	})
 
 	t.Run("delete removes a blob held by its upload", func(t *testing.T) {
