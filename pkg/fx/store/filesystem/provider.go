@@ -20,7 +20,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
-	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
@@ -285,28 +284,20 @@ func NewKeyStore(cfg app.KeyStoreConfig, lc fx.Lifecycle) (keystore.KeyStore, er
 	return keystore.NewKeyStore(ds)
 }
 
-// PDPStores is the PDP blob store and the object store it is kept in, where
-// uploads whose digest is not yet known are staged under keys of their own.
-type PDPStores struct {
-	fx.Out
-	Blobs   blobstore.Blobstore `name:"pdp_blobs"`
-	Staging objectstore.Store   `name:"pdp_staging"`
-}
-
-func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (PDPStores, error) {
+func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (*blobstore.Store, error) {
 	if cfg.Dir == "" {
-		return PDPStores{}, fmt.Errorf("no data dir provided for pdp store")
+		return nil, fmt.Errorf("no data dir provided for pdp store")
 	}
 	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
 	if err != nil {
-		return PDPStores{}, fmt.Errorf("creating pdp object store: %w", err)
+		return nil, fmt.Errorf("creating pdp object store: %w", err)
 	}
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
 			return objStore.Close()
 		},
 	})
-	return PDPStores{Blobs: blobstore.NewFlatfsStore(objStore), Staging: objStore}, nil
+	return blobstore.NewFlatfsStore(objStore), nil
 }
 
 func NewConsolidationStore(cfg app.ConsolidationStorageConfig, lc fx.Lifecycle) (consolidationstore.Store, error) {

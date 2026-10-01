@@ -19,8 +19,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
-	"github.com/fil-forge/piri/pkg/store/objectstore"
-	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -102,17 +100,8 @@ func NewKeyStore() (keystore.KeyStore, error) {
 	return keystore.NewKeyStore(ds)
 }
 
-// PDPStores is the PDP blob store and the object store it is kept in, where
-// uploads whose digest is not yet known are staged under keys of their own.
-type PDPStores struct {
-	fx.Out
-	Blobs   blobstore.Blobstore `name:"pdp_blobs"`
-	Staging objectstore.Store   `name:"pdp_staging"`
-}
-
-func NewPDPStore() PDPStores {
-	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return PDPStores{Blobs: blobstore.NewDatastoreStore(ds), Staging: dsadapter.New(ds)}
+func NewPDPStore() *blobstore.Store {
+	return blobstore.NewDatastoreStore(sync.MutexWrap(datastore.NewMapDatastore()))
 }
 
 func NewConsolidationStore() consolidationstore.Store {

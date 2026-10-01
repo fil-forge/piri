@@ -11,6 +11,7 @@ import (
 // characters, which takes the whole node down at boot.
 func TestTaskNamesFitTheEngine(t *testing.T) {
 	for _, task := range []harmonytask.TaskInterface{
+		&SettleTask{},
 		&CommPTask{},
 		&AggregateTask{},
 		&AddRootsTask{},

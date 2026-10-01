@@ -9,6 +9,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
 	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
 // Module wires the aggregation pipeline tasks into the curiopdp harmonytask
@@ -22,6 +23,7 @@ var Module = fx.Module("pdp/pipeline",
 		manager.NewConfigProvider,
 		manager.NewPieceAccepter,
 
+		NewSettleTask,
 		NewCommPTask,
 		NewAggregateTask,
 		NewAddRootsTask,
@@ -30,15 +32,18 @@ var Module = fx.Module("pdp/pipeline",
 
 		fx.Annotate(NewSubmissionManager, fx.As(new(RootSubmitter))),
 		fx.Annotate(NewEntry, fx.As(new(commp.Calculator))),
+		func(s *blobstore.StagingStore) Settler { return s },
 		func(s *service.PDPService) RemovalSweeper { return s },
 		func(s *service.PDPService) AllocationExpirer { return s },
 
+		fx.Annotate(asTask[*SettleTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*CommPTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*AggregateTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*AddRootsTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*RemoveSweepTask], fx.ResultTags(taskGroup)),
 		fx.Annotate(asTask[*ExpireAllocationsTask], fx.ResultTags(taskGroup)),
 	),
+	fx.Invoke(registerSettleMetrics),
 )
 
 func asTask[T harmonytask.TaskInterface](t T) harmonytask.TaskInterface { return t }

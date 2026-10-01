@@ -304,6 +304,51 @@ func (fs *Store) Put(ctx context.Context, key string, size uint64, value io.Read
 	return err
 }
 
+var _ objectstore.Mover = (*Store)(nil)
+
+// Move renames src's file to dst's, which is atomic: the object is at one key
+// or the other throughout, never both and never neither.
+func (fs *Store) Move(ctx context.Context, src, dst string) error {
+	if !keyIsValid(src) || !keyIsValid(dst) {
+		return fmt.Errorf("when moving %q to %q: %w", src, dst, ErrInvalidKey)
+	}
+
+	fs.shutdownLock.RLock()
+	defer fs.shutdownLock.RUnlock()
+	if fs.shutdown {
+		return ErrClosed
+	}
+
+	srcDir, srcPath := fs.encode(src)
+	dstDir, dstPath := fs.encode(dst)
+	if err := fs.makeDir(dstDir); err != nil {
+		return err
+	}
+	if err := fs.rename(srcPath, dstPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("moving %q to %q: %w", src, dst, err)
+		}
+		if _, err := os.Stat(dstPath); err == nil {
+			return nil
+		} else if os.IsNotExist(err) {
+			return objectstore.ErrNotExist
+		} else {
+			return err
+		}
+	}
+	if fs.sync {
+		if err := syncDir(dstDir); err != nil {
+			return err
+		}
+		if srcDir != dstDir {
+			if err := syncDir(srcDir); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (fs *Store) doOp(oper *op) error {
 	switch oper.typ {
 	case opPut:

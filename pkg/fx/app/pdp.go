@@ -21,7 +21,6 @@ import (
 	"github.com/fil-forge/piri/pkg/fx/pdp"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/wallet"
 )
 
@@ -40,16 +39,13 @@ var PDPModule = fx.Module("pdp",
 			fx.As(new(service.ChainClient)),
 		),
 	),
-	// Blobs received without their digest are staged until the commP task
-	// settles them, so the blobstore every reader gets is the staging store,
-	// reading through the staging index.
+	// Blobs received without their digest are staged until the settle task
+	// moves them to their digest's key, so the blobstore every reader gets is
+	// the staging store, reading through the staging index.
 	fx.Provide(
-		fx.Annotate(
-			func(blobs blobstore.Blobstore, staging objectstore.Store, db *harmonydb.DB) *blobstore.StagingStore {
-				return blobstore.NewStagingStore(blobs, staging, service.NewStagingIndex(db))
-			},
-			fx.ParamTags(`name:"pdp_blobs"`, `name:"pdp_staging"`),
-		),
+		func(blobs *blobstore.Store, db *harmonydb.DB) *blobstore.StagingStore {
+			return blobstore.NewStagingStore(blobs, service.NewStagingIndex(db))
+		},
 		func(staging *blobstore.StagingStore) blobstore.Blobstore { return staging },
 	),
 	smartcontracts.Module,

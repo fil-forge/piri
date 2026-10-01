@@ -32,13 +32,12 @@ type StagingIndex interface {
 //
 // Settle and Delete of the same digest run one at a time. A Delete during a
 // Settle would otherwise unstage the blob and drop its entry while the Settle
-// is still reading it, and the Settle would then write a copy of the removed blob
-// to its key that nothing refers to. The lock is held in this process, which
+// is still moving it, and the Settle would then leave a copy of the removed
+// blob at its key that nothing refers to. The lock is held in this process, which
 // is the only one using the store.
 type StagingStore struct {
-	blobs   Blobstore
-	staging objectstore.Store
-	index   StagingIndex
+	blobs *Store
+	index StagingIndex
 
 	mu    sync.Mutex
 	locks map[string]*digestLock
@@ -47,13 +46,14 @@ type StagingStore struct {
 var _ Blobstore = (*StagingStore)(nil)
 
 // NewStagingStore returns a blob store that can store blobs in a staging area
-// before moving them to their final location in the blob store.
-func NewStagingStore(blobs Blobstore, staging objectstore.Store, index StagingIndex) *StagingStore {
+// before moving them to their final location in the blob store. The staging
+// area is blobs' own object store, under keys that cannot collide with blob
+// keys, so a backend that can move objects settles a blob without reading it.
+func NewStagingStore(blobs *Store, index StagingIndex) *StagingStore {
 	return &StagingStore{
-		blobs:   blobs,
-		staging: objectstore.Traced("staging", staging),
-		index:   index,
-		locks:   map[string]*digestLock{},
+		blobs: blobs,
+		index: index,
+		locks: map[string]*digestLock{},
 	}
 }
 
@@ -67,13 +67,13 @@ func stagedKey(id string) string {
 // of an upload. Its bytes stay staged once their digest is known, until Settle
 // moves them.
 func (s *StagingStore) Stage(ctx context.Context, id string, size uint64, body io.Reader) error {
-	return s.staging.Put(ctx, stagedKey(id), size, body)
+	return s.blobs.backend.Put(ctx, stagedKey(id), size, body)
 }
 
 // GetStaged retrieves the staged blob by ID. Returns [store.ErrNotFound] if it
 // is not staged.
 func (s *StagingStore) GetStaged(ctx context.Context, id string, opts ...GetOption) (Object, error) {
-	return getObject(ctx, s.staging, stagedKey(id), opts...)
+	return getObject(ctx, s.blobs.backend, stagedKey(id), opts...)
 }
 
 // Unstage removes the staged blob by ID. Unstaging a blob that is not staged
@@ -86,7 +86,7 @@ func (s *StagingStore) GetStaged(ctx context.Context, id string, opts ...GetOpti
 // another upload of the same content, and one whose discard found no entry
 // naming it. A blob the index records is removed with Delete, entry and all.
 func (s *StagingStore) Unstage(ctx context.Context, id string) error {
-	err := s.staging.Delete(ctx, stagedKey(id))
+	err := s.blobs.backend.Delete(ctx, stagedKey(id))
 	if errors.Is(err, objectstore.ErrNotExist) {
 		return nil
 	}
@@ -173,72 +173,57 @@ func (s *StagingStore) Delete(ctx context.Context, digest multihash.Multihash) e
 	return s.index.Delete(ctx, digest)
 }
 
-// Settle moves the staged bytes of digest to the key of digest, handing them to
-// read on the way so the move costs no read of its own. read gets the blob's
-// bytes and size; the move completes once read returns without error. It
-// reports false, without calling read, when the blob is not staged.
+// Settle moves digest's staged copy to the key of digest, and drops its entry.
+// Settling a blob that is not staged succeeds. A backend that can move objects
+// moves it there; any other copies it and then unstages it.
 //
-// Settle writes the staged bytes to the key of digest as read consumes them.
-// Once that write is complete the blob is unstaged, and its entry dropped
-// after, so the entry stays until the cleanup it records is done. A settle
-// interrupted after the write finds the entry and the blob at its key next
-// time, and only finishes the cleanup. A reader that finds the entry after the
-// blob is unstaged reads it from its key, as Get does.
-func (s *StagingStore) Settle(ctx context.Context, digest multihash.Multihash, read func(r io.Reader, size int64) error) (bool, error) {
+// The entry is dropped last, so it stays until the move it records is done: a
+// settle interrupted part way finds the entry next time and finishes. A reader
+// that finds the entry after the blob is unstaged reads it from its key, as
+// Get does.
+func (s *StagingStore) Settle(ctx context.Context, digest multihash.Multihash) error {
 	defer s.lock(digest)()
 	id, ok, err := s.index.GetID(ctx, digest)
 	if err != nil {
-		return false, fmt.Errorf("looking up staged blob: %w", err)
+		return fmt.Errorf("looking up staged blob: %w", err)
 	}
 	if !ok {
-		return false, nil
+		return nil
 	}
-	if obj, err := s.blobs.Get(ctx, digest); err == nil {
-		_ = obj.Body().Close()
-		return false, s.unstageSettled(ctx, digest, id)
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return false, err
-	}
-
-	obj, err := s.GetStaged(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("reading staged blob: %w", err)
-	}
-	body := obj.Body()
-	defer body.Close()
-	size := obj.Size()
-
-	pr, pw := io.Pipe()
-	written := make(chan error, 1)
-	go func() {
-		err := s.blobs.Put(ctx, digest, uint64(size), pr)
-		pr.CloseWithError(err)
-		written <- err
-	}()
-	tee := io.TeeReader(body, pw)
-	err = read(tee, size)
-	if err == nil {
-		// Whatever read left unread still has to reach the new key.
-		_, err = io.Copy(io.Discard, tee)
-	}
-	if err != nil {
-		pw.CloseWithError(err)
-		<-written
-		return true, err
-	}
-	pw.Close()
-	if err := <-written; err != nil {
-		return true, fmt.Errorf("writing blob to its digest: %w", err)
-	}
-	return true, s.unstageSettled(ctx, digest, id)
-}
-
-func (s *StagingStore) unstageSettled(ctx context.Context, digest multihash.Multihash, id string) error {
-	if err := s.Unstage(ctx, id); err != nil {
-		return fmt.Errorf("unstaging settled blob: %w", err)
+	if mover, ok := s.blobs.backend.(objectstore.Mover); ok {
+		if err := mover.Move(ctx, stagedKey(id), s.blobs.encoder.EncodeKey(digest)); err != nil {
+			return fmt.Errorf("moving staged blob to its digest: %w", err)
+		}
+	} else if err := s.copyStaged(ctx, digest, id); err != nil {
+		return err
 	}
 	if err := s.index.Delete(ctx, digest); err != nil {
 		return fmt.Errorf("deleting staged blob's entry: %w", err)
+	}
+	return nil
+}
+
+// copyStaged settles a blob on a backend that cannot move objects: it writes
+// the staged copy to the key of digest, unless an interrupted settle already
+// did, and then unstages it.
+func (s *StagingStore) copyStaged(ctx context.Context, digest multihash.Multihash, id string) error {
+	if obj, err := s.blobs.Get(ctx, digest); errors.Is(err, store.ErrNotFound) {
+		staged, err := s.GetStaged(ctx, id)
+		if err != nil {
+			return fmt.Errorf("reading staged blob: %w", err)
+		}
+		body := staged.Body()
+		defer body.Close()
+		if err := s.blobs.Put(ctx, digest, uint64(staged.Size()), body); err != nil {
+			return fmt.Errorf("writing blob to its digest: %w", err)
+		}
+	} else if err != nil {
+		return err
+	} else {
+		_ = obj.Body().Close()
+	}
+	if err := s.Unstage(ctx, id); err != nil {
+		return fmt.Errorf("unstaging settled blob: %w", err)
 	}
 	return nil
 }

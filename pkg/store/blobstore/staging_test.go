@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 )
 
@@ -50,19 +51,93 @@ func (i *mapIndex) hold(digest multihash.Multihash, id string) {
 	i.m[string(digest)] = id
 }
 
-// staged stages data under upload id and records it as holding the digest.
-func staged(t *testing.T) (*StagingStore, Blobstore, *mapIndex, []byte, multihash.Multihash, string) {
+// copyingBackend is a backend that cannot move objects, as the in-memory one
+// cannot. pause, if set, runs at the start of the next Put.
+type copyingBackend struct {
+	objectstore.Store
+	pause func()
+}
+
+func (b *copyingBackend) Put(ctx context.Context, key string, size uint64, data io.Reader) error {
+	if f := b.pause; f != nil {
+		b.pause = nil
+		f()
+	}
+	return b.Store.Put(ctx, key, size, data)
+}
+
+// movingBackend is a backend that can move objects, as flatfs and MinIO can.
+// pause, if set, runs at the start of the next Move.
+type movingBackend struct {
+	objectstore.Store
+	pause func()
+	moves int
+}
+
+func (b *movingBackend) Move(ctx context.Context, src, dst string) error {
+	if f := b.pause; f != nil {
+		b.pause = nil
+		f()
+	}
+	b.moves++
+	obj, err := b.Get(ctx, src)
+	if errors.Is(err, objectstore.ErrNotExist) {
+		if dstObj, err := b.Get(ctx, dst); err == nil {
+			_ = dstObj.Body().Close()
+			return nil
+		}
+		return objectstore.ErrNotExist
+	}
+	if err != nil {
+		return err
+	}
+	body := obj.Body()
+	defer body.Close()
+	if err := b.Put(ctx, dst, uint64(obj.Size()), body); err != nil {
+		return err
+	}
+	return b.Delete(ctx, src)
+}
+
+type stagingFixture struct {
+	bs     *StagingStore
+	base   *Store
+	idx    *mapIndex
+	data   []byte
+	digest multihash.Multihash
+	id     string
+	// pause runs once, inside the next settle's write: the copy's Put, or the
+	// Move.
+	pause func(func())
+	// moves counts the backend's moves; it stays 0 on a copying backend.
+	moves func() int
+}
+
+// staged stages data under an upload id and records it as holding the digest,
+// on a backend that moves objects or one that only copies them.
+func staged(t *testing.T, move bool) stagingFixture {
 	t.Helper()
-	ds := dssync.MutexWrap(datastore.NewMapDatastore())
-	base := NewDatastoreStore(ds)
-	idx := &mapIndex{m: map[string]string{}}
-	bs := NewStagingStore(base, dsadapter.New(ds), idx)
-	data := testutil.RandomBytes(t, 1024)
-	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
-	id := "u1"
-	require.NoError(t, bs.Stage(t.Context(), id, uint64(len(data)), bytes.NewReader(data)))
-	idx.hold(digest, id)
-	return bs, base, idx, data, digest, id
+	inner := dsadapter.New(dssync.MutexWrap(datastore.NewMapDatastore()))
+	f := stagingFixture{idx: &mapIndex{m: map[string]string{}}, id: "u1"}
+	var backend objectstore.Store
+	if move {
+		m := &movingBackend{Store: inner}
+		backend = m
+		f.pause = func(p func()) { m.pause = p }
+		f.moves = func() int { return m.moves }
+	} else {
+		c := &copyingBackend{Store: inner}
+		backend = c
+		f.pause = func(p func()) { c.pause = p }
+		f.moves = func() int { return 0 }
+	}
+	f.base = &Store{backend: backend, encoder: PlainKeyEncoder{}}
+	f.bs = NewStagingStore(f.base, f.idx)
+	f.data = testutil.RandomBytes(t, 1024)
+	f.digest = testutil.Must(multihash.Sum(f.data, multihash.SHA2_256, -1))(t)
+	require.NoError(t, f.bs.Stage(t.Context(), f.id, uint64(len(f.data)), bytes.NewReader(f.data)))
+	f.idx.hold(f.digest, f.id)
+	return f
 }
 
 func readAll(t *testing.T, obj Object) []byte {
@@ -72,185 +147,128 @@ func readAll(t *testing.T, obj Object) []byte {
 	return b
 }
 
-func TestUploads(t *testing.T) {
+func (f stagingFixture) requireSettled(t *testing.T) {
+	t.Helper()
+	obj, err := f.base.Get(t.Context(), f.digest)
+	require.NoError(t, err, "the blob is at its digest key")
+	require.Equal(t, f.data, readAll(t, obj))
+	_, err = f.bs.GetStaged(t.Context(), f.id)
+	require.ErrorIs(t, err, store.ErrNotFound, "the blob is unstaged")
+	_, ok, _ := f.idx.GetID(t.Context(), f.digest)
+	require.False(t, ok, "the entry is deleted")
+}
+
+func TestStagingStore(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("reads a staged blob", func(t *testing.T) {
-		bs, base, _, data, digest, _ := staged(t)
-		_, err := base.Get(ctx, digest)
+		f := staged(t, false)
+		_, err := f.base.Get(ctx, f.digest)
 		require.ErrorIs(t, err, store.ErrNotFound, "nothing is at the digest key")
 
-		obj, err := bs.Get(ctx, digest)
+		obj, err := f.bs.Get(ctx, f.digest)
 		require.NoError(t, err)
-		require.Equal(t, data, readAll(t, obj))
+		require.Equal(t, f.data, readAll(t, obj))
 
 		end := uint64(9)
-		obj, err = bs.Get(ctx, digest, WithRange(5, &end))
+		obj, err = f.bs.Get(ctx, f.digest, WithRange(5, &end))
 		require.NoError(t, err)
-		require.Equal(t, data[5:10], readAll(t, obj), "ranges apply to the staged blob")
+		require.Equal(t, f.data[5:10], readAll(t, obj), "ranges apply to the staged blob")
 	})
 
 	t.Run("a blob neither stored nor staged is missing", func(t *testing.T) {
-		bs, _, _, _, _, _ := staged(t)
-		_, err := bs.Get(ctx, testutil.RandomMultihash(t))
+		f := staged(t, false)
+		_, err := f.bs.Get(ctx, testutil.RandomMultihash(t))
 		require.ErrorIs(t, err, store.ErrNotFound)
-	})
-
-	t.Run("settle moves the blob as it is read", func(t *testing.T) {
-		bs, base, idx, data, digest, id := staged(t)
-		var got []byte
-		settled, err := bs.Settle(ctx, digest, func(r io.Reader, size int64) error {
-			require.Equal(t, int64(len(data)), size)
-			var err error
-			got, err = io.ReadAll(r)
-			return err
-		})
-		require.NoError(t, err)
-		require.True(t, settled)
-		require.Equal(t, data, got, "read got the blob")
-
-		obj, err := base.Get(ctx, digest)
-		require.NoError(t, err, "the blob is at its digest key")
-		require.Equal(t, data, readAll(t, obj))
-		_, err = bs.GetStaged(ctx, id)
-		require.ErrorIs(t, err, store.ErrNotFound, "the blob is unstaged")
-		_, held, _ := idx.GetID(ctx, digest)
-		require.False(t, held, "the entry is deleted")
-
-		obj, err = bs.Get(ctx, digest)
-		require.NoError(t, err)
-		require.Equal(t, data, readAll(t, obj))
-	})
-
-	t.Run("settle writes what read leaves unread", func(t *testing.T) {
-		bs, base, _, data, digest, _ := staged(t)
-		settled, err := bs.Settle(ctx, digest, func(r io.Reader, _ int64) error {
-			_, err := io.ReadFull(r, make([]byte, 10))
-			return err
-		})
-		require.NoError(t, err)
-		require.True(t, settled)
-		obj, err := base.Get(ctx, digest)
-		require.NoError(t, err)
-		require.Equal(t, data, readAll(t, obj))
-	})
-
-	t.Run("a failed read settles nothing", func(t *testing.T) {
-		bs, _, idx, data, digest, id := staged(t)
-		bad := errors.New("commp failed")
-		_, err := bs.Settle(ctx, digest, func(io.Reader, int64) error { return bad })
-		require.ErrorIs(t, err, bad)
-		held, ok, _ := idx.GetID(ctx, digest)
-		require.True(t, ok)
-		require.Equal(t, id, held, "the blob is still staged")
-		obj, err := bs.Get(ctx, digest)
-		require.NoError(t, err)
-		require.Equal(t, data, readAll(t, obj))
-	})
-
-	t.Run("settle reports false for a blob that is not staged", func(t *testing.T) {
-		bs, _, _, _, _, _ := staged(t)
-		settled, err := bs.Settle(ctx, testutil.RandomMultihash(t), func(io.Reader, int64) error {
-			t.Fatal("read called for a blob that is not staged")
-			return nil
-		})
-		require.NoError(t, err)
-		require.False(t, settled)
-	})
-
-	t.Run("settle finishes an interrupted settle without reading", func(t *testing.T) {
-		bs, base, idx, data, digest, id := staged(t)
-		// A settle that wrote the digest key and stopped before cleaning up.
-		require.NoError(t, base.Put(ctx, digest, uint64(len(data)), bytes.NewReader(data)))
-		settled, err := bs.Settle(ctx, digest, func(io.Reader, int64) error {
-			t.Fatal("read called for a blob already at its key")
-			return nil
-		})
-		require.NoError(t, err)
-		require.False(t, settled, "the caller reads it as any blob at its key")
-		_, err = bs.GetStaged(ctx, id)
-		require.ErrorIs(t, err, store.ErrNotFound)
-		_, held, _ := idx.GetID(ctx, digest)
-		require.False(t, held)
-	})
-
-	t.Run("settle interrupted before deleting the staged blob's entry leaves nothing unreferenced", func(t *testing.T) {
-		bs, _, idx, data, digest, id := staged(t)
-		crash := errors.New("crashed")
-		idx.deleteErr = crash
-		_, err := bs.Settle(ctx, digest, func(r io.Reader, _ int64) error {
-			_, err := io.Copy(io.Discard, r)
-			return err
-		})
-		require.ErrorIs(t, err, crash)
-		_, err = bs.GetStaged(ctx, id)
-		require.ErrorIs(t, err, store.ErrNotFound, "the blob was unstaged before its entry was dropped")
-		held, ok, _ := idx.GetID(ctx, digest)
-		require.True(t, ok, "the entry still records the cleanup owed")
-		require.Equal(t, id, held)
-
-		obj, err := bs.Get(ctx, digest)
-		require.NoError(t, err, "the blob reads from its key while the entry remains")
-		require.Equal(t, data, readAll(t, obj))
-
-		settled, err := bs.Settle(ctx, digest, func(io.Reader, int64) error {
-			t.Fatal("read called for a blob already at its key")
-			return nil
-		})
-		require.NoError(t, err)
-		require.False(t, settled)
-		_, ok, _ = idx.GetID(ctx, digest)
-		require.False(t, ok, "the retry dropped the entry")
-		obj, err = bs.Get(ctx, digest)
-		require.NoError(t, err)
-		require.Equal(t, data, readAll(t, obj))
-	})
-
-	t.Run("a delete during a settle leaves nothing at the digest key", func(t *testing.T) {
-		bs, base, idx, _, digest, id := staged(t)
-		reading := make(chan struct{})
-		release := make(chan struct{})
-		settled := make(chan error, 1)
-		go func() {
-			_, err := bs.Settle(ctx, digest, func(r io.Reader, _ int64) error {
-				close(reading)
-				<-release
-				_, err := io.Copy(io.Discard, r)
-				return err
-			})
-			settled <- err
-		}()
-		<-reading
-
-		// The removal sweep deletes the blob while the commP task is still
-		// reading it from staging.
-		deleted := make(chan error, 1)
-		go func() { deleted <- bs.Delete(ctx, digest) }()
-		select {
-		case err := <-deleted:
-			deleted <- err
-		case <-time.After(100 * time.Millisecond):
-		}
-		close(release)
-		require.NoError(t, <-settled)
-		require.NoError(t, <-deleted)
-
-		_, err := base.Get(ctx, digest)
-		require.ErrorIs(t, err, store.ErrNotFound, "no copy of the removed blob is left at its key")
-		_, err = bs.GetStaged(ctx, id)
-		require.ErrorIs(t, err, store.ErrNotFound)
-		_, held, _ := idx.GetID(ctx, digest)
-		require.False(t, held)
 	})
 
 	t.Run("delete removes a staged blob", func(t *testing.T) {
-		bs, _, idx, _, digest, id := staged(t)
-		require.NoError(t, bs.Delete(ctx, digest))
-		_, err := bs.GetStaged(ctx, id)
+		f := staged(t, false)
+		require.NoError(t, f.bs.Delete(ctx, f.digest))
+		_, err := f.bs.GetStaged(ctx, f.id)
 		require.ErrorIs(t, err, store.ErrNotFound)
-		_, held, _ := idx.GetID(ctx, digest)
+		_, held, _ := f.idx.GetID(ctx, f.digest)
 		require.False(t, held)
-		_, err = bs.Get(ctx, digest)
+		_, err = f.bs.Get(ctx, f.digest)
 		require.ErrorIs(t, err, store.ErrNotFound)
+	})
+
+	for _, move := range []bool{false, true} {
+		name := "copying backend"
+		if move {
+			name = "moving backend"
+		}
+		t.Run(name, func(t *testing.T) { testSettle(t, move) })
+	}
+}
+
+func testSettle(t *testing.T, move bool) {
+	ctx := context.Background()
+
+	t.Run("settle puts the blob at its key", func(t *testing.T) {
+		f := staged(t, move)
+		require.NoError(t, f.bs.Settle(ctx, f.digest))
+		f.requireSettled(t)
+		if move {
+			require.Equal(t, 1, f.moves(), "the backend moves the blob")
+		}
+		obj, err := f.bs.Get(ctx, f.digest)
+		require.NoError(t, err)
+		require.Equal(t, f.data, readAll(t, obj))
+	})
+
+	t.Run("settling a blob that is not staged does nothing", func(t *testing.T) {
+		f := staged(t, move)
+		require.NoError(t, f.bs.Settle(ctx, testutil.RandomMultihash(t)))
+		require.Zero(t, f.moves())
+	})
+
+	t.Run("settle finishes a settle interrupted after the write", func(t *testing.T) {
+		f := staged(t, move)
+		// The blob reached its key, and the settle stopped before the rest.
+		require.NoError(t, f.base.Put(ctx, f.digest, uint64(len(f.data)), bytes.NewReader(f.data)))
+		require.NoError(t, f.bs.Settle(ctx, f.digest))
+		f.requireSettled(t)
+	})
+
+	t.Run("settle finishes a settle interrupted before deleting the entry", func(t *testing.T) {
+		f := staged(t, move)
+		crash := errors.New("crashed")
+		f.idx.deleteErr = crash
+		require.ErrorIs(t, f.bs.Settle(ctx, f.digest), crash)
+		_, err := f.bs.GetStaged(ctx, f.id)
+		require.ErrorIs(t, err, store.ErrNotFound, "the blob was unstaged before its entry was dropped")
+		_, ok, _ := f.idx.GetID(ctx, f.digest)
+		require.True(t, ok, "the entry still records the settle owed")
+
+		obj, err := f.bs.Get(ctx, f.digest)
+		require.NoError(t, err, "the blob reads from its key while the entry remains")
+		require.Equal(t, f.data, readAll(t, obj))
+
+		require.NoError(t, f.bs.Settle(ctx, f.digest))
+		f.requireSettled(t)
+	})
+
+	t.Run("a delete during a settle leaves nothing at the digest key", func(t *testing.T) {
+		f := staged(t, move)
+		deleted := make(chan error, 1)
+		f.pause(func() {
+			// The removal sweep deletes the blob while it is being settled.
+			go func() { deleted <- f.bs.Delete(ctx, f.digest) }()
+			select {
+			case err := <-deleted:
+				deleted <- err
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+		require.NoError(t, f.bs.Settle(ctx, f.digest))
+		require.NoError(t, <-deleted)
+
+		_, err := f.base.Get(ctx, f.digest)
+		require.ErrorIs(t, err, store.ErrNotFound, "no copy of the removed blob is left at its key")
+		_, err = f.bs.GetStaged(ctx, f.id)
+		require.ErrorIs(t, err, store.ErrNotFound)
+		_, held, _ := f.idx.GetID(ctx, f.digest)
+		require.False(t, held)
 	})
 }

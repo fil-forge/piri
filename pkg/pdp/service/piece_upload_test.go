@@ -24,7 +24,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 )
 
 // Uploads to an allocation made without a digest are hashed as they are
@@ -49,11 +48,10 @@ func setupUploadTest(t *testing.T) *uploadWorld {
 		VALUES (1, $1, 'storacha') ON CONFLICT DO NOTHING
 	`, []byte{1})
 	require.NoError(t, err)
-	ds := dssync.MutexWrap(datastore.NewMapDatastore())
-	base := blobstore.NewDatastoreStore(ds)
+	base := blobstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	w := &uploadWorld{
 		base:   base,
-		bs:     blobstore.NewStagingStore(base, dsadapter.New(ds), NewStagingIndex(db)),
+		bs:     blobstore.NewStagingStore(base, NewStagingIndex(db)),
 		allocs: allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 	}
 	reader, err := piece.NewStoreReader(w.bs)
@@ -181,26 +179,33 @@ func TestUploadUnhashed(t *testing.T) {
 	require.True(t, has)
 }
 
-func TestUploadUnhashed_CommPSettles(t *testing.T) {
+// TestUploadUnhashed_SettleThenCommP: a staged blob reads through the staging
+// store, commP included, until it is settled at its digest; settling it
+// changes nothing a reader sees.
+func TestUploadUnhashed_SettleThenCommP(t *testing.T) {
 	w := setupUploadTest(t)
 	data := testutil.RandomBytes(t, 4096)
 	digest := mustMultihash(t, string(data))
 	p := w.allocate(t, testutil.RandomDID(t), len(data), day())
 	require.NoError(t, w.upload(t, p, data))
 
-	res, err := w.svc.CalculateCommP(t.Context(), digest)
+	staged, err := w.svc.CalculateCommP(t.Context(), digest)
 	require.NoError(t, err)
-	require.Equal(t, int64(len(data)), res.RawSize)
+	require.Equal(t, int64(len(data)), staged.RawSize)
+	require.False(t, w.atDigestKey(t, digest), "commP reads a staged blob without settling it")
 
-	require.True(t, w.atDigestKey(t, digest), "the commP read settles the blob at its digest")
-	require.False(t, w.uploadData(t, p.UploadID), "the upload's data is gone")
+	require.NoError(t, w.bs.Settle(t.Context(), digest))
+	require.True(t, w.atDigestKey(t, digest))
+	require.False(t, w.uploadData(t, p.UploadID), "the blob is unstaged")
 	_, ok := w.holder(t, digest)
 	require.False(t, ok, "the index no longer names the upload")
 	require.Equal(t, data, w.stored(t, digest))
 
-	again, err := w.svc.CalculateCommP(t.Context(), digest)
+	_, err = w.svc.db.Exec(t.Context(), `DELETE FROM pdp_piece_mh_to_commp WHERE mhash = $1`, []byte(digest))
 	require.NoError(t, err)
-	require.Equal(t, res.PieceCID, again.PieceCID, "commP is the same read from the digest key")
+	settled, err := w.svc.CalculateCommP(t.Context(), digest)
+	require.NoError(t, err)
+	require.Equal(t, staged.PieceCID, settled.PieceCID, "commP is the same read from the digest key")
 }
 
 func TestUploadUnhashed_DiscardKeepsHeldBlob(t *testing.T) {

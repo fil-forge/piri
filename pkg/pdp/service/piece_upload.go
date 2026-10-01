@@ -145,9 +145,9 @@ func (p *PDPService) UploadPiece(ctx context.Context, pieceUpload types.PieceUpl
 // uploadUnhashedPiece receives an upload whose allocation named only the hash
 // function. The data is hashed as it is received and written under the
 // upload's key, since its digest is not known until the last byte, and it
-// stays there: the commP task settles it at the key of its digest later, in
-// the same pass that reads it for commP. The steps run in an order that leaves
-// nothing unclaimed if the node stops between any two of them:
+// stays there: once the blob is accepted, the settle task moves it to the key
+// of its digest, before its commP is calculated. The steps run in an order
+// that leaves nothing unclaimed if the node stops between any two of them:
 //
 //  1. the digest is recorded on the pending allocation;
 //  2. the allocation is made to count as a claim on (digest, space), unless

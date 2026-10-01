@@ -14,7 +14,7 @@ import (
 
 // NewStagingIndex returns the blobstore.StagingIndex kept in pdp_staged_blobs:
 // which staged upload holds the bytes of a blob received without its digest,
-// until the commP task settles them at the key of their digest.
+// until the settle task moves them to the key of their digest.
 func NewStagingIndex(db *harmonydb.DB) blobstore.StagingIndex {
 	return stagingIndex{db: db}
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 )
 
 // These tests pin the four holes of the accepted-blob removal race (see
@@ -45,10 +44,9 @@ type removalWorld struct {
 func setupRemovalTest(t *testing.T) *removalWorld {
 	t.Helper()
 	db := piritestutil.NewHarmonyDB(t)
-	ds := dssync.MutexWrap(datastore.NewMapDatastore())
 	w := &removalWorld{
 		db:      db,
-		bs:      blobstore.NewStagingStore(blobstore.NewDatastoreStore(ds), dsadapter.New(ds), NewStagingIndex(db)),
+		bs:      blobstore.NewStagingStore(blobstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())), NewStagingIndex(db)),
 		accepts: acceptancestore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 		allocs:  allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore())),
 	}

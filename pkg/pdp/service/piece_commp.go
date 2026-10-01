@@ -27,16 +27,6 @@ func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihas
 		err := p.db.QueryRow(ctx, `SELECT size, commp FROM pdp_piece_mh_to_commp WHERE mhash = $1`, []byte(blob)).Scan(&existingSize, &existingCommp)
 		switch {
 		case err == nil:
-			// The blob may still be held by the upload it arrived in, if
-			// its commP is known from an earlier copy of the same content.
-			// It is settled at its digest all the same, so the layout does
-			// not depend on history.
-			if _, err := p.blobstore.Settle(ctx, blob, func(r io.Reader, _ int64) error {
-				_, err := io.Copy(io.Discard, r)
-				return err
-			}); err != nil {
-				return types.CalculateCommPResponse{}, fmt.Errorf("settling blob: %w", err)
-			}
 			pieceCID, err := cid.Parse(existingCommp)
 			if err != nil {
 				return types.CalculateCommPResponse{}, fmt.Errorf("failed to parse existing commp cid %s: %w", existingCommp, err)
@@ -53,33 +43,16 @@ func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihas
 		case !errors.Is(err, pgx.ErrNoRows):
 			return types.CalculateCommPResponse{}, fmt.Errorf("failed to read pdp_piece_mh_to_commp: %w", err)
 		}
-		// 2. calculate commp since we don't have it yet. A blob still held by
-		// the upload it arrived in is settled at its digest by the same read.
-		var (
-			pieceCID   cid.Cid
-			paddedSize uint64
-			rawSize    int64
-		)
-		settled, err := p.blobstore.Settle(ctx, blob, func(r io.Reader, size int64) error {
-			var err error
-			pieceCID, paddedSize, err = doCommp(blob, r, uint64(size))
-			rawSize = size
-			return err
-		})
+		// 2. calculate commp since we don't have it yet
+		readObj, err := p.pieceReader.Read(ctx, blob)
 		if err != nil {
-			return types.CalculateCommPResponse{}, fmt.Errorf("settling blob: %w", err)
+			return types.CalculateCommPResponse{}, err
 		}
-		if !settled {
-			readObj, err := p.pieceReader.Read(ctx, blob)
-			if err != nil {
-				return types.CalculateCommPResponse{}, err
-			}
-			defer readObj.Data.Close()
-			pieceCID, paddedSize, err = doCommp(blob, readObj.Data, uint64(readObj.Size))
-			if err != nil {
-				return types.CalculateCommPResponse{}, err
-			}
-			rawSize = readObj.Size
+		defer readObj.Data.Close()
+
+		pieceCID, paddedSize, err := doCommp(blob, readObj.Data, uint64(readObj.Size))
+		if err != nil {
+			return types.CalculateCommPResponse{}, err
 		}
 
 		// 3. insert into pdp_piece_mh_to_commp to avoid recalculation
@@ -89,14 +62,14 @@ func (p *PDPService) CalculateCommP(ctx context.Context, blob multihash.Multihas
 				return types.CalculateCommPResponse{}, fmt.Errorf("failed to derive v1 piece CID from %s: %w", pieceCID, err)
 			}
 			if _, err := p.db.Exec(ctx, `INSERT INTO pdp_piece_mh_to_commp (mhash, size, commp, commp_v1) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-				[]byte(blob), rawSize, pieceCID.String(), pv1.String()); err != nil {
+				[]byte(blob), int64(readObj.Size), pieceCID.String(), pv1.String()); err != nil {
 				return types.CalculateCommPResponse{}, fmt.Errorf("failed to insert into pdp_piece_mh_to_commp: %w", err)
 			}
 		}
 
 		return types.CalculateCommPResponse{
 			PieceCID:   pieceCID,
-			RawSize:    rawSize,
+			RawSize:    readObj.Size,
 			PaddedSize: int64(paddedSize),
 		}, nil
 	})

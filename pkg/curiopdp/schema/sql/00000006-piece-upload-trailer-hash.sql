@@ -7,12 +7,22 @@ ALTER TABLE pdp_piece_uploads ALTER COLUMN check_hash DROP NOT NULL;
 ALTER TABLE pdp_piece_uploads ADD COLUMN allocation text;
 
 -- NB(piri): the upload's bytes stay staged under the upload's key once their
--- digest is known, until the commP task reads them and settles them at the key
--- of their digest in the same pass. Until then this maps the digest to the
--- staged upload, and reads go through it. One staged upload holds a digest: a
+-- digest is known, until the settle task moves them to the key of their digest.
+-- Until then this maps the digest to the staged upload, and reads go through
+-- it. One staged upload holds a digest: a
 -- second upload of the same content drops its own bytes.
 CREATE TABLE pdp_staged_blobs (
     digest     bytea PRIMARY KEY,
     upload_id  text NOT NULL UNIQUE,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
+
+-- NB(piri): an accepted blob that is still staged is settled at the key of its
+-- digest before its commP is calculated. staged marks such a row from enqueue
+-- until its settle task has moved the blob; settle_task_id claims the row for
+-- that task, as commp_task_id does for the commP task. A row that was never
+-- staged starts at commP, as before.
+ALTER TABLE pdp_blob_pipeline ADD COLUMN settle_task_id bigint;
+ALTER TABLE pdp_blob_pipeline ADD COLUMN staged boolean NOT NULL DEFAULT false;
+CREATE INDEX pdp_blob_pipeline_staged_idx
+    ON pdp_blob_pipeline (created_at) WHERE staged AND settle_task_id IS NULL;
