@@ -21,13 +21,20 @@ import (
 // stopping between the two leaves a row without one.
 const orphanUploadAge = time.Hour
 
-// ProcessExpiredAllocations reaps allocations made without a digest once they
-// expire. A crash before the `/blob/add` receipt reaches the client leaves it
-// nothing to abort, so without this the upload row, the staged data and the
-// claim on (digest, space) would stay forever. An expired allocation that was
-// accepted only loses its pending record: the acceptance carries the claim
-// from then on. The bytes of a released claim are queued for removal, which
-// re-checks every claim before deleting anything.
+// ProcessExpiredAllocations reaps allocations made without a digest whose data
+// never arrived once they expire. A crash before the `/blob/add` receipt
+// reaches the client leaves it nothing to abort, and an upload that never
+// completes leaves its row and the data it wrote, so without this they would
+// stay forever.
+//
+// Once the data has arrived the allocation is parked, exactly as one made with
+// a digest is: it holds its claim on (digest, space) and its staged data until
+// the upload service accepts it or rejects it, however long that takes. A
+// caller can hold an upload unaccepted on purpose (a multipart upload parks
+// each part until it is completed), and nothing in the allocation says
+// whether it is waiting or abandoned, so the expiry does not decide that. An
+// expired allocation that was accepted only loses its pending record: the
+// acceptance carries the claim from then on.
 func (p *PDPService) ProcessExpiredAllocations(ctx context.Context) error {
 	now := ucan.Now()
 	var expired []allocation.Pending
@@ -63,17 +70,22 @@ func (p *PDPService) expireAllocation(ctx context.Context, pending allocation.Pe
 	if accepted {
 		return p.allocationStore.DeletePending(ctx, pending.Allocation)
 	}
+	// The data may have arrived since the record was listed.
+	latest, err := p.allocationStore.GetPending(ctx, pending.Allocation)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil // released or accepted meanwhile
+	}
+	if err != nil {
+		return fmt.Errorf("getting pending allocation: %w", err)
+	}
+	if len(latest.Digest) > 0 {
+		return nil // parked: see ProcessExpiredAllocations
+	}
 	if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
 		return err
 	}
-	released, err := p.allocationStore.ReleasePending(ctx, pending)
-	if err != nil {
+	if _, err := p.allocationStore.ReleasePending(ctx, pending); err != nil {
 		return err
-	}
-	if len(released.Digest) > 0 {
-		if err := p.RemovePiece(ctx, released.Digest); err != nil {
-			return err
-		}
 	}
 	log.Infow("expired allocation", "allocation", pending.Allocation, "space", pending.Space)
 	return nil
