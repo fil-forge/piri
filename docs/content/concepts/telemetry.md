@@ -46,7 +46,30 @@ it derives from the service name. An attribute of that name silently replaces
 it.
 
 `replication` and `egress-tracker` are the only two queues. PDP runs on a
-separate scheduler inside Piri which emits no metrics of its own.
+separate scheduler inside Piri, reported by the PDP metrics below.
+
+### PDP Metrics
+
+The chain head the PDP pipeline last saw, and the proving schedule and
+progress of the node's proof sets. See
+[Monitoring > PDP Proving Health](../operator-guide/monitoring.md#pdp-proving-health)
+for example alerts.
+
+| Metric                                                       | Type  | Unit  | Description                                                  |
+|--------------------------------------------------------------|-------|-------|--------------------------------------------------------------|
+| <nobr>`piri_chain_head_epoch`</nobr>                         | Gauge | epoch | Epoch of the last tipset the chain scheduler applied         |
+| <nobr>`piri_chain_head_timestamp_seconds`</nobr>             | Gauge | s     | Unix timestamp of that tipset                                |
+| <nobr>`piri_pdp_proofset_next_challenge_epoch`</nobr>        | Gauge | epoch | Epoch the proof set's next challenge window opens            |
+| <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
+| <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
+| <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last completed successfully on the node |
+
+**Labels:**
+
+| Label | Description |
+|-------|-------------|
+| `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics) |
+| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
 ### IPNI Publishing Metrics
 
