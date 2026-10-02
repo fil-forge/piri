@@ -68,7 +68,7 @@ type Params struct {
 	ServerConfig     app.ServerConfig
 	DB               *harmonydb.DB // curio harmonydb (unnamed; provided by curiopdp.Module) — single DB surface
 	Config           app.PDPServiceConfig
-	BlobStore        blobstore.Blobstore
+	BlobStore        *blobstore.StagingStore
 	AcceptanceStore  acceptancestore.AcceptanceStore
 	AllocationStore  allocationstore.AllocationStore
 	ReceiptStore     receiptstore.ReceiptStore

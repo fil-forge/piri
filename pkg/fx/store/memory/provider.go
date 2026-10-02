@@ -100,7 +100,7 @@ func NewKeyStore() (keystore.KeyStore, error) {
 	return keystore.NewKeyStore(ds)
 }
 
-func NewPDPStore() blobstore.Blobstore {
+func NewPDPStore() *blobstore.Store {
 	return blobstore.NewDatastoreStore(sync.MutexWrap(datastore.NewMapDatastore()))
 }
 

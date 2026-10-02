@@ -17,6 +17,8 @@ import (
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -158,4 +160,44 @@ func TestAccept_EnqueueFailureCompensatesAcceptance(t *testing.T) {
 	require.False(t, exists, "acceptance compensated away on enqueue failure")
 	require.Empty(t, pub.published, "nothing published for a failed accept")
 	_ = claimStore // no claim assertions: the claim is never stored (Put runs after enqueue)
+}
+
+type failingPublisher struct{}
+
+func (failingPublisher) Publish(context.Context, ucan.Invocation) error {
+	return errors.New("publisher unavailable")
+}
+
+// An accept that fails after its acceptance is durable has still made the
+// accepted allocation the space's allocation of the blob, so a reject of that
+// allocation finds the acceptance.
+func TestAccept_LateFailureKeepsAcceptedAllocationCurrent(t *testing.T) {
+	deps, pieces, accepts, _, _ := newAcceptDeps(t)
+	allocs := allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	deps.Pending = allocs
+	deps.Publisher = failingPublisher{}
+	ctx := t.Context()
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+	accepted, later := testutil.RandomCID(t), testutil.RandomCID(t)
+	require.NoError(t, allocs.Put(ctx, allocation.Allocation{
+		Allocation: later,
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
+	}))
+	pieces.Put(digest, []byte("data"))
+
+	_, err := Accept(ctx, deps, &AcceptRequest{
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
+		Allocation: &accepted,
+	})
+	require.ErrorContains(t, err, "publisher unavailable")
+	_, err = accepts.Get(ctx, digest, space)
+	require.NoError(t, err, "the acceptance stands")
+	alloc, err := allocs.Get(ctx, digest, space)
+	require.NoError(t, err)
+	require.Equal(t, accepted, alloc.Allocation, "the accepted allocation is current")
 }

@@ -23,8 +23,10 @@ const CommPTaskName = "PDPCommP"
 // claimed via commp_task_id. Every step is idempotent — CalculateCommP
 // dedups its mapping, parking is skipped when the piece already has refs,
 // and the aggregation handoff dedups on agg_task_id — so a crashed task
-// re-runs safely. A row deleted mid-run (removal-sweep cancel) makes the
-// task complete as a noop.
+// re-runs safely. A row whose blob is staged reaches this stage only once
+// the settle task has moved the blob to its digest's key. The removal sweep
+// cancels a row only while no live task holds it, so a task never records commp for a removed blob; a row cancelled
+// before the task starts makes it complete as a noop.
 type CommPTask struct {
 	db  *harmonydb.DB
 	api types.PieceAPI
@@ -43,7 +45,7 @@ func (t *CommPTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_blob_pipeline SET commp_task_id = $1
-			WHERE digest = $2 AND commp_task_id IS NULL
+			WHERE digest = $2 AND commp_task_id IS NULL AND NOT staged
 		`, id, []byte(blob))
 		return n > 0, err
 	})
@@ -130,9 +132,9 @@ func (t *CommPTask) TypeDetails() harmonytask.TaskTypeDetails {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`
 					UPDATE pdp_blob_pipeline SET commp_task_id = $1
-					WHERE digest = (
+					WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged AND digest = (
 						SELECT digest FROM pdp_blob_pipeline
-						WHERE commp_task_id IS NULL AND aggregate_root IS NULL
+						WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged
 						ORDER BY created_at LIMIT 1
 					)
 				`, id)

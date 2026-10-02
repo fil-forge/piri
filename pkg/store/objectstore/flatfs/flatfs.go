@@ -256,8 +256,11 @@ func (fs *Store) makeDirNoSync(dir string) (created bool, err error) {
 	return true, nil
 }
 
-// This function always runs under an opLock. Therefore, only one thread is
-// touching the affected files.
+// rename moves a file into place, retrying transient errors. Put calls it
+// under the destination key's opLock. Move calls it directly: the op map
+// coalesces concurrent writes to one key rather than serializing them, so a
+// move routed through it could be skipped by a concurrent Put. Callers of Move
+// serialize it with deletes of the same keys themselves.
 func (fs *Store) rename(tmpPath, path string) error {
 	var err error
 	for i := 0; i < RetryAttempts; i++ {
@@ -302,6 +305,51 @@ func (fs *Store) Put(ctx context.Context, key string, size uint64, value io.Read
 		size:  size,
 	})
 	return err
+}
+
+var _ objectstore.Mover = (*Store)(nil)
+
+// Move renames src's file to dst's, which is atomic: the object is at one key
+// or the other throughout, never both and never neither.
+func (fs *Store) Move(ctx context.Context, src, dst string) error {
+	if !keyIsValid(src) || !keyIsValid(dst) {
+		return fmt.Errorf("when moving %q to %q: %w", src, dst, ErrInvalidKey)
+	}
+
+	fs.shutdownLock.RLock()
+	defer fs.shutdownLock.RUnlock()
+	if fs.shutdown {
+		return ErrClosed
+	}
+
+	srcDir, srcPath := fs.encode(src)
+	dstDir, dstPath := fs.encode(dst)
+	if err := fs.makeDir(dstDir); err != nil {
+		return err
+	}
+	if err := fs.rename(srcPath, dstPath); err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("moving %q to %q: %w", src, dst, err)
+		}
+		if _, err := os.Stat(dstPath); err == nil {
+			return nil
+		} else if os.IsNotExist(err) {
+			return objectstore.ErrNotExist
+		} else {
+			return err
+		}
+	}
+	if fs.sync {
+		if err := syncDir(dstDir); err != nil {
+			return err
+		}
+		if srcDir != dstDir {
+			if err := syncDir(srcDir); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (fs *Store) doOp(oper *op) error {

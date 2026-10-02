@@ -552,8 +552,8 @@ github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc h1:fzFl4n4OYukafjHD78DKu0o5UIfI9uKyzBug5cDcYJ4=
 github.com/fil-forge/go-ipni-tools v0.0.0-20260917200306-3afbe407bbcc/go.mod h1:5Sfcai2D0OxYqtelvgHU/qQ9CtigawFn+MpzO73cOzk=
-github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7 h1:MUP8oByAzhniP4FxpPIICFRackeyXrqiqJ0A2PB2OHA=
-github.com/fil-forge/libforge v0.0.0-20260924165456-6d072ddc75f7/go.mod h1:sHUJ6GoVlCwuwvt2auh+ZEhr4Ywi0y+MV7yqDpWV1lc=
+github.com/fil-forge/libforge v0.0.0-20261001200856-b2db386b1f96 h1:aeRNL0QKMNHa+LWX445Fn5PTScYciR4fDVvTb/cPBjU=
+github.com/fil-forge/libforge v0.0.0-20261001200856-b2db386b1f96/go.mod h1:sKml7ScjN2ov8F7jTuBIv823EgyWGTJG6cvA8ronPk4=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
 github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3 h1:Ta5ODMWR9mM4zMfRp/K1unAKvnt7f5dhehRA+YHiv7w=

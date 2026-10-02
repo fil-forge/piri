@@ -16,9 +16,13 @@ const tracerName = "github.com/fil-forge/piri/pkg/store/objectstore"
 
 // Traced wraps s so each operation is an objectstore.<op> span naming the
 // store, whatever the backend. A backend that makes network calls (MinIO)
-// records them as child spans of these.
+// records them as child spans of these. The result is a Mover when s is.
 func Traced(name string, s Store) Store {
-	return &tracedStore{name: name, inner: s}
+	t := &tracedStore{name: name, inner: s}
+	if m, ok := s.(Mover); ok {
+		return &tracedMover{tracedStore: t, mover: m}
+	}
+	return t
 }
 
 // TracedListable is Traced for a ListableStore, keeping Exists and
@@ -80,6 +84,17 @@ func (s *tracedStore) Delete(ctx context.Context, key string) (err error) {
 	ctx, span := s.start(ctx, "delete")
 	defer func() { end(span, err) }()
 	return s.inner.Delete(ctx, key)
+}
+
+type tracedMover struct {
+	*tracedStore
+	mover Mover
+}
+
+func (s *tracedMover) Move(ctx context.Context, src, dst string) (err error) {
+	ctx, span := s.start(ctx, "move")
+	defer func() { end(span, err) }()
+	return s.mover.Move(ctx, src, dst)
 }
 
 type tracedListableStore struct {
