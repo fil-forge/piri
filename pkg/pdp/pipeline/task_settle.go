@@ -21,7 +21,7 @@ const SettleTaskName = "PDPSettle"
 // a rename (flatfs) or a copy inside the object store (MinIO), so it costs
 // little of the node's own CPU or memory, and more of them run at once than
 // commP tasks do.
-const settleConcurrency = 16
+const settleConcurrency = 64
 
 // Settler moves a staged blob to the key of its digest.
 type Settler interface {
