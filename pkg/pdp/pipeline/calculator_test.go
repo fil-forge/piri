@@ -30,10 +30,41 @@ func fakeAdder(t *testing.T, db *harmonydb.DB) harmonytask.AddTaskFunc {
 
 func newTestEntry(t *testing.T) (*Entry, *harmonydb.DB) {
 	t.Helper()
+	p := newTestPipeline(t)
+	return p.entry, p.db
+}
+
+// fakeSettler records the blobs it settles; err fails them.
+type fakeSettler struct {
+	settled []multihash.Multihash
+	err     error
+}
+
+func (f *fakeSettler) Settle(_ context.Context, digest multihash.Multihash) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.settled = append(f.settled, digest)
+	return nil
+}
+
+type testPipeline struct {
+	db      *harmonydb.DB
+	entry   *Entry
+	commp   *CommPTask
+	settle  *SettleTask
+	settler *fakeSettler
+}
+
+func newTestPipeline(t *testing.T) testPipeline {
+	t.Helper()
 	db := testutil.NewHarmonyDB(t)
-	task := NewCommPTask(db, nil, nil)
-	task.Adder(fakeAdder(t, db))
-	return NewEntry(db, task), db
+	commp := NewCommPTask(db, nil, nil)
+	commp.Adder(fakeAdder(t, db))
+	settler := &fakeSettler{}
+	settle := NewSettleTask(db, settler, commp)
+	settle.Adder(fakeAdder(t, db))
+	return testPipeline{db: db, entry: NewEntry(db, commp, settle), commp: commp, settle: settle, settler: settler}
 }
 
 func testBlobAndPiece(t *testing.T, seed string) (multihash.Multihash, string, string) {

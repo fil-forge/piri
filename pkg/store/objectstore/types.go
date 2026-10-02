@@ -42,6 +42,16 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 }
 
+// Mover is implemented by a Store that can move an object to another of its
+// keys without the bytes passing through the caller.
+type Mover interface {
+	// Move makes the object at src the object at dst, replacing any object
+	// there, and removes src. A src that is gone while dst exists is a move
+	// already made, and succeeds, so a move interrupted part way is finished
+	// by moving again. With neither, it fails with ErrNotExist.
+	Move(ctx context.Context, src, dst string) error
+}
+
 // ListableStore extends Store with the ability to list objects by prefix
 // and check for existence. This is implemented by stores that support
 // efficient prefix-based queries (like S3/MinIO).

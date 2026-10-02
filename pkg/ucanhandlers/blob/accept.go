@@ -22,6 +22,7 @@ import (
 	"github.com/fil-forge/libforge/commands/pdp"
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
@@ -31,6 +32,7 @@ import (
 	"github.com/fil-forge/piri/pkg/service/publisher"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -48,6 +50,9 @@ type AcceptDeps struct {
 	Commp       commp.Calculator
 	ClaimStore  invocationstore.InvocationStore
 	Publisher   publisher.Publisher
+	// Pending resolves the digest of an accept that names only a digest
+	// code. Only the handler uses it; Accept itself always has a digest.
+	Pending PendingAllocations
 }
 
 // AcceptanceStore is the slice of acceptancestore.AcceptanceStore the
@@ -76,15 +81,34 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		// The route's middleware has already required an invocation subjected to
 		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
-		resp, err := Accept(req.Context(), deps, &AcceptRequest{
+		digest, hashed := args.Blob.Digest()
+		b := blob.Blob{Digest: digest, Size: args.Blob.Size()}
+		var pending allocation.Pending
+		if !hashed {
+			digest, p, err := resolvePutDigest(req.Context(), deps.Pending, req.Metadata(), args.Space, args.Blob, args.Put)
+			if err != nil {
+				var named errors.Named
+				if errors.As(err, &named) {
+					return rsp.SetFailure(named)
+				}
+				return err
+			}
+			b.Digest = digest
+			pending = p
+		}
+
+		accReq := &AcceptRequest{
 			Space: args.Space,
-			Blob: blob.Blob{
-				Digest: args.Blob.Digest,
-				Size:   args.Blob.Size,
-			},
+			Blob:  b,
 			Put:   args.Put,
 			Cause: req.Invocation().Task().Link(),
-		})
+		}
+		if !hashed {
+			accReq.Allocation = &pending.Allocation
+		} else if link, ok := putAllocation(req.Metadata(), args.Put.Task, digest); ok {
+			accReq.Allocation = &link
+		}
+		resp, err := Accept(req.Context(), deps, accReq)
 		if err != nil {
 			return err
 		}
@@ -106,6 +130,10 @@ type AcceptRequest struct {
 	Put   promise.AwaitOK
 	// Cause is a link to the `blob/accept` or `blob/replica/transfer` invocation.
 	Cause cid.Cid
+	// Allocation links the `/blob/allocate` task whose allocation is accepted,
+	// when the accept identifies it. It is recorded on the acceptance, which
+	// a reject of that allocation refuses on.
+	Allocation *cid.Cid
 }
 
 type AcceptResponse struct {
@@ -199,7 +227,8 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		PDPAccept:  promise.AwaitOK{Task: pdpAcceptInv.Task().Link()},
 		// The claim link is the digest→claim index /blob/release uses to
 		// delete the location claim when this space's acceptance is removed.
-		Site: claim.Link(),
+		Site:       claim.Link(),
+		Allocation: req.Allocation,
 	}
 	// The acceptance is written BEFORE the pipeline enqueue so "an
 	// acceptance exists" is a conservative superset of "the blob entered
@@ -220,6 +249,18 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 			log.Errorw("compensating acceptance delete after enqueue failure", "error", derr)
 		}
 		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
+	}
+
+	// The acceptance stands from here on, so the allocation it accepted
+	// becomes the space's allocation of the blob again if a later allocation
+	// of the same content replaced it: a reject of it then finds the
+	// acceptance, and a reject of the other finds nothing to drop. An accept
+	// that failed before this point leaves the allocations as they were.
+	if req.Allocation != nil {
+		if err := deps.Pending.MakeCurrent(ctx, req.Blob.Digest, req.Space, *req.Allocation); err != nil {
+			log.Errorw("recording accepted allocation", "error", err)
+			return nil, fmt.Errorf("recording accepted allocation: %w", err)
+		}
 	}
 
 	err = deps.ClaimStore.Put(ctx, claim)

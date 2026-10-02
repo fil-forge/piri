@@ -49,11 +49,17 @@ func NewDatastoreStore(ds datastore.Datastore) *Store {
 }
 
 func (s *Store) Get(ctx context.Context, digest multihash.Multihash, opts ...GetOption) (Object, error) {
+	return getObject(ctx, s.backend, s.encoder.EncodeKey(digest), opts...)
+}
+
+// getObject gets key from backend, translating the backend's errors to the
+// blobstore's.
+func getObject(ctx context.Context, backend objectstore.Store, key string, opts ...GetOption) (Object, error) {
 	o := &GetOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
-	obj, err := s.backend.Get(ctx, s.encoder.EncodeKey(digest), objectstore.WithRange(objectstore.Range(o.ByteRange)))
+	obj, err := backend.Get(ctx, key, objectstore.WithRange(objectstore.Range(o.ByteRange)))
 	if err != nil {
 		if errors.Is(err, objectstore.ErrNotExist) {
 			return nil, store.ErrNotFound

@@ -100,6 +100,36 @@ func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader
 	return nil
 }
 
+var _ objectstore.Mover = (*Store)(nil)
+
+// Move copies src to dst inside the bucket, then removes src: the bytes do not
+// leave MinIO. A move interrupted between the two leaves both, and moving
+// again copies once more and removes src.
+func (s *Store) Move(ctx context.Context, src, dst string) error {
+	_, err := s.client.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: s.bucket, Object: dst},
+		minio.CopySrcOptions{Bucket: s.bucket, Object: src},
+	)
+	if err != nil {
+		var merr minio.ErrorResponse
+		if !errors.As(err, &merr) || merr.Code != minio.NoSuchKey {
+			return fmt.Errorf("copying %s to %s: %w", src, dst, err)
+		}
+		exists, err := s.Exists(ctx, dst)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return objectstore.ErrNotExist
+		}
+		return nil
+	}
+	if err := s.client.RemoveObject(ctx, s.bucket, src, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("removing %s after copying it to %s: %w", src, dst, err)
+	}
+	return nil
+}
+
 type MinioObject struct {
 	object *minio.Object
 	size   int64

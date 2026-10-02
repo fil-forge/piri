@@ -1,7 +1,8 @@
 // Package pipeline implements Piri's aggregation pipeline as harmonytask
 // tasks on Curio's harmonydb: commP calculation (PDPCommP), aggregate
 // folding (PDPAggregate), batched on-chain root submission (PDPAddRoots),
-// and the asynchronous blob-removal sweep (PDPRemoveSweep).
+// the asynchronous blob-removal sweep (PDPRemoveSweep), and the expiry of
+// allocations made without a digest (PDPAllocExpiry).
 //
 // All pipeline state lives in harmonydb (pdp_blob_pipeline,
 // pdp_root_submissions — see pkg/curiopdp/schema/sql/00000003-blob-pipeline.sql),

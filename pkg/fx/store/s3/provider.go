@@ -139,7 +139,7 @@ func NewReceiptStore(stores *Stores) receiptstore.ReceiptStore {
 }
 
 // NewPDPStore provides the blob store backing PDP piece storage.
-func NewPDPStore(stores *Stores) blobstore.Blobstore {
+func NewPDPStore(stores *Stores) *blobstore.Store {
 	return blobstore.NewS3Store(stores.PDP)
 }
 

@@ -94,7 +94,7 @@ func (s *RPCSuite) seedAcceptedBlob(t *testing.T, space did.DID) multihash.Multi
 		service,
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: uint64(len(data))},
+			Blob:  blob.SpecFromDigest(digest, uint64(len(data))),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -126,7 +126,7 @@ func (s *RPCSuite) TestBlobRelease_ReleasesClaimAndBytes() {
 
 	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: size},
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
@@ -140,7 +140,7 @@ func (s *RPCSuite) TestBlobRelease_ReleasesClaimAndBytes() {
 		service,
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -188,7 +188,7 @@ func (s *RPCSuite) TestBlobRelease_OtherSpaceRetainsBytes() {
 			service,
 			&blob.AcceptArguments{
 				Space: space,
-				Blob:  blob.Blob{Digest: digest, Size: size},
+				Blob:  blob.SpecFromDigest(digest, size),
 				Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 			},
 			invocation.WithAudience(service),
