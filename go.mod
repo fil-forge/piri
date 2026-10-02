@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/alanshaw/dag-json-gen v0.0.9
+	github.com/alanshaw/dag-json-gen v0.0.10
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/docker/docker v28.5.2+incompatible
