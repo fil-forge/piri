@@ -54,76 +54,81 @@ var InitCmd = &cobra.Command{
 }
 
 func init() {
-	InitCmd.Flags().String(
+	addInitFlags(InitCmd)
+	InitCmd.SetOut(os.Stdout)
+	InitCmd.SetErr(os.Stderr)
+}
+
+// addInitFlags registers init's flags on cmd. Tests parse them on a fresh
+// command so they go through the same flag handling as `piri init`.
+func addInitFlags(cmd *cobra.Command) {
+	cmd.Flags().String(
 		"network",
 		"",
 		fmt.Sprintf("Network the node will operate on. This will set default values for service URLs and DIDs and contract addresses. Available values are: %q", presets.AvailableNetworks),
 	)
 
 	// Required flags
-	InitCmd.Flags().String("host", "localhost", "Host Piri listens for connections on")
-	InitCmd.Flags().Uint("port", 3000, "Port Piri listens for connections on")
-	InitCmd.Flags().String("data-dir", "", "Path to a data directory Piri will maintain its permanent state in")
-	InitCmd.Flags().String("temp-dir", "", "Path to a temporary directory Piri will maintain ephemeral state in")
-	InitCmd.Flags().String("key-file", "", "Path to a PEM file containing ed25519 private key used as Piri's identity on the Forge network")
-	InitCmd.Flags().String("wallet-file", "", "Path to a file containing a delegated filecoin address private key in hex format")
-	InitCmd.Flags().String("lotus-endpoint", "", "API endpoint of the Lotus node Piri will use to interact with the blockchain")
-	InitCmd.Flags().String("operator-email", "", "Email address of the piri operator (your email address for contact with the Forge team)")
-	InitCmd.Flags().String("public-url", "", "URL Piri will advertise to the Forge network")
+	cmd.Flags().String("host", "localhost", "Host Piri listens for connections on")
+	cmd.Flags().Uint("port", 3000, "Port Piri listens for connections on")
+	cmd.Flags().String("data-dir", "", "Path to a data directory Piri will maintain its permanent state in")
+	cmd.Flags().String("temp-dir", "", "Path to a temporary directory Piri will maintain ephemeral state in")
+	cmd.Flags().String("key-file", "", "Path to a PEM file containing ed25519 private key used as Piri's identity on the Forge network")
+	cmd.Flags().String("wallet-file", "", "Path to a file containing a delegated filecoin address private key in hex format")
+	cmd.Flags().String("lotus-endpoint", "", "API endpoint of the Lotus node Piri will use to interact with the blockchain")
+	cmd.Flags().String("operator-email", "", "Email address of the piri operator (your email address for contact with the Forge team)")
+	cmd.Flags().String("public-url", "", "URL Piri will advertise to the Forge network")
 
-	cobra.CheckErr(InitCmd.MarkFlagRequired("data-dir"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("temp-dir"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("key-file"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("wallet-file"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("lotus-endpoint"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("operator-email"))
-	cobra.CheckErr(InitCmd.MarkFlagRequired("public-url"))
+	cobra.CheckErr(cmd.MarkFlagRequired("data-dir"))
+	cobra.CheckErr(cmd.MarkFlagRequired("temp-dir"))
+	cobra.CheckErr(cmd.MarkFlagRequired("key-file"))
+	cobra.CheckErr(cmd.MarkFlagRequired("wallet-file"))
+	cobra.CheckErr(cmd.MarkFlagRequired("lotus-endpoint"))
+	cobra.CheckErr(cmd.MarkFlagRequired("operator-email"))
+	cobra.CheckErr(cmd.MarkFlagRequired("public-url"))
 
 	// did:plc resolution is always available; an omitted or empty value falls
 	// back to the default PLC directory. Set a non-empty value to override it.
-	InitCmd.Flags().String(
+	cmd.Flags().String(
 		"plc-directory",
 		config.DefaultPLCDirectory,
 		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
 	)
 
 	// Database configuration flags
-	InitCmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
-	InitCmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required when db-type=postgres)")
-	InitCmd.Flags().Int("db-postgres-max-open-conns", 5, "PostgreSQL max open connections (default: 5)")
-	InitCmd.Flags().Int("db-postgres-max-idle-conns", 5, "PostgreSQL max idle connections (default: 5)")
-	InitCmd.Flags().String("db-postgres-conn-max-lifetime", "30m", "PostgreSQL connection max lifetime (e.g. '30m')")
+	cmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
+	cmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required when db-type=postgres)")
+	cmd.Flags().Int("db-postgres-max-open-conns", 5, "PostgreSQL max open connections (default: 5)")
+	cmd.Flags().Int("db-postgres-max-idle-conns", 5, "PostgreSQL max idle connections (default: 5)")
+	cmd.Flags().String("db-postgres-conn-max-lifetime", "30m", "PostgreSQL connection max lifetime (e.g. '30m')")
 
 	// S3 storage configuration flags
-	InitCmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
-	InitCmd.Flags().String("s3-bucket-prefix", "", "Prefix for S3 bucket names (e.g. 'piri-' creates piri-blobs, piri-allocations)")
-	InitCmd.Flags().String("s3-access-key-id", "", "S3 access key ID")
-	InitCmd.Flags().String("s3-secret-access-key", "", "S3 secret access key")
-	InitCmd.Flags().Bool("s3-insecure", false, "Disable SSL for S3 (development only)")
+	cmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
+	cmd.Flags().String("s3-bucket-prefix", "", "Prefix for S3 bucket names (e.g. 'piri-' creates piri-blobs, piri-allocations)")
+	cmd.Flags().String("s3-access-key-id", "", "S3 access key ID")
+	cmd.Flags().String("s3-secret-access-key", "", "S3 secret access key")
+	cmd.Flags().Bool("s3-insecure", false, "Disable SSL for S3 (development only)")
 	// these flags must be provided together
-	InitCmd.MarkFlagsRequiredTogether("s3-endpoint", "s3-bucket-prefix")
+	cmd.MarkFlagsRequiredTogether("s3-endpoint", "s3-bucket-prefix")
 
-	InitCmd.Flags().String(
+	cmd.Flags().String(
 		"registrar-url",
 		"",
 		"[Advanced] URL of the registrar service. Required when using --base-config.")
-	cobra.CheckErr(InitCmd.Flags().MarkHidden("registrar-url"))
+	cobra.CheckErr(cmd.Flags().MarkHidden("registrar-url"))
 
 	// base-config provides an alternative to --network for custom or local development environments.
 	// It defines the network identity: which blockchain (chain ID), which smart contracts to interact
 	// with, and which Forge services (signing, upload, indexer, etc.) to connect to.
 	// It may also optionally include storage backend configuration (database type, S3 settings)
 	// which will be used unless overridden by explicit flags.
-	InitCmd.Flags().String(
+	cmd.Flags().String(
 		"base-config",
 		"",
 		"[Advanced] Path to network config TOML defining chain ID, contract addresses, and service endpoints. Use instead of --network for custom/local environments. May include storage backend settings (database, S3).")
-	cobra.CheckErr(InitCmd.Flags().MarkHidden("base-config"))
+	cobra.CheckErr(cmd.Flags().MarkHidden("base-config"))
 	// cannot use base-config and network flag together since both define network identity
-	InitCmd.MarkFlagsMutuallyExclusive("base-config", "network")
-
-	InitCmd.SetOut(os.Stdout)
-	InitCmd.SetErr(os.Stderr)
+	cmd.MarkFlagsMutuallyExclusive("base-config", "network")
 }
 
 // initFlags holds all the parsed command flags

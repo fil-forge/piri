@@ -1,0 +1,84 @@
+config_version = 1
+network = "forge-prod"
+
+[identity]
+  key_file = "/keys/piri.pem"
+
+[repo]
+  data_dir = "/data/piri"
+  temp_dir = "/tmp/piri"
+  [repo.database]
+    type = "postgres"
+    [repo.database.postgres]
+      url = "postgres://piri:fixture-db-password@db.example.com:5432/piri"
+      max_open_conns = 21
+      max_idle_conns = 19
+      conn_max_lifetime = "50m"
+  [repo.s3]
+    endpoint = "s3.example.com:9000"
+    bucket_prefix = "fixture-"
+    insecure = true
+    [repo.s3.credentials]
+      access_key_id = "fixture-access-key"
+      secret_access_key = "fixture-secret-key"
+
+[server]
+  port = 3000
+  host = "0.0.0.0"
+  public_url = "https://piri.example.com"
+
+[pdp]
+  owner_address = "0x9012345678901234567890123456789012345678"
+  lotus_endpoint = "wss://lotus.example.com/rpc/v1"
+  lotus_auth_token = "fixture-lotus-token"
+  chain_id = "314"
+  payer_address = "0x3C1AE7A70a2b51458Fcb7927FD77AaE408a1B857"
+  [pdp.signing_service]
+    did = "did:web:signer.forge.storacha.network"
+    url = "https://signer.forge.storacha.network"
+  [pdp.contracts]
+    verifier = "0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"
+    provider_registry = "0xf55dDbf63F1b55c3F1D4FA7e339a68AB7b64A5eB"
+    service = "0x56e53c5e7F27504b810494cc3b88b2aa0645a839"
+    service_view = "0x778Bbb8F50d759e2AA03ab6FAEF830Ca329AFF9D"
+    payments = "0x23b1e018F08BB982348b15a86ee926eEBf7F4DAa"
+    usdfc_token = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
+  [pdp.aggregation]
+    [pdp.aggregation.commp]
+      [pdp.aggregation.commp.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.aggregator]
+      min_aggregate_size = 134217728
+      [pdp.aggregation.aggregator.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.manager]
+      poll_interval = "30s"
+      batch_size = 10
+      [pdp.aggregation.manager.job_queue]
+        workers = 3
+        retries = 50
+        retry_delay = "1m0s"
+
+[ucan]
+  proof_set = 42
+  plc_directory = "https://plc.example.com"
+  [ucan.services]
+    [ucan.services.indexer]
+      did = "did:web:indexer.forge.storacha.network"
+      url = "https://indexer.forge.storacha.network/claims"
+      proof = "indexer-proof"
+    [ucan.services.etracker]
+      did = "did:web:etracker.forge.storacha.network"
+      url = "https://etracker.forge.storacha.network"
+      receipts_endpoint = "https://etracker.forge.storacha.network/receipts"
+      max_batch_size_bytes = 10485760
+      proof = "egress-proof"
+    [ucan.services.upload]
+      did = "did:web:up.forge.storacha.network"
+      url = "https://up.forge.storacha.network"
+    [ucan.services.publisher]
+      ipni_announce_urls = ["https://cid.contact/announce", "https://ipni.forge.storacha.network"]

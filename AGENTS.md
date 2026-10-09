@@ -139,4 +139,4 @@ to cover the new graph shape.
   needs `config.GeneratedConfigVersion` bumped (`pkg/config/full.go`):
   deployments re-run init only when it changes. `TestGeneratedConfig` in
   `cmd/cli/setup` fails until you do; its doc comment says how to re-record
-  the golden file.
+  the golden files. A change to a `--network` preset counts too.
