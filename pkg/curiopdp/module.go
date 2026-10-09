@@ -65,6 +65,9 @@ var Module = fx.Module("curio-pdp",
 		fx.Annotate(provideEngine, fx.ParamTags("", "", taskGroup)),
 	),
 	fx.Invoke(provisionPDPState),
+	// Before startPipeline: the chain head handler must be added to the
+	// chain scheduler before it runs.
+	fx.Invoke(registerPDPMetrics),
 	fx.Invoke(startPipeline),
 )
 
