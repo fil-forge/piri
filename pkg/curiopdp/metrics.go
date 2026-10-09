@@ -75,8 +75,9 @@ type proofSetState struct {
 	// NextPP) that Curio has handled as contract reverts since the last
 	// successful prove send.
 	ConsecutiveProveFailures int64 `db:"consecutive_prove_failures"`
-	// NextProveAttemptAt is the epoch before which Curio will not retry
-	// proving after a failure; nil when no backoff is in effect.
+	// NextProveAttemptAt is the backoff deadline Curio set after the last
+	// proving failure. It stays once passed; Curio clears it on the next
+	// successful prove send.
 	NextProveAttemptAt *int64 `db:"next_prove_attempt_at"`
 	// UnrecoverableEpoch is set once Curio has given up proving the set.
 	UnrecoverableEpoch *int64 `db:"unrecoverable_proving_failure_epoch"`
