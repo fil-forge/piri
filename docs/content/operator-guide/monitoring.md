@@ -188,21 +188,20 @@ unless on (node, proof_set)
 # within the last hour. A rejected prove is not retried within its period, so
 # that period's proof was missed; a rejected scheduling transaction is retried
 # after a backoff. It fires for about an hour per new failure, so during a long
-# backoff it pages after each failure rather than throughout. `increase`
-# rather than `delta`, because the count behaves as a counter whose only drop
-# is the reset to zero: a reset followed by a new failure within the hour still
-# counts as a rise. The count itself is not a
-# good paging condition: only a successful prove send resets it, so it stays
-# above zero for up to a proving period after any revert, even when the retry
-# that follows succeeds, and indefinitely if proving is then disabled for the
-# set. Graph `piri_pdp_proofset_consecutive_prove_failures` for the current
-# state.
+# backoff it pages after each failure rather than throughout. `increase` rather
+# than `delta`, because the count behaves as a counter whose only drop is the
+# reset to zero: a reset followed by a new failure within the hour still counts
+# as a rise. The count itself is not a good paging condition: only a successful
+# prove send resets it, so it stays above zero for up to a proving period after
+# any revert, even when the retry that follows succeeds, and indefinitely if
+# proving is then disabled for the set. Graph
+# `piri_pdp_proofset_consecutive_prove_failures` for the current state.
 increase(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
 
 # Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
 # run Curio's data set deletion, so the count does not go down on its own; to
 # alert only when a new one appears, use
-# `delta(piri_pdp_proofsets_unrecoverable[1h]) > 0`.
+# `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
 # Prove task not running: no PDPv0_Prove run has finished in 1.5 proving
