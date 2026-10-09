@@ -169,7 +169,7 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
     piri_pdp_proofset_next_challenge_epoch{job="forge/piri"}
   + piri_pdp_proofset_challenge_window_epochs{job="forge/piri"}
 )
-< on (node) group_left
+< on (node) group_left()
 (
     max by (node) (piri_chain_head_epoch{job="forge/piri"})
   + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
@@ -177,7 +177,7 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
 unless on (node, proof_set)
 (
   piri_pdp_proofset_next_prove_attempt_epoch{job="forge/piri"}
-  > on (node) group_left
+  > on (node) group_left()
   (
       max by (node) (piri_chain_head_epoch{job="forge/piri"})
     + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
@@ -187,15 +187,17 @@ unless on (node, proof_set)
 # Proving failing: Curio has had a proving transaction for a proof set rejected
 # within the last hour. A rejected prove is not retried within its period, so
 # that period's proof was missed; a rejected scheduling transaction is retried
-# after a backoff. It fires for about an hour per new failure, and misses one
-# only if a successful prove send resets the count within that hour, which
-# cannot follow a rejected prove in the same period. The count itself is not a
+# after a backoff. It fires for about an hour per new failure, so during a long
+# backoff it pages after each failure rather than throughout. `increase`
+# rather than `delta`, because the count behaves as a counter whose only drop
+# is the reset to zero: a reset followed by a new failure within the hour still
+# counts as a rise. The count itself is not a
 # good paging condition: only a successful prove send resets it, so it stays
 # above zero for up to a proving period after any revert, even when the retry
 # that follows succeeds, and indefinitely if proving is then disabled for the
 # set. Graph `piri_pdp_proofset_consecutive_prove_failures` for the current
 # state.
-delta(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
+increase(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
 
 # Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
 # run Curio's data set deletion, so the count does not go down on its own; to
