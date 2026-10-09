@@ -102,11 +102,12 @@ Initialization complete!
 
 `piri init` writes the config to `piri-config.toml` in the current directory, readable only by the
 user that ran it. It replaces any existing file only once the new config is complete, and exits
-non-zero if it can't write it.
+non-zero if it can't write it. If `piri-config.toml` is a symlink, init replaces the file it points to.
 
 The config holds secrets, such as the Lotus auth token and any database or S3 credentials, so init
 doesn't print it to a terminal. When stdout is redirected or piped, init writes the config there too:
-use `> config.toml` to save it to a file of your choosing, with restricted permissions. Place it in
+use `> config.toml` to save it to a file of your choosing, with restricted permissions. If that write
+fails, init exits non-zero, though `piri-config.toml` is already saved. Place the config in
 `~/.config/piri/config.toml` for automatic loading by `piri serve`.
 
 ## What's Next

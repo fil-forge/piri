@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1110,7 +1112,7 @@ func doInit(cmd *cobra.Command, _ []string) error {
 	// to save it elsewhere.
 	if out := cmd.OutOrStdout(); !isTerminal(out) {
 		if _, err := out.Write(cfgData); err != nil {
-			return fmt.Errorf("writing configuration to stdout: %w", err)
+			return fmt.Errorf("configuration saved to %s, but writing it to stdout failed: %w", configPath, err)
 		}
 	}
 	return nil
@@ -1129,8 +1131,14 @@ func isTerminal(w io.Writer) bool {
 
 // writeFileAtomic writes data to path with mode perm by way of a temporary file
 // in the same directory, so path holds either its old contents or all of data,
-// never a partial write.
+// never a partial write. If path is a symlink, the file it points to is
+// replaced and the link kept.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
