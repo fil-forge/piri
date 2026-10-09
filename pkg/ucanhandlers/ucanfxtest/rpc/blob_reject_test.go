@@ -1,12 +1,18 @@
 package rpc_test
 
 import (
+	"testing"
+
 	"github.com/fil-forge/libforge/commands/blob"
+	httpcmds "github.com/fil-forge/libforge/commands/http"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/errors/datamodel"
+	"github.com/fil-forge/ucantone/multikey/ed25519"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
+	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
@@ -20,7 +26,6 @@ import (
 
 func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 	t := s.T()
-	service := s.ServiceID.DID()
 
 	// Allocate + upload, but never accept: the blob is parked.
 	data := testutil.RandomBytes(t, 64)
@@ -30,43 +35,19 @@ func (s *RPCSuite) TestBlobReject_ParkedBlobReleased() {
 
 	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
 		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: size},
+		Blob:  blob.SpecFromDigest(digest, size),
 		Cause: testutil.RandomCID(t),
 	})
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
 	s.Pieces.Put(digest, data)
 
-	proof := testutil.Must(delegation.Delegate(
-		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Reject.Command,
-	))(t)
-	unalloc := testutil.Must(blob.Reject.Invoke(
-		s.UploadServiceIdentity,
-		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
-		invocation.WithAudience(service),
-		invocation.WithProofs(proof.Link()),
-	))(t)
-	assertReceiptOK(t, s.sendInvocationWithProofs(t, unalloc, proof))
+	assertReceiptOK(t, s.rejectAllocation(t, alloc.Task().Link()))
 
 	_, err := s.Allocations.Get(t.Context(), digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "allocation deleted")
 	require.Contains(t, s.Pieces.Removed(), digest, "parked bytes released")
 
-	// Idempotent.
-	again := testutil.Must(blob.Reject.Invoke(
-		s.UploadServiceIdentity,
-		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
-		invocation.WithAudience(service),
-		invocation.WithProofs(proof.Link()),
-	))(t)
-	assertReceiptOK(t, s.sendInvocationWithProofs(t, again, proof))
+	assertReceiptOK(t, s.rejectAllocation(t, alloc.Task().Link())) // idempotent
 }
 
 func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
@@ -78,6 +59,12 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	size := uint64(len(data))
 	space := testutil.RandomDID(t)
+	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.SpecFromDigest(digest, size),
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
 	s.Pieces.Put(digest, data)
 
 	acceptProof := testutil.Must(delegation.Delegate(
@@ -88,7 +75,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 		service,
 		&blob.AcceptArguments{
 			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: size},
+			Blob:  blob.SpecFromDigest(digest, size),
 			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
 		},
 		invocation.WithAudience(service),
@@ -96,20 +83,7 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	))(t)
 	assertReceiptOK(t, s.sendInvocationWithProofs(t, accept, acceptProof))
 
-	proof := testutil.Must(delegation.Delegate(
-		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Reject.Command,
-	))(t)
-	unalloc := testutil.Must(blob.Reject.Invoke(
-		s.UploadServiceIdentity,
-		service,
-		&blob.RejectArguments{
-			Space:  space,
-			Digest: digest,
-		},
-		invocation.WithAudience(service),
-		invocation.WithProofs(proof.Link()),
-	))(t)
-	rcpt := s.sendInvocationWithProofs(t, unalloc, proof)
+	rcpt := s.rejectAllocation(t, alloc.Task().Link())
 
 	_, err := blob.Reject.Unpack(rcpt)
 	var em datamodel.ErrorModel
@@ -120,4 +94,153 @@ func (s *RPCSuite) TestBlobReject_AcceptedBlobRefused() {
 	_, err = s.Acceptances.Get(t.Context(), digest, space)
 	require.NoError(t, err, "acceptance untouched")
 	require.NotContains(t, s.Pieces.Removed(), digest, "accepted bytes never touched")
+}
+
+// A later allocation of the same blob in the same space replaces the earlier
+// one: rejecting the earlier allocation leaves the later one in place, and
+// rejecting the later one releases the blob.
+func (s *RPCSuite) TestBlobReject_ReplacedAllocationIsLeftAlone() {
+	t := s.T()
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	space := testutil.RandomDID(t)
+	allocate := func() ucan.Invocation {
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{
+			Space: space,
+			Blob:  blob.SpecFromDigest(digest, uint64(len(data))),
+			Cause: testutil.RandomCID(t),
+		})
+		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
+		return inv
+	}
+	first, second := allocate(), allocate()
+	s.Pieces.Put(digest, data)
+
+	assertReceiptOK(t, s.rejectAllocation(t, first.Task().Link()))
+	alloc, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err, "the later allocation stays")
+	require.Equal(t, second.Task().Link(), alloc.Allocation)
+	require.NotContains(t, s.Pieces.Removed(), digest)
+
+	assertReceiptOK(t, s.rejectAllocation(t, second.Task().Link()))
+	_, err = s.Allocations.Get(t.Context(), digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	require.Contains(t, s.Pieces.Removed(), digest)
+}
+
+// Two allocations of the same blob in the same space, the second replacing
+// the first; the upload to the first is accepted, its /http/put travelling
+// with the accept. Rejecting the second drops nothing, and rejecting the
+// first is refused: the acceptance names the allocation it accepted.
+func (s *RPCSuite) TestBlobReject_OnlyTheAcceptedAllocationIsRefused() {
+	t := s.T()
+	service := s.ServiceID.DID()
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	spec := blob.SpecFromDigest(digest, uint64(len(data)))
+	space := testutil.RandomDID(t)
+	allocate := func() ucan.Invocation {
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})
+		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
+		return inv
+	}
+	first, second := allocate(), allocate()
+	s.Pieces.Put(digest, data)
+
+	putter := testutil.Must(ed25519.GenerateIssuer())(t)
+	put := testutil.Must(httpcmds.Put.Invoke(
+		putter,
+		putter.DID(),
+		&httpcmds.PutArguments{Body: spec, Destination: promise.AwaitOK{Task: first.Task().Link()}},
+		invocation.WithAudience(putter.DID()),
+	))(t)
+	acceptProof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Accept.Command,
+	))(t)
+	accept := testutil.Must(blob.Accept.Invoke(
+		s.UploadServiceIdentity,
+		service,
+		&blob.AcceptArguments{Space: space, Blob: spec, Put: promise.AwaitOK{Task: put.Task().Link()}},
+		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProof.Link()),
+	))(t)
+	assertReceiptOK(t, s.sendInvocationWith(t, accept, []ucan.Invocation{put}, acceptProof))
+
+	acc, err := s.Acceptances.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.NotNil(t, acc.Allocation)
+	require.Equal(t, first.Task().Link(), *acc.Allocation, "the acceptance names the allocation the put was made to")
+	alloc, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.Equal(t, first.Task().Link(), alloc.Allocation, "the accepted allocation is the space's allocation again")
+
+	assertReceiptOK(t, s.rejectAllocation(t, second.Task().Link()))
+	_, err = s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err, "rejecting the allocation that was not accepted drops nothing")
+	require.NotContains(t, s.Pieces.Removed(), digest)
+
+	_, err = blob.Reject.Unpack(s.rejectAllocation(t, first.Task().Link()))
+	var em datamodel.ErrorModel
+	require.ErrorAs(t, err, &em)
+	require.Equal(t, blob.BlobAcceptedErrorName, em.Name())
+}
+
+// An accept that fails leaves the allocations as they were: the allocation
+// its put was made to is not made the space's allocation again.
+func (s *RPCSuite) TestBlobAccept_FailedAcceptChangesNoAllocation() {
+	t := s.T()
+	service := s.ServiceID.DID()
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	spec := blob.SpecFromDigest(digest, uint64(len(data)))
+	space := testutil.RandomDID(t)
+	allocate := func() ucan.Invocation {
+		inv, proof := s.newAllocate(t, &blob.AllocateArguments{Space: space, Blob: spec, Cause: testutil.RandomCID(t)})
+		assertReceiptOK(t, s.sendInvocationWithProofs(t, inv, proof))
+		return inv
+	}
+	first, second := allocate(), allocate()
+
+	putter := testutil.Must(ed25519.GenerateIssuer())(t)
+	put := testutil.Must(httpcmds.Put.Invoke(
+		putter,
+		putter.DID(),
+		&httpcmds.PutArguments{Body: spec, Destination: promise.AwaitOK{Task: first.Task().Link()}},
+		invocation.WithAudience(putter.DID()),
+	))(t)
+	acceptProof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Accept.Command,
+	))(t)
+	accept := testutil.Must(blob.Accept.Invoke(
+		s.UploadServiceIdentity,
+		service,
+		&blob.AcceptArguments{Space: space, Blob: spec, Put: promise.AwaitOK{Task: put.Task().Link()}},
+		invocation.WithAudience(service),
+		invocation.WithProofs(acceptProof.Link()),
+	))(t)
+	// The data never arrived, so the accept fails.
+	_, err := blob.Accept.Unpack(s.sendInvocationWith(t, accept, []ucan.Invocation{put}, acceptProof))
+	require.Error(t, err)
+
+	alloc, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	require.Equal(t, second.Task().Link(), alloc.Allocation, "the later allocation stays the space's allocation")
+}
+
+// rejectAllocation sends a /blob/reject of the allocation the allocate task
+// link made, issued by the upload service as in production.
+func (s *RPCSuite) rejectAllocation(t *testing.T, link cid.Cid) ucan.Receipt {
+	t.Helper()
+	service := s.ServiceID.DID()
+	proof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Reject.Command,
+	))(t)
+	inv := testutil.Must(blob.Reject.Invoke(
+		s.UploadServiceIdentity,
+		service,
+		&blob.RejectArguments{Allocation: link},
+		invocation.WithAudience(service),
+		invocation.WithProofs(proof.Link()),
+	))(t)
+	return s.sendInvocationWithProofs(t, inv, proof)
 }

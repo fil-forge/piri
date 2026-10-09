@@ -2,10 +2,12 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/multiformats/go-multihash"
+	"github.com/yugabyte/pgx/v5"
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
@@ -15,15 +17,17 @@ import (
 // /blob/accept (and replica transfer) can hand a blob to the pipeline.
 // Enqueue durably records the blob in pdp_blob_pipeline before returning —
 // the caller's acceptance-compensation logic relies on Enqueue reporting
-// failure — while the PDPCommP task spawn is best-effort (AddTask swallows
-// errors); rows that miss their spawn are scavenged by the task's IAmBored.
+// failure — while the task spawn is best-effort (AddTask swallows errors);
+// rows that miss their spawn are scavenged by the task's IAmBored. A blob
+// that is still staged starts at the PDPSettle task, any other at PDPCommP.
 type Entry struct {
-	db    *harmonydb.DB
-	commp *CommPTask
+	db     *harmonydb.DB
+	commp  *CommPTask
+	settle *SettleTask
 }
 
-func NewEntry(db *harmonydb.DB, commp *CommPTask) *Entry {
-	return &Entry{db: db, commp: commp}
+func NewEntry(db *harmonydb.DB, commp *CommPTask, settle *SettleTask) *Entry {
+	return &Entry{db: db, commp: commp, settle: settle}
 }
 
 var _ commp.Calculator = (*Entry)(nil)
@@ -38,9 +42,9 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 		span.End()
 	}()
 	log.Infow("enqueuing blob for aggregation", "blob", blob.String())
-	var spawn bool
+	var spawn, staged bool
 	_, err = e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		spawn = false
+		spawn, staged = false, false
 		// A blob whose piece is already live on-chain (or staged to be) is a
 		// re-accept of content the pipeline has already carried through —
 		// no new entry. Pieces scheduled for removal (rm_message_hash set)
@@ -73,20 +77,30 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 			log.Infow("blob already staged or proven, skipping pipeline entry", "blob", blob.String())
 			return false, nil
 		}
-		n, err := tx.Exec(`
-			INSERT INTO pdp_blob_pipeline (digest) VALUES ($1)
+		// The blob's upload has completed by now, so a blob received without
+		// its digest is staged here until its settle task moves it.
+		err := tx.QueryRow(`
+			INSERT INTO pdp_blob_pipeline (digest, staged)
+			VALUES ($1, EXISTS (SELECT 1 FROM pdp_staged_blobs WHERE digest = $1))
 			ON CONFLICT (digest) DO NOTHING
-		`, []byte(blob))
+			RETURNING staged
+		`, []byte(blob)).Scan(&staged)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
 		if err != nil {
 			return false, fmt.Errorf("inserting pipeline entry: %w", err)
 		}
-		spawn = n > 0
-		return spawn, nil
+		spawn = true
+		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
 		return fmt.Errorf("enqueuing blob %s for aggregation: %w", blob.String(), err)
 	}
-	if spawn {
+	switch {
+	case spawn && staged:
+		e.settle.spawn(ctx, blob)
+	case spawn:
 		e.commp.spawn(ctx, blob)
 	}
 	return nil

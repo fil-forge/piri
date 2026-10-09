@@ -107,9 +107,16 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
 
 HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
-matched route, so those appear alongside the operation spans above.
+matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,
+`/livez` and `/readyz`) are left out of both these traces and the HTTP server metrics: container
+healthchecks poll them every few seconds.
 
-Traces use parent-based sampling and integrate with W3C Trace Context propagation.
+Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header
+joins the caller's trace and follows its sampling decision; one that arrives without one starts a
+new trace, sampled. This is the OpenTelemetry SDK's default sampler, `parentbased_always_on`. To
+sample less, set the standard `OTEL_TRACES_SAMPLER` and `OTEL_TRACES_SAMPLER_ARG` environment
+variables, for example `OTEL_TRACES_SAMPLER=parentbased_traceidratio` and
+`OTEL_TRACES_SAMPLER_ARG=0.1` to start a trace for one request in ten.
 
 ## Integration
 
@@ -169,10 +176,18 @@ a unit-less gauge gains `_ratio`. So the four above are queried as
 `system_cpu_utilization_ratio`, `failed_jobs_total`, `job_duration_seconds` and
 `http_server_request_duration_seconds`.
 
-Piri's resource attributes — its version, its node DID as `service.instance.id`
-and its deployment environment — do not become labels on each series. A
-Prometheus-facing collector maps the service name to `job`, the instance ID to
-`instance`, and carries the rest on a `target_info` series to join against.
+Piri reports itself as `service.name` `piri` in `service.namespace` `forge`, the
+namespace Forge's services share. A Prometheus-facing collector joins the two
+into `job`, as `forge/piri`, and maps the node DID Piri reports as
+`service.instance.id` to `instance`. Piri's other resource attributes, such as
+its version and deployment environment, are on one `target_info` series per
+Piri, joined on `job` and `instance`, rather than on every series; a version
+label on every series would start a new series for each metric at every
+upgrade. To read the version alongside a metric:
+
+```promql
+failed_jobs_total * on (job, instance) group_left (service_version) target_info
+```
 
 ## Configuration
 

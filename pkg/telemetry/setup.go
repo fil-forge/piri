@@ -6,7 +6,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	semconvhttp "go.opentelemetry.io/otel/semconv/v1.37.0/httpconv"
 
 	"github.com/fil-forge/piri/lib/telemetry"
@@ -15,6 +16,11 @@ import (
 	"github.com/fil-forge/piri/pkg/build"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
+
+// serviceNamespace groups Piri with the other Forge services, so their
+// telemetry can be selected together without listing each service.name. It
+// also becomes the prefix of the Prometheus job label: forge/piri.
+const serviceNamespace = "forge"
 
 // defaultPublishInterval is how often a metrics collector that does not
 // configure an interval of its own publishes. The provider rejects an interval
@@ -80,15 +86,14 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 				),
 			},
 		},
+		// No sampler option: the SDK's default, ParentBased(AlwaysSample()), starts
+		// a trace for every request that arrives without one and follows the
+		// caller's decision when it does. OTEL_TRACES_SAMPLER overrides it, for a
+		// node that needs to sample less.
 		traces.Config{
 			Collectors: traceCollectors,
-			Options: []sdktrace.TracerProviderOption{
-				// Only sample when there is a parent trace; never start local roots.
-				sdktrace.WithSampler(
-					sdktrace.ParentBased(sdktrace.NeverSample()),
-				),
-			},
 		},
+		resource.WithAttributes(semconv.ServiceNamespace(serviceNamespace)),
 	)
 }
 

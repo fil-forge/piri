@@ -27,8 +27,13 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 	}
 
 	cw := cbg.NewCborWriter(w)
+	fieldCount := 7
 
-	if _, err := cw.Write([]byte{166}); err != nil {
+	if t.Allocation == nil {
+		fieldCount--
+	}
+
+	if _, err := cw.Write(cbg.CborEncodeMajorType(cbg.MajMap, uint64(fieldCount))); err != nil {
 		return err
 	}
 
@@ -110,6 +115,32 @@ func (t *Acceptance) MarshalCBOR(w io.Writer) error {
 
 	if err := t.PDPAccept.MarshalCBOR(cw); err != nil {
 		return err
+	}
+
+	// t.Allocation (cid.Cid) (struct)
+	if t.Allocation != nil {
+
+		if len("allocation") > 8192 {
+			return xerrors.Errorf("Value in field \"allocation\" was too long")
+		}
+
+		if err := cw.WriteMajorTypeHeader(cbg.MajTextString, uint64(len("allocation"))); err != nil {
+			return err
+		}
+		if _, err := cw.WriteString(string("allocation")); err != nil {
+			return err
+		}
+
+		if t.Allocation == nil {
+			if _, err := cw.Write(cbg.CborNull); err != nil {
+				return err
+			}
+		} else {
+			if err := cbg.WriteCid(cw, *t.Allocation); err != nil {
+				return xerrors.Errorf("failed to write cid field t.Allocation: %w", err)
+			}
+		}
+
 	}
 
 	// t.ExecutedAt (uint64) (uint64)
@@ -225,6 +256,29 @@ func (t *Acceptance) UnmarshalCBOR(r io.Reader) (err error) {
 
 				if err := t.PDPAccept.UnmarshalCBOR(cr); err != nil {
 					return xerrors.Errorf("unmarshaling t.PDPAccept: %w", err)
+				}
+
+			}
+			// t.Allocation (cid.Cid) (struct)
+		case "allocation":
+
+			{
+
+				b, err := cr.ReadByte()
+				if err != nil {
+					return err
+				}
+				if b != cbg.CborNull[0] {
+					if err := cr.UnreadByte(); err != nil {
+						return err
+					}
+
+					c, err := cbg.ReadCid(cr)
+					if err != nil {
+						return xerrors.Errorf("failed to read cid field t.Allocation: %w", err)
+					}
+
+					t.Allocation = &c
 				}
 
 			}

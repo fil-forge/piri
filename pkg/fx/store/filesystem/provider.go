@@ -284,7 +284,7 @@ func NewKeyStore(cfg app.KeyStoreConfig, lc fx.Lifecycle) (keystore.KeyStore, er
 	return keystore.NewKeyStore(ds)
 }
 
-func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (blobstore.Blobstore, error) {
+func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (*blobstore.Store, error) {
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for pdp store")
 	}

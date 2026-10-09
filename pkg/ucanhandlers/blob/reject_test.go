@@ -5,10 +5,12 @@ import (
 
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/did"
 	ucanerrors "github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
+	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
@@ -24,6 +26,19 @@ type rejectWorld struct {
 	allocs  *allocationstore.Store
 	accepts *acceptancestore.Store
 	pieces  *pdpfake.Pieces
+}
+
+// request rejects the space's current allocation of digest, as a reject by
+// allocation link does once it has found it.
+func (w *rejectWorld) request(t *testing.T, space did.DID, digest multihash.Multihash) *RejectRequest {
+	t.Helper()
+	req := &RejectRequest{Space: space, Digest: digest}
+	if alloc, err := w.allocs.Get(t.Context(), digest, space); err == nil {
+		req.Allocation = alloc.Allocation
+	} else {
+		require.ErrorIs(t, err, store.ErrNotFound)
+	}
+	return req
 }
 
 func newRejectWorld(t *testing.T) *rejectWorld {
@@ -49,20 +64,21 @@ func TestReject_ParkedBlobDeletesBytes(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	require.NoError(t, Reject(t.Context(), w.deps, &RejectRequest{Space: space, Digest: digest}))
+	require.NoError(t, Reject(t.Context(), w.deps, w.request(t, space, digest)))
 
 	_, err := w.allocs.Get(t.Context(), digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "allocation deleted")
 	require.Len(t, w.pieces.Removed(), 1, "sole allocation gone — bytes released")
 
 	// Idempotent.
-	require.NoError(t, Reject(t.Context(), w.deps, &RejectRequest{Space: space, Digest: digest}))
+	require.NoError(t, Reject(t.Context(), w.deps, w.request(t, space, digest)))
 }
 
 func TestReject_UnknownBlobIsSuccess(t *testing.T) {
@@ -79,9 +95,10 @@ func TestReject_AcceptedBlobRefused(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     space,
@@ -92,7 +109,7 @@ func TestReject_AcceptedBlobRefused(t *testing.T) {
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	err := Reject(t.Context(), w.deps, &RejectRequest{Space: space, Digest: digest})
+	err := Reject(t.Context(), w.deps, w.request(t, space, digest))
 	require.Error(t, err)
 	var named ucanerrors.Named
 	require.ErrorAs(t, err, &named)
@@ -113,9 +130,10 @@ func TestReject_OtherSpaceAcceptanceDoesNotBlock(t *testing.T) {
 	accepted := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: rejecting,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      rejecting,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     accepted,
@@ -126,7 +144,7 @@ func TestReject_OtherSpaceAcceptanceDoesNotBlock(t *testing.T) {
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	require.NoError(t, Reject(t.Context(), w.deps, &RejectRequest{Space: rejecting, Digest: digest}),
+	require.NoError(t, Reject(t.Context(), w.deps, w.request(t, rejecting, digest)),
 		"another space's acceptance must not block the reject")
 
 	_, err := w.allocs.Get(t.Context(), digest, rejecting)
@@ -143,18 +161,20 @@ func TestReject_OtherSpaceAllocationRetainsBytes(t *testing.T) {
 	uploading := testutil.RandomDID(t)
 
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: abandoning,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      abandoning,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: uploading,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      uploading,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	w.pieces.Put(digest, []byte("data"))
 
-	require.NoError(t, Reject(t.Context(), w.deps, &RejectRequest{Space: abandoning, Digest: digest}))
+	require.NoError(t, Reject(t.Context(), w.deps, w.request(t, abandoning, digest)))
 
 	_, err := w.allocs.Get(t.Context(), digest, abandoning)
 	require.ErrorIs(t, err, store.ErrNotFound, "abandoning space's allocation deleted")
@@ -163,6 +183,6 @@ func TestReject_OtherSpaceAllocationRetainsBytes(t *testing.T) {
 	require.Empty(t, w.pieces.Removed(), "shared bytes retained while another allocation lives")
 
 	// The last allocation going releases the bytes.
-	require.NoError(t, Reject(t.Context(), w.deps, &RejectRequest{Space: uploading, Digest: digest}))
+	require.NoError(t, Reject(t.Context(), w.deps, w.request(t, uploading, digest)))
 	require.Len(t, w.pieces.Removed(), 1)
 }

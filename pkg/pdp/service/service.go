@@ -29,6 +29,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -49,11 +50,13 @@ type EthClient interface {
 }
 
 type PDPService struct {
-	cfg             appconfig.PDPServiceConfig
-	id              ucan.Issuer
-	endpoint        url.URL
-	address         common.Address
-	blobstore       blobstore.Blobstore
+	cfg      appconfig.PDPServiceConfig
+	id       ucan.Issuer
+	endpoint url.URL
+	address  common.Address
+	// blobstore is the staging store: blobs that arrived without their digest
+	// are staged and settled in it, and read through it.
+	blobstore       *blobstore.StagingStore
 	acceptanceStore acceptancestore.AcceptanceStore
 	allocationStore allocationstore.AllocationStore
 	receiptStore    receiptstore.ReceiptStore
@@ -80,6 +83,10 @@ type PDPService struct {
 
 	commPGroup singleflight.Group
 
+	// uploadLocks serializes the PUTs of one upload, so a retry that overlaps
+	// the PUT it retries waits for it instead of racing it.
+	uploadLocks keylock.Locks
+
 	edc              *eip712.ExtraDataEncoder
 	verifierContract smartcontracts.Verifier
 	serviceContract  smartcontracts.Service
@@ -98,7 +105,7 @@ func New(
 	id ucan.Issuer,
 	endpoint url.URL,
 	db *harmonydb.DB, // curio harmonydb — single DB surface
-	bs blobstore.Blobstore,
+	bs *blobstore.StagingStore,
 	acceptanceStore acceptancestore.AcceptanceStore,
 	allocationStore allocationstore.AllocationStore,
 	receiptStore receiptstore.ReceiptStore,

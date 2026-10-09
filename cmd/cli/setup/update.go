@@ -113,11 +113,7 @@ func doUpdate(cmd *cobra.Command, _ []string) error {
 		}
 
 		if !status.UpgradeSafe {
-			if status.IsProving {
-				cmd.PrintErrln("Error: Node is currently proving")
-			} else if status.InChallengeWindow && !status.HasProven {
-				cmd.PrintErrln("Error: Node is in an unproven challenge window")
-			}
+			cmd.PrintErrln("Error: Not safe to update:", status.UnsafeReason)
 			cmd.PrintErrln("Update blocked for safety. Use --force to override")
 			return fmt.Errorf("not safe to update")
 		}
