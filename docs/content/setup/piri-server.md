@@ -24,7 +24,7 @@ The `piri init` command does all the setup needed to join the Forge network:
 
 ### Run Initialization
 
-Run the `piri init` command with all needed settings. The configuration file goes to stdout and progress messages go to stderr, so you can save the output to a file. The command below switches based on the environment selection:
+Run the `piri init` command with all needed settings. Progress messages go to stderr. The configuration goes to `piri-config.toml` in the current directory and, when stdout is redirected, to stdout as well, so you can save it to a file of your choosing. The command below switches based on the environment selection:
 
 <div class="env-block" data-env="production" markdown="1">
   <div class="env-block__label"><span class="env-block__pill">Prod</span> Use this command</div>

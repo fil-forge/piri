@@ -59,8 +59,7 @@ export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
 There is no CLI flag for the token, which keeps it out of shell history and `ps`
 output. `piri init` uses the token for its own on-chain calls and writes it into
 the generated config as `pdp.lotus_auth_token`, so `piri serve` picks it up with
-no further setup. The generated config is printed to stdout, so redirect it to a
-file with restricted permissions.
+no further setup. See [Output](#output) for where the config goes.
 
 ## Example
 
@@ -99,7 +98,16 @@ Received delegator proof
 Initialization complete!
 ```
 
-The config file is written to stdout. Use `> config.toml` to save it to a file, or place it directly in `~/.config/piri/config.toml` for automatic loading by `piri serve`.
+## Output
+
+`piri init` writes the config to `piri-config.toml` in the current directory, readable only by the
+user that ran it. It replaces any existing file only once the new config is complete, and exits
+non-zero if it can't write it.
+
+The config holds secrets, such as the Lotus auth token and any database or S3 credentials, so init
+doesn't print it to a terminal. When stdout is redirected or piped, init writes the config there too:
+use `> config.toml` to save it to a file of your choosing, with restricted permissions. Place it in
+`~/.config/piri/config.toml` for automatic loading by `piri serve`.
 
 ## What's Next
 

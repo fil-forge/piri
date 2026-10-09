@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1089,24 +1090,73 @@ func doInit(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("marshaling configuration: %w", err)
 	}
 
-	cmd.PrintErrln("\n🎉 Initialization complete! Your configuration:")
+	if err := writeFileAtomic(PiriConfigFileName, cfgData, 0o600); err != nil {
+		return fmt.Errorf("writing configuration to %s: %w", PiriConfigFileName, err)
+	}
+	configPath := PiriConfigFileName
+	if abs, err := filepath.Abs(PiriConfigFileName); err == nil {
+		configPath = abs
+	}
+	cmd.PrintErrf("\n🎉 Initialization complete! Configuration saved to: %s\n", configPath)
 
-	// Write to both stdout and file using TeeWriter
-	configFile, err := os.Create(PiriConfigFileName)
+	// The config holds secrets (the lotus auth token, database and S3
+	// credentials), so it is not echoed to a terminal. Redirected or piped
+	// stdout still gets it: `piri init ... > config.toml` is the documented way
+	// to save it elsewhere.
+	if out := cmd.OutOrStdout(); !isTerminal(out) {
+		if _, err := out.Write(cfgData); err != nil {
+			return fmt.Errorf("writing configuration to stdout: %w", err)
+		}
+	}
+	return nil
+}
+
+// isTerminal reports whether w is a character device, such as a terminal.
+// /dev/null counts too, which is harmless: nothing reads what goes there.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// writeFileAtomic writes data to path with mode perm by way of a temporary file
+// in the same directory, so path holds either its old contents or all of data,
+// never a partial write.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) (err error) {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		// If we can't create the file, just write to stdout
-		cmd.PrintErrf("Warning: Failed to create %s: %v\n", PiriConfigFileName, err)
-		cmd.Print(string(cfgData))
-		return nil
+		return err
 	}
-	defer configFile.Close()
-
-	// Use TeeWriter to write to both stdout and file
-	teeWriter := io.MultiWriter(cmd.OutOrStdout(), configFile)
-	if _, err := teeWriter.Write(cfgData); err != nil {
-		cmd.PrintErrf("Error writing configuration: %v\n", err)
+	defer func() {
+		if err != nil {
+			_ = tmp.Close()
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if err := tmp.Chmod(perm); err != nil {
+		return err
 	}
-
-	cmd.PrintErrf("\nConfiguration saved to: %s\n", PiriConfigFileName)
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	// Persist the rename itself. Not every filesystem supports syncing a
+	// directory, and the file is already complete, so a failure here is ignored.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 	return nil
 }

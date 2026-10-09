@@ -455,3 +455,25 @@ insecure = true
 	_, err := loadBaseConfig(path)
 	require.ErrorContains(t, err, "endpoint")
 }
+
+func TestWriteFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "piri-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o644))
+
+	require.NoError(t, writeFileAtomic(path, []byte("new"), 0o600))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "new", string(data))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "temporary file left behind")
+
+	// A failure is returned rather than swallowed.
+	require.Error(t, writeFileAtomic(filepath.Join(dir, "missing", "piri-config.toml"), []byte("x"), 0o600))
+}
