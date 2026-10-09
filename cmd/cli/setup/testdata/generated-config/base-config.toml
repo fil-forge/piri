@@ -1,8 +1,8 @@
-# Fixture for TestGeneratedConfig. It sets every key `piri serve` reads from a
-# config file, plus every key `piri init --base-config` parses, each to a value
-# that differs from what init writes when the key is absent. Init ignores many
+# Base config for TestGeneratedConfig. It sets every key `piri serve` reads from
+# a config file, plus every key `piri init --base-config` parses, each to a value
+# that differs from what init writes from an empty base config. Init ignores many
 # of them today; if it starts honouring one, the golden file changes.
-# TestGeneratedConfig fails if a serve-side key is missing here.
+# TestGeneratedConfigFixtureIsComplete checks all of that.
 #
 # Every secret below is a fake.
 

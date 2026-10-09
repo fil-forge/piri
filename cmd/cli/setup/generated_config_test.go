@@ -3,6 +3,7 @@ package setup
 import (
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -52,19 +53,6 @@ func TestGeneratedConfig(t *testing.T) {
 	baseConfig := filepath.Join(dir, "base-config.toml")
 	t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
 
-	commonArgs := []string{
-		"--data-dir=/data/piri",
-		"--temp-dir=/tmp/piri",
-		"--key-file=/keys/piri.pem",
-		"--wallet-file=/keys/wallet.hex",
-		"--lotus-endpoint=wss://lotus.example.com/rpc/v1",
-		"--operator-email=operator@example.com",
-		"--public-url=https://piri.example.com",
-		"--host=0.0.0.0",
-		"--port=3000",
-		"--plc-directory=https://plc.example.com",
-	}
-
 	type goldenCase struct {
 		name string
 		args []string
@@ -96,30 +84,7 @@ func TestGeneratedConfig(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := &cobra.Command{Use: "init"}
-			addInitFlags(cmd)
-			require.NoError(t, cmd.ParseFlags(append(append([]string{}, commonArgs...), tc.args...)))
-			require.NoError(t, cmd.ValidateRequiredFlags())
-			require.NoError(t, cmd.ValidateFlagGroups())
-
-			flags, err := parseAndValidateFlags(cmd)
-			require.NoError(t, err)
-
-			// createNode copies these from the flags unchanged; the rest of what
-			// it builds is not read by generateConfig.
-			cfg := &appcfg.AppConfig{
-				Storage: appcfg.StorageConfig{DataDir: flags.dataDir, TempDir: flags.tempDir},
-				Server:  appcfg.ServerConfig{Host: flags.host, Port: flags.port},
-			}
-			generated, err := generateConfig(cfg, flags,
-				common.HexToAddress("0x9012345678901234567890123456789012345678"),
-				42, "indexer-proof", "egress-proof")
-			require.NoError(t, err)
-			pinCPUWorkers(&generated)
-
-			// The same encoding init uses to write the file.
-			got, err := toml.Marshal(generated)
-			require.NoError(t, err)
+			got := generateGoldenConfig(t, tc.args)
 
 			golden := filepath.Join(dir, goldenName(tc.name))
 			want, err := os.ReadFile(golden)
@@ -141,6 +106,51 @@ func TestGeneratedConfig(t *testing.T) {
 				config.GeneratedConfigVersion)
 		})
 	}
+}
+
+// goldenCommonArgs are the init flags every golden case passes.
+var goldenCommonArgs = []string{
+	"--data-dir=/data/piri",
+	"--temp-dir=/tmp/piri",
+	"--key-file=/keys/piri.pem",
+	"--wallet-file=/keys/wallet.hex",
+	"--lotus-endpoint=wss://lotus.example.com/rpc/v1",
+	"--operator-email=operator@example.com",
+	"--public-url=https://piri.example.com",
+	"--host=0.0.0.0",
+	"--port=3000",
+	"--plc-directory=https://plc.example.com",
+}
+
+// generateGoldenConfig runs init's flag parsing and config generation with
+// goldenCommonArgs plus args, and returns the config as init would write it.
+func generateGoldenConfig(t *testing.T, args []string) []byte {
+	t.Helper()
+	cmd := &cobra.Command{Use: "init"}
+	addInitFlags(cmd)
+	require.NoError(t, cmd.ParseFlags(append(append([]string{}, goldenCommonArgs...), args...)))
+	require.NoError(t, cmd.ValidateRequiredFlags())
+	require.NoError(t, cmd.ValidateFlagGroups())
+
+	flags, err := parseAndValidateFlags(cmd)
+	require.NoError(t, err)
+
+	// createNode copies these from the flags unchanged; the rest of what it
+	// builds is not read by generateConfig.
+	cfg := &appcfg.AppConfig{
+		Storage: appcfg.StorageConfig{DataDir: flags.dataDir, TempDir: flags.tempDir},
+		Server:  appcfg.ServerConfig{Host: flags.host, Port: flags.port},
+	}
+	generated, err := generateConfig(cfg, flags,
+		common.HexToAddress("0x9012345678901234567890123456789012345678"),
+		42, "indexer-proof", "egress-proof")
+	require.NoError(t, err)
+	pinCPUWorkers(&generated)
+
+	// The same encoding init uses to write the file.
+	got, err := toml.Marshal(generated)
+	require.NoError(t, err)
+	return got
 }
 
 // goldenName is the golden file for one case at the current version.
@@ -173,7 +183,9 @@ func pinCPUWorkers(cfg *config.FullServerConfig) {
 
 // TestGeneratedConfigFixtureIsComplete checks that the base-config fixture
 // sets every key of the server config and nothing either config ignores, so a
-// section init starts honouring is already in the fixture.
+// section init starts honouring is already in the fixture. It also checks that
+// each fixture value differs from what init writes without it, so honouring it
+// shows up in the golden file.
 func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 	path := filepath.Join("testdata", "generated-config", "base-config.toml")
 
@@ -189,11 +201,21 @@ func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 	for _, key := range fullMeta.Keys() {
 		defined[key.String()] = true
 	}
-	for _, key := range tomlLeafKeys(reflect.TypeOf(full), nil) {
+	// Serve decodes the config with mapstructure, init writes it with toml, so
+	// the two names must agree for serve to read what init writes.
+	sameMapstructureName := func(key []string, field reflect.StructField) {
+		name, _, _ := strings.Cut(field.Tag.Get("mapstructure"), ",")
+		if name == "" {
+			name = field.Name
+		}
+		require.Equalf(t, key[len(key)-1], name,
+			"%s: mapstructure name differs from toml name", strings.Join(key, "."))
+	}
+	for _, key := range tomlLeafKeys(reflect.TypeOf(full), nil, sameMapstructureName) {
 		require.Truef(t, defined[strings.Join(key, ".")],
 			"%s does not set %s; set it to a value init would not write on its own", path, strings.Join(key, "."))
 	}
-	for _, key := range tomlLeafKeys(reflect.TypeOf(base), nil) {
+	for _, key := range tomlLeafKeys(reflect.TypeOf(base), nil, nil) {
 		require.Truef(t, defined[strings.Join(key, ".")],
 			"%s does not set %s, which init's base config parses", path, strings.Join(key, "."))
 	}
@@ -206,10 +228,28 @@ func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 		require.Falsef(t, unknown[key.String()],
 			"%s sets %s, which neither serve nor init reads", path, key)
 	}
+
+	// What init writes from an empty base config: every key absent at once.
+	empty := filepath.Join(t.TempDir(), "empty.toml")
+	require.NoError(t, os.WriteFile(empty, nil, 0o600))
+	t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+	var fixture, absent map[string]any
+	_, err = toml.DecodeFile(path, &fixture)
+	require.NoError(t, err)
+	_, err = toml.Decode(string(generateGoldenConfig(t, []string{
+		"--base-config=" + empty, "--registrar-url=https://registrar.example.com",
+	})), &absent)
+	require.NoError(t, err)
+	fixtureValues, absentValues := tomlLeafValues(fixture, ""), tomlLeafValues(absent, "")
+	for key, value := range fixtureValues {
+		require.NotEqualf(t, absentValues[key], value,
+			"%s sets %s to what init writes without it; pick another value", path, key)
+	}
 }
 
-// tomlLeafKeys lists the TOML key paths of every non-table field in t.
-func tomlLeafKeys(t reflect.Type, prefix []string) [][]string {
+// tomlLeafKeys lists the TOML key paths of every non-table field in t, calling
+// check, if set, on each field along the way.
+func tomlLeafKeys(t reflect.Type, prefix []string, check func(key []string, field reflect.StructField)) [][]string {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
@@ -232,7 +272,38 @@ func tomlLeafKeys(t reflect.Type, prefix []string) [][]string {
 		if name == "" {
 			name = field.Name
 		}
-		keys = append(keys, tomlLeafKeys(field.Type, append(append([]string{}, prefix...), name))...)
+		key := append(append([]string{}, prefix...), name)
+		if check != nil {
+			check(key, field)
+		}
+		keys = append(keys, tomlLeafKeys(field.Type, key, check)...)
 	}
 	return keys
+}
+
+// tomlLeafValues maps the dotted path of every non-table value in a decoded
+// TOML document to its value. Values under an array of tables are collected
+// into a slice per path.
+func tomlLeafValues(doc map[string]any, prefix string) map[string]any {
+	values := map[string]any{}
+	for name, value := range doc {
+		key := name
+		if prefix != "" {
+			key = prefix + "." + name
+		}
+		switch v := value.(type) {
+		case map[string]any:
+			maps.Copy(values, tomlLeafValues(v, key))
+		case []map[string]any:
+			for _, table := range v {
+				for k, leaf := range tomlLeafValues(table, key) {
+					prev, _ := values[k].([]any)
+					values[k] = append(prev, leaf)
+				}
+			}
+		default:
+			values[key] = value
+		}
+	}
+	return values
 }
