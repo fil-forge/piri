@@ -22,12 +22,12 @@ Piri searches for config files in this order:
 
 ## Generated Config Version
 
-A config written by `piri init` starts with `config_version`, the version of the config that init
-generated it. `piri version --config` prints the version the installed binary's init generates. When
-the two differ, the binary's init would write something different from the same inputs, so a
-deployment that generates its config with `piri init` should re-run it. The version changes only
-when init's output does, not with every release. A config written by hand, or by an init older than
-this field, has none.
+A config written by `piri init` has a top-level `config_version` key: the version of the config
+format that init wrote. `piri version --config-version` prints the version the installed binary's
+init writes. When the two differ, the binary's init would write something different from the same
+inputs, so a deployment that generates its config with `piri init` should re-run it. `piri serve`
+logs a warning when they differ. The version changes only when init's output does, not with every
+release. A config written by hand, or by an init older than this field, has none.
 
 ## Environment Variables
 

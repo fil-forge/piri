@@ -14,21 +14,22 @@ var versionCmd = &cobra.Command{
 	Short: "Print the version of piri",
 	Long: `Print the version of piri including the git revision.
 
-With --config, print only the version of the config ` + "`piri init`" + ` generates,
+With --config-version, print only the version of the config ` + "`piri init`" + ` generates,
 for scripts that re-run init when it changes.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if configOnly, _ := cmd.Flags().GetBool("config"); configOnly {
-			fmt.Println(config.GeneratedConfigVersion)
+		out := cmd.OutOrStdout()
+		if configVersion, _ := cmd.Flags().GetBool("config-version"); configVersion {
+			fmt.Fprintln(out, config.GeneratedConfigVersion)
 			return
 		}
-		fmt.Printf("version: %s\n", build.Version)
-		fmt.Printf("commit: %s\n", build.Commit)
-		fmt.Printf("built at: %s\n", build.Date)
-		fmt.Printf("built by: %s\n", build.BuiltBy)
+		fmt.Fprintf(out, "version: %s\n", build.Version)
+		fmt.Fprintf(out, "commit: %s\n", build.Commit)
+		fmt.Fprintf(out, "built at: %s\n", build.Date)
+		fmt.Fprintf(out, "built by: %s\n", build.BuiltBy)
 	},
 }
 
 func init() {
-	versionCmd.Flags().Bool("config", false, "print only the version of the config `piri init` generates")
+	versionCmd.Flags().Bool("config-version", false, "print only the version of the config piri init generates")
 	rootCmd.AddCommand(versionCmd)
 }

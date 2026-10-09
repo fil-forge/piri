@@ -86,6 +86,13 @@ func init() {
 }
 
 func initConfig() {
+	// version reads no config, so a config that fails to load must not stop
+	// it. Cobra parses only the flags of the command it runs, before calling
+	// this.
+	if versionCmd.Flags().Parsed() {
+		return
+	}
+
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix("PIRI")

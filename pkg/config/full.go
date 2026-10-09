@@ -12,7 +12,7 @@ import (
 // init now sets or derives differently. Leave it alone for changes that do not.
 //
 // init records it in the generated config as `config_version`, and `piri version
-// --config` prints it, so a deployment can tell that a config was written by an
+// --config-version` prints it, so a deployment can tell that a config was written by an
 // init that predates the running binary and re-run init. TestGeneratedConfig in
 // cmd/cli/setup fails when init's output changes without a bump.
 const GeneratedConfigVersion = 1
