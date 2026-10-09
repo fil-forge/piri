@@ -231,7 +231,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	}
 	proveFailures, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofset_consecutive_prove_failures",
-		metric.WithDescription("Proving sends Curio has handled as contract reverts since the proof set's last successful prove send (pdp_data_sets.consecutive_prove_failures); proof sets marked unrecoverable are not reported"),
+		metric.WithDescription("Proving sends Curio has handled as contract reverts since the proof set's last successful prove send (pdp_data_sets.consecutive_prove_failures), which is the only thing that resets it; proof sets marked unrecoverable are not reported"),
 		metric.WithUnit("{failure}"),
 	)
 	if err != nil {
@@ -239,7 +239,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	}
 	nextProveAttempt, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofset_next_prove_attempt_epoch",
-		metric.WithDescription("Epoch before which Curio will not retry proving the proof set after a failure (pdp_data_sets.next_prove_attempt_at); reported only while a backoff is in effect"),
+		metric.WithDescription("Backoff deadline Curio set after the proof set's last proving failure (pdp_data_sets.next_prove_attempt_at): Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send"),
 		metric.WithUnit("{epoch}"),
 	)
 	if err != nil {

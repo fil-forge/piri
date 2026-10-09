@@ -118,8 +118,8 @@ proof landed.
 | `piri_pdp_proofset_next_challenge_epoch` | epoch | `proof_set` | The challenge epoch Curio scheduled for the proof set's current proving period (`prove_at_epoch`). Curio writes it when it sends the transaction that schedules the period, so it is Curio's schedule rather than confirmed chain state. For the first period it is the middle of the challenge window, not its start |
 | `piri_pdp_proofset_challenge_window_epochs` | epochs | `proof_set` | Length of the proof set's challenge window |
 | `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
-| `piri_pdp_proofset_consecutive_prove_failures` | count | `proof_set` | Proving transactions (prove, or scheduling a proving period) that Curio has handled as contract reverts since the proof set's last successful prove send. Curio backs off before retrying, and gives up on the proof set after repeated failures |
-| `piri_pdp_proofset_next_prove_attempt_epoch` | epoch | `proof_set` | The epoch before which Curio will not retry proving the proof set; present only while a backoff is in effect |
+| `piri_pdp_proofset_consecutive_prove_failures` | count | `proof_set` | Proving transactions (prove, or scheduling a proving period) that Curio has handled as contract reverts since the proof set's last successful prove send. Only a successful prove send resets it, so after any revert it stays above zero until the next proving period's proof is sent. Curio backs off before retrying, and gives up on the proof set after repeated failures |
+| `piri_pdp_proofset_next_prove_attempt_epoch` | epoch | `proof_set` | The backoff deadline Curio set after the proof set's last proving failure. Curio holds back only while it is ahead of the chain head; the value stays after the deadline passes and is cleared on the next successful prove send |
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
 | `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
@@ -174,15 +174,17 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
 )
 
 # Proving failing: Curio has had a proving transaction for a proof set rejected
-# and has not since sent a successful proof. Use a `for:` longer than Curio's
-# first backoff (`BaseBackoffBlocks` epochs, in Curio's
-# tasks/pdpv0/failure_handling.go), so a proof set that recovers on its first
-# retry does not page.
+# and has not since sent a successful proof. Only a successful prove send resets
+# the count, so it stays above zero for up to a proving period after any revert,
+# even when the retry that follows succeeds; a longer `for:` does not filter
+# recovered retries out. A reverted prove is not retried within its period, so
+# that period's proof was missed. Use a short `for:`, or none.
 piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"} > 0
 
-# Proof set unrecoverable: Curio has given up proving a proof set. This stays
-# true until the proof set is removed from the database; to alert only when a
-# new one appears, use `delta(piri_pdp_proofsets_unrecoverable[1h]) > 0`.
+# Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
+# run Curio's data set deletion, so the count does not go down on its own; to
+# alert only when a new one appears, use
+# `delta(piri_pdp_proofsets_unrecoverable[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
 # Prove task not running: no PDPv0_Prove run has finished in 1.5 proving

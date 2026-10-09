@@ -64,8 +64,8 @@ for example alerts.
 | <nobr>`piri_pdp_proofset_next_challenge_epoch`</nobr>        | Gauge | epoch | Challenge epoch Curio scheduled for the current proving period (written when the scheduling transaction is sent; mid-window for the first period) |
 | <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
 | <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
-| <nobr>`piri_pdp_proofset_consecutive_prove_failures`</nobr>  | Gauge | count | Proving transactions Curio has handled as contract reverts since the last successful prove send |
-| <nobr>`piri_pdp_proofset_next_prove_attempt_epoch`</nobr>    | Gauge | epoch | Epoch before which Curio will not retry proving; only while a failure backoff is in effect |
+| <nobr>`piri_pdp_proofset_consecutive_prove_failures`</nobr>  | Gauge | count | Proving transactions Curio has handled as contract reverts since the last successful prove send, which alone resets it |
+| <nobr>`piri_pdp_proofset_next_prove_attempt_epoch`</nobr>    | Gauge | epoch | Backoff deadline Curio set after the last proving failure; Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send |
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
 | <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |
 
