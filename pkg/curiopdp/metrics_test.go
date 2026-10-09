@@ -18,13 +18,13 @@ import (
 )
 
 type fakeSource struct {
-	sets    []proofSetSchedule
+	sets    []proofSetState
 	setsErr error
 	last    map[string]time.Time
 	lastErr error
 }
 
-func (f *fakeSource) proofSetSchedules(context.Context) ([]proofSetSchedule, error) {
+func (f *fakeSource) proofSets(context.Context) ([]proofSetState, error) {
 	return f.sets, f.setsErr
 }
 
@@ -119,9 +119,13 @@ func TestChainHeadGauges(t *testing.T) {
 func TestProofSetAndTaskGauges(t *testing.T) {
 	proveAt := time.Unix(1_700_000_500, 0)
 	src := &fakeSource{
-		sets: []proofSetSchedule{
-			{ID: 7, ProveAtEpoch: 1000, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
-			{ID: 8, ProveAtEpoch: 2000}, // window and period unknown
+		sets: []proofSetState{
+			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
+			// 8: window and period unknown; 9: no schedule; 10 and 11: unrecoverable.
+			{ID: 8, ProveAtEpoch: ptr(2000), ConsecutiveProveFailures: 2, NextProveAttemptAt: ptr(2300)},
+			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), ConsecutiveProveFailures: 1, NextProveAttemptAt: ptr(500)},
+			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), ConsecutiveProveFailures: 5, UnrecoverableEpoch: ptr(400)},
+			{ID: 11, ConsecutiveProveFailures: 1, UnrecoverableEpoch: ptr(450)},
 		},
 		last: map[string]time.Time{"PDPv0_Prove": proveAt},
 	}
@@ -131,7 +135,21 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	require.Equal(t, map[string]int64{"7": 1000, "8": 2000}, got["piri_pdp_proofset_next_challenge_epoch"])
 	require.Equal(t, map[string]int64{"7": 60}, got["piri_pdp_proofset_challenge_window_epochs"])
 	require.Equal(t, map[string]int64{"7": 2880}, got["piri_pdp_proofset_proving_period_epochs"])
+	// Unrecoverable proof sets are counted, not reported per proof set.
+	require.Equal(t, map[string]int64{"7": 0, "8": 2, "9": 1}, got["piri_pdp_proofset_consecutive_prove_failures"])
+	require.Equal(t, map[string]int64{"8": 2300, "9": 500}, got["piri_pdp_proofset_next_prove_attempt_epoch"])
+	require.Equal(t, map[string]int64{"": 2}, got["piri_pdp_proofsets_unrecoverable"])
 	require.Equal(t, map[string]int64{"PDPv0_Prove": proveAt.Unix()}, got["piri_pdp_task_last_success_timestamp_seconds"])
+}
+
+func TestUnrecoverableReportedWhenZero(t *testing.T) {
+	reader := startTestMetrics(t, &chainHead{}, &fakeSource{
+		sets: []proofSetState{{ID: 1, ProveAtEpoch: ptr(1000)}},
+	})
+	got := gauges(t, reader)
+	require.Equal(t, map[string]int64{"": 0}, got["piri_pdp_proofsets_unrecoverable"])
+	require.Equal(t, map[string]int64{"1": 0}, got["piri_pdp_proofset_consecutive_prove_failures"])
+	require.NotContains(t, got, "piri_pdp_proofset_next_prove_attempt_epoch", "no backoff in effect")
 }
 
 func TestGaugesSkipFailedReads(t *testing.T) {
@@ -143,6 +161,8 @@ func TestGaugesSkipFailedReads(t *testing.T) {
 	got := gauges(t, reader)
 	require.Equal(t, int64(5), got["piri_chain_head_epoch"][""], "head still reported when the database is not")
 	require.NotContains(t, got, "piri_pdp_proofset_next_challenge_epoch")
+	require.NotContains(t, got, "piri_pdp_proofset_consecutive_prove_failures")
+	require.NotContains(t, got, "piri_pdp_proofsets_unrecoverable")
 	require.NotContains(t, got, "piri_pdp_task_last_success_timestamp_seconds")
 }
 
@@ -153,11 +173,12 @@ func TestDBMetricsSource(t *testing.T) {
 	_, err := db.Exec(ctx, `INSERT INTO pdp_services (id, pubkey, service_label) VALUES (1, $1, 'storacha'), (2, $2, 'other')`, []byte{1}, []byte{2})
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, `
-		INSERT INTO pdp_data_sets (id, create_message_hash, service, prove_at_epoch, challenge_window, proving_period) VALUES
-			(1, '0x1', 'storacha', 1000, 60, 2880),
-			(2, '0x2', 'storacha', NULL, 60, 2880),
-			(3, '0x3', 'other',    3000, 60, 2880),
-			(4, '0x4', 'storacha', 4000, NULL, NULL)`)
+		INSERT INTO pdp_data_sets (id, create_message_hash, service, prove_at_epoch, challenge_window, proving_period,
+		                           consecutive_prove_failures, next_prove_attempt_at, unrecoverable_proving_failure_epoch) VALUES
+			(1, '0x1', 'storacha', 1000, 60, 2880, 0, NULL, NULL),
+			(2, '0x2', 'storacha', NULL, 60, 2880, 5, NULL, 900),
+			(3, '0x3', 'other',    3000, 60, 2880, 1, 3100, NULL),
+			(4, '0x4', 'storacha', 4000, NULL, NULL, 2, 4200, NULL)`)
 	require.NoError(t, err)
 
 	const host = "10.0.0.1:12300"
@@ -180,11 +201,12 @@ func TestDBMetricsSource(t *testing.T) {
 	now := t0.Add(5 * time.Hour)
 	src.now = func() time.Time { return now }
 
-	sets, err := src.proofSetSchedules(ctx)
+	sets, err := src.proofSets(ctx)
 	require.NoError(t, err)
-	require.Equal(t, []proofSetSchedule{
-		{ID: 1, ProveAtEpoch: 1000, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
-		{ID: 4, ProveAtEpoch: 4000},
+	require.Equal(t, []proofSetState{
+		{ID: 1, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
+		{ID: 2, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), ConsecutiveProveFailures: 5, UnrecoverableEpoch: ptr(900)},
+		{ID: 4, ProveAtEpoch: ptr(4000), ConsecutiveProveFailures: 2, NextProveAttemptAt: ptr(4200)},
 	}, sets)
 
 	last, err := src.lastTaskSuccesses(ctx)

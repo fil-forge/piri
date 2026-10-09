@@ -81,8 +81,10 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
 | `piri_chain_head_timestamp_seconds` | When the chain head the PDP pipeline last saw was produced |
-| `piri_pdp_proofset_next_challenge_epoch` | When each proof set's next challenge window opens |
-| `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last succeeded |
+| `piri_pdp_proofset_next_challenge_epoch` | The challenge epoch Curio scheduled for each proof set |
+| `piri_pdp_proofset_consecutive_prove_failures` | Proving failures Curio has recorded for each proof set since its last successful prove |
+| `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
+| `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
 
 ### Setting Up Metrics Collection
 
@@ -104,41 +106,63 @@ Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 ### PDP Proving Health
 
 These gauges let an alert tell a node whose chain view has stopped advancing,
-or that has stopped proving, from a healthy one. Piri reports the raw schedule
-and progress and leaves the judgement to the alert.
+or whose proving is failing, from a healthy one. Piri reports the chain head
+and what Curio has recorded in its database, and leaves the judgement to the
+alert. None of it is read back from the chain, so none of it confirms that a
+proof landed.
 
 | Metric | Unit | Labels | What It Tells You |
 |--------|------|--------|-------------------|
 | `piri_chain_head_epoch` | epoch | | Epoch of the last tipset the PDP chain scheduler applied |
 | `piri_chain_head_timestamp_seconds` | unix seconds | | Timestamp of that tipset (its minimum block timestamp) |
-| `piri_pdp_proofset_next_challenge_epoch` | epoch | `proof_set` | Epoch the proof set's next challenge window opens |
+| `piri_pdp_proofset_next_challenge_epoch` | epoch | `proof_set` | The challenge epoch Curio scheduled for the proof set's current proving period (`prove_at_epoch`). Curio writes it when it sends the transaction that schedules the period, so it is Curio's schedule rather than confirmed chain state. For the first period it is the middle of the challenge window, not its start |
 | `piri_pdp_proofset_challenge_window_epochs` | epochs | `proof_set` | Length of the proof set's challenge window |
 | `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
-| `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` last completed successfully on this node |
+| `piri_pdp_proofset_consecutive_prove_failures` | count | `proof_set` | Proving transactions (prove, or scheduling a proving period) that Curio has handled as contract reverts since the proof set's last successful prove send. Curio backs off before retrying, and gives up on the proof set after repeated failures |
+| `piri_pdp_proofset_next_prove_attempt_epoch` | epoch | `proof_set` | The epoch before which Curio will not retry proving the proof set; present only while a backoff is in effect |
+| `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
+| `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
 The names above are what Prometheus sees when the OTLP metrics pass through a
 collector such as Grafana Alloy: gauges keep their names, and a name that
 already ends in `_seconds` gets no extra unit suffix.
 
 The chain head gauges appear once the first tipset arrives after start-up.
-The proof set gauges are read from the database at each collection, and only
-for proof sets that have a next challenge scheduled: between a proof and the
-scheduling of the next proving period a proof set has none, so its series is
-briefly absent. `piri_pdp_task_last_success_timestamp_seconds` has no series
-for a task that has not yet succeeded on this node.
+The proof set gauges are read from the database at each collection:
 
-Example alert expressions (Filecoin epochs are 30 seconds; the `node` label
-and `job` value depend on how your collector labels targets):
+- The schedule gauges (`next_challenge_epoch`, `challenge_window_epochs`,
+  `proving_period_epochs`) are reported only while a proof set has a scheduled
+  challenge epoch. Curio keeps one from the first proving period on; it is
+  cleared only when proving is disabled for the proof set (for example, it has
+  no data), when the proof set is marked unrecoverable, or when it is reset to
+  start its proving periods again.
+- A proof set marked unrecoverable has no per-proof-set series at all; it is
+  counted in `piri_pdp_proofsets_unrecoverable` instead.
+
+`piri_pdp_task_last_success_timestamp_seconds` has no series for a task that
+has not yet finished a run on this node.
+
+Example alert expressions. `30` is the network's block time in seconds (Lotus's
+`build.BlockDelaySecs`: 30 on mainnet and Calibration, but a devnet may differ),
+which converts between epochs and wall-clock time. The `node` label and `job`
+value depend on how your collector labels targets.
 
 ```promql
-# The chain head has not advanced for 5 minutes (Lotus stalled or
-# unreachable, or Piri's chain subscription stuck).
+# Chain head stale: the head has not advanced for 5 minutes (Lotus stalled or
+# unreachable, or Piri's chain subscription stuck). A run of null rounds, or a
+# slow chain scheduler handler that runs before the head is recorded, can also
+# trip it, so allow a `for:` of a few minutes.
 time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 300
 
-# A proof set's challenge window has closed without the next proving period
-# being scheduled. The current epoch is extrapolated from the wall clock, so
-# this still fires when the chain head itself is stale. Use a `for:` of a few
-# minutes: the next proving period is scheduled just after the window closes.
+# Proving period not advanced: Curio's recorded challenge window for a proof
+# set has closed and Curio has not scheduled the next proving period. The
+# current epoch is extrapolated from the wall clock, so this still fires when
+# the chain head itself is stale. It catches proving-period scheduling having
+# stopped (a stuck head, the task engine not running, or scheduling failing);
+# Curio also holds scheduling back while a proof set is in a failure backoff.
+# It does NOT catch a missed proof: Curio schedules the next period as soon as
+# the window closes, whether or not the proof landed. Use a `for:` of a few
+# minutes, since scheduling happens just after the window closes.
 (
     piri_pdp_proofset_next_challenge_epoch{job="forge/piri"}
   + piri_pdp_proofset_challenge_window_epochs{job="forge/piri"}
@@ -149,7 +173,21 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
   + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
 )
 
-# No successful proof in 1.5 proving periods.
+# Proving failing: Curio has had a proving transaction for a proof set rejected
+# and has not since sent a successful proof. Use a `for:` longer than Curio's
+# first backoff (`BaseBackoffBlocks` epochs, in Curio's
+# tasks/pdpv0/failure_handling.go), so a proof set that recovers on its first
+# retry does not page.
+piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"} > 0
+
+# Proof set unrecoverable: Curio has given up proving a proof set. This stays
+# true until the proof set is removed from the database; to alert only when a
+# new one appears, use `delta(piri_pdp_proofsets_unrecoverable[1h]) > 0`.
+piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
+
+# Prove task not running: no PDPv0_Prove run has finished in 1.5 proving
+# periods. This shows the task engine has stopped proving altogether; it says
+# nothing about whether proofs that were sent landed.
 (
   time() - max by (node) (piri_pdp_task_last_success_timestamp_seconds{job="forge/piri", task_name="PDPv0_Prove"})
 )
@@ -159,9 +197,11 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
 )
 ```
 
-The last alert is per node: with several proof sets, one proving successfully
-keeps it quiet while another does not. The challenge-window alert is the
-per-proof-set check.
+What these alerts do not catch: a proof transaction that Curio sent but that
+then failed on chain, and a prove task that woke after its challenge window
+had closed (Curio only logs this). Both are recorded as successful task runs
+and leave the failure count unchanged. The last alert is also per node: with
+several proof sets, proving one keeps it quiet.
 
 ## Logs
 
@@ -195,11 +235,13 @@ Recommended alerts:
 |-----------|----------|--------|
 | Lotus sync behind by >100 epochs | Critical | Check Lotus node immediately |
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
-| Proof set past its challenge window (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Investigate missed proof |
+| Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
+| Proving failing for a proof set (`piri_pdp_proofset_consecutive_prove_failures`) | Critical | Check logs for the rejected proving transaction |
+| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Critical | Check logs for why Curio gave up on the proof set |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
-| No successful proof in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
+| No `PDPv0_Prove` run finished in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
 
 ## Regular Checks
 

@@ -21,6 +21,7 @@ import (
 
 // metricsQueryTimeout bounds each database read made while collecting, so a
 // slow or unreachable database delays a collection instead of stalling it.
+// Each query gets its own timeout.
 const metricsQueryTimeout = 5 * time.Second
 
 // taskHistoryOverlap is how far before the previous read the next read of
@@ -63,23 +64,31 @@ func (h *chainHead) load() (epoch, timestamp int64, ok bool) {
 	return h.epoch.Load(), h.timestamp.Load(), true
 }
 
-// proofSetSchedule is one proof set's proving schedule from pdp_data_sets.
-// ProveAtEpoch is never nil; rows without one are not returned.
-type proofSetSchedule struct {
+// proofSetState is one proof set's proving schedule and Curio's proving
+// failure state for it, from pdp_data_sets.
+type proofSetState struct {
 	ID              int64  `db:"id"`
-	ProveAtEpoch    int64  `db:"prove_at_epoch"`
+	ProveAtEpoch    *int64 `db:"prove_at_epoch"`
 	ChallengeWindow *int64 `db:"challenge_window"`
 	ProvingPeriod   *int64 `db:"proving_period"`
+	// ConsecutiveProveFailures counts the proving sends (Prove, InitPP,
+	// NextPP) that Curio has handled as contract reverts since the last
+	// successful prove send.
+	ConsecutiveProveFailures int64 `db:"consecutive_prove_failures"`
+	// NextProveAttemptAt is the epoch before which Curio will not retry
+	// proving after a failure; nil when no backoff is in effect.
+	NextProveAttemptAt *int64 `db:"next_prove_attempt_at"`
+	// UnrecoverableEpoch is set once Curio has given up proving the set.
+	UnrecoverableEpoch *int64 `db:"unrecoverable_proving_failure_epoch"`
 }
 
 // pdpMetricsSource reads what the PDP gauges report from the database.
 type pdpMetricsSource interface {
-	// proofSetSchedules returns the schedule of every proof set this node
-	// proves that has a next challenge epoch.
-	proofSetSchedules(ctx context.Context) ([]proofSetSchedule, error)
+	// proofSets returns every proof set this node proves.
+	proofSets(ctx context.Context) ([]proofSetState, error)
 	// lastTaskSuccesses returns, per task name, when a run of it last
-	// completed successfully on this node. Names without a success are
-	// absent.
+	// completed without a retryable error on this node. Names without one
+	// are absent.
 	lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error)
 }
 
@@ -108,44 +117,55 @@ func newDBMetricsSource(db *harmonydb.DB, service, host string) *dbMetricsSource
 	}
 }
 
-func (s *dbMetricsSource) proofSetSchedules(ctx context.Context) ([]proofSetSchedule, error) {
-	var rows []proofSetSchedule
+func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error) {
+	var rows []proofSetState
 	if err := s.db.Select(ctx, &rows, `
-		SELECT id, prove_at_epoch, challenge_window, proving_period
+		SELECT id, prove_at_epoch, challenge_window, proving_period,
+		       consecutive_prove_failures, next_prove_attempt_at,
+		       unrecoverable_proving_failure_epoch
 		FROM pdp_data_sets
-		WHERE service = $1 AND prove_at_epoch IS NOT NULL
+		WHERE service = $1
 		ORDER BY id`, s.service); err != nil {
-		return nil, fmt.Errorf("reading proof set schedules: %w", err)
+		return nil, fmt.Errorf("reading proof sets: %w", err)
 	}
 	return rows, nil
 }
 
 // lastTaskSuccesses reads harmony_task_history incrementally: the table is
-// never pruned, so rather than take the max over all of it on every
-// collection, each read only covers rows ending after the previous read
-// started (less taskHistoryOverlap), and the results accumulate.
+// never pruned, so rather than search all of it on every collection, each
+// read only covers rows ending after the previous read started (less
+// taskHistoryOverlap), and the results accumulate. Each task name is read
+// with its own newest-first, single-row query so that the first, unbounded
+// read walks the work_end index rather than aggregating every matching row.
+//
+// harmonytask records result = TRUE whenever a task's Do returns done with no
+// error, which for the PDP tasks includes runs that gave up or handled a
+// failure themselves; see the metric's description.
 func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	started := s.now()
-	var rows []struct {
-		Name    string    `db:"name"`
-		WorkEnd time.Time `db:"work_end"`
-	}
-	if err := s.db.Select(ctx, &rows, `
-		SELECT name, MAX(work_end) AS work_end
-		FROM harmony_task_history
-		WHERE result = TRUE
-		  AND completed_by_host_and_port = $1
-		  AND name = ANY($2)
-		  AND work_end > $3
-		GROUP BY name`, s.host, provingTaskNames, s.since.UTC()); err != nil {
-		return nil, fmt.Errorf("reading task history: %w", err)
-	}
-	for _, r := range rows {
-		if r.WorkEnd.After(s.last[r.Name]) {
-			s.last[r.Name] = r.WorkEnd
+	for _, name := range provingTaskNames {
+		var rows []struct {
+			WorkEnd time.Time `db:"work_end"`
+		}
+		qctx, cancel := context.WithTimeout(ctx, metricsQueryTimeout)
+		err := s.db.Select(qctx, &rows, `
+			SELECT work_end
+			FROM harmony_task_history
+			WHERE result = TRUE
+			  AND completed_by_host_and_port = $1
+			  AND name = $2
+			  AND work_end > $3
+			ORDER BY work_end DESC
+			LIMIT 1`, s.host, name, s.since.UTC())
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("reading task history for %s: %w", name, err)
+		}
+		if len(rows) == 1 && rows[0].WorkEnd.After(s.last[name]) {
+			s.last[name] = rows[0].WorkEnd
 		}
 	}
 	s.since = started.Add(-taskHistoryOverlap)
@@ -157,15 +177,17 @@ func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]tim
 	return out, nil
 }
 
-// startPDPMetrics exports the chain head the PDP pipeline last saw and the
-// proving schedule and progress of this node's proof sets. Together they let
-// an alert tell a node whose chain view has stopped advancing, or that has
-// stopped proving, from a healthy one; no fault is computed here.
+// startPDPMetrics exports the chain head the PDP pipeline last saw, the
+// proving schedule and Curio's recorded proving failure state of this node's
+// proof sets, and when the proving tasks last ran to completion. Together
+// they let an alert tell a node whose chain view has stopped advancing, or
+// whose proving is failing, from a healthy one; no fault is computed here.
+// None of it is confirmed on-chain state.
 //
 // head is fed by a chain scheduler handler (see registerPDPMetrics); nothing
 // is observed for it until the first tipset arrives. The proof set and task
 // gauges are read from src on each collection; a failed read is logged and
-// that collection skips those gauges.
+// that collection skips the gauges it feeds.
 func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, src pdpMetricsSource) error {
 	headEpoch, err := meter.Int64ObservableGauge(
 		"piri_chain_head_epoch",
@@ -185,7 +207,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	}
 	nextChallenge, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofset_next_challenge_epoch",
-		metric.WithDescription("Epoch at which the proof set's next challenge window opens (pdp_data_sets.prove_at_epoch)"),
+		metric.WithDescription("Challenge epoch Curio scheduled for the proof set's current proving period (pdp_data_sets.prove_at_epoch), written when the scheduling transaction is sent; not confirmed chain state"),
 		metric.WithUnit("{epoch}"),
 	)
 	if err != nil {
@@ -207,9 +229,33 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create proving period gauge: %w", err)
 	}
+	proveFailures, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_consecutive_prove_failures",
+		metric.WithDescription("Proving sends Curio has handled as contract reverts since the proof set's last successful prove send (pdp_data_sets.consecutive_prove_failures); proof sets marked unrecoverable are not reported"),
+		metric.WithUnit("{failure}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create consecutive prove failures gauge: %w", err)
+	}
+	nextProveAttempt, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_next_prove_attempt_epoch",
+		metric.WithDescription("Epoch before which Curio will not retry proving the proof set after a failure (pdp_data_sets.next_prove_attempt_at); reported only while a backoff is in effect"),
+		metric.WithUnit("{epoch}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create next prove attempt gauge: %w", err)
+	}
+	unrecoverable, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofsets_unrecoverable",
+		metric.WithDescription("Number of this node's proof sets Curio has stopped proving after an unrecoverable failure (pdp_data_sets.unrecoverable_proving_failure_epoch set)"),
+		metric.WithUnit("{proof_set}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create unrecoverable proof sets gauge: %w", err)
+	}
 	taskLastSuccess, err := meter.Int64ObservableGauge(
 		"piri_pdp_task_last_success_timestamp_seconds",
-		metric.WithDescription("When a PDP task last completed successfully on this node (unix seconds)"),
+		metric.WithDescription("When a run of a PDP task last finished on this node without a retryable error (unix seconds); for PDPv0_Prove this includes runs that missed the window, found proving disabled or had their proof rejected, so it does not mean a proof landed"),
 		metric.WithUnit("s"),
 	)
 	if err != nil {
@@ -224,14 +270,27 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 			}
 
 			qctx, cancel := context.WithTimeout(ctx, metricsQueryTimeout)
-			defer cancel()
-
-			if sets, err := src.proofSetSchedules(qctx); err != nil {
-				log.Warnw("measuring proof set schedules", "error", err)
+			sets, err := src.proofSets(qctx)
+			cancel()
+			if err != nil {
+				log.Warnw("measuring proof sets", "error", err)
 			} else {
+				var unrecoverableCount int64
 				for _, ps := range sets {
+					if ps.UnrecoverableEpoch != nil {
+						unrecoverableCount++
+						continue
+					}
 					attrs := metric.WithAttributes(attribute.String("proof_set", strconv.FormatInt(ps.ID, 10)))
-					o.ObserveInt64(nextChallenge, ps.ProveAtEpoch, attrs)
+					o.ObserveInt64(proveFailures, ps.ConsecutiveProveFailures, attrs)
+					if ps.NextProveAttemptAt != nil {
+						o.ObserveInt64(nextProveAttempt, *ps.NextProveAttemptAt, attrs)
+					}
+					// The schedule is only reported while one is set.
+					if ps.ProveAtEpoch == nil {
+						continue
+					}
+					o.ObserveInt64(nextChallenge, *ps.ProveAtEpoch, attrs)
 					if ps.ChallengeWindow != nil {
 						o.ObserveInt64(challengeWindow, *ps.ChallengeWindow, attrs)
 					}
@@ -239,9 +298,11 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 						o.ObserveInt64(provingPeriod, *ps.ProvingPeriod, attrs)
 					}
 				}
+				o.ObserveInt64(unrecoverable, unrecoverableCount)
 			}
 
-			if last, err := src.lastTaskSuccesses(qctx); err != nil {
+			// lastTaskSuccesses times out each of its queries itself.
+			if last, err := src.lastTaskSuccesses(ctx); err != nil {
 				log.Warnw("measuring PDP task history", "error", err)
 			} else {
 				for name, at := range last {
@@ -255,6 +316,9 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		nextChallenge,
 		challengeWindow,
 		provingPeriod,
+		proveFailures,
+		nextProveAttempt,
+		unrecoverable,
 		taskLastSuccess,
 	)
 	if err != nil {
