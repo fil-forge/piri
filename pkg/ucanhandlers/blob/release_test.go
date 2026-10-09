@@ -83,9 +83,10 @@ func TestRelease_ReleasesClaimAndBytes(t *testing.T) {
 	claimLink := claim.Link()
 	require.NoError(t, w.claims.Put(t.Context(), claim))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.accepts.Put(t.Context(), acceptance.Acceptance{
 		Space:     space,
@@ -161,9 +162,10 @@ func TestRelease_LiveAllocationRetainsBytes(t *testing.T) {
 		Site:      testutil.RandomCID(t),
 	}))
 	require.NoError(t, w.allocs.Put(t.Context(), allocation.Allocation{
-		Space: uploadingSpace,
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      uploadingSpace,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	}))
 
 	require.NoError(t, Release(t.Context(), w.deps, &ReleaseRequest{Space: removingSpace, Digest: digest}))
@@ -246,4 +248,37 @@ func TestRelease_WithdrawsBeforeDeletingTheClaim(t *testing.T) {
 	require.Equal(t, []bool{true}, order.claimPresent, "the advertisement is withdrawn while the claim still exists")
 	_, err = w.claims.Get(t.Context(), claim.Link())
 	require.ErrorIs(t, err, store.ErrNotFound, "and the claim is deleted afterwards")
+}
+
+// A release drops the allocation the acceptance names. A later allocation of
+// the same content in the space, which replaced it, is left in place.
+func TestRelease_ReleasesTheAcceptedAllocation(t *testing.T) {
+	w := newRemoveWorld(t)
+	ctx := t.Context()
+	digest := testutil.RandomMultihash(t)
+	space := testutil.RandomDID(t)
+	accepted, later := testutil.RandomCID(t), testutil.RandomCID(t)
+	require.NoError(t, w.allocs.Put(ctx, allocation.Allocation{
+		Allocation: later,
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
+	}))
+	require.NoError(t, w.accepts.Put(ctx, acceptance.Acceptance{
+		Space:      space,
+		Blob:       acceptance.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
+		PDPAccept:  promise.AwaitOK{Task: testutil.RandomCID(t)},
+		Site:       testutil.RandomCID(t),
+		Allocation: &accepted,
+	}))
+	w.pieces.Put(digest, []byte("data"))
+
+	require.NoError(t, Release(ctx, w.deps, &ReleaseRequest{Space: space, Digest: digest}))
+	_, err := w.accepts.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound)
+	alloc, err := w.allocs.Get(ctx, digest, space)
+	require.NoError(t, err, "the later allocation stays")
+	require.Equal(t, later, alloc.Allocation)
+	require.Empty(t, w.pieces.Removed(), "the later allocation still claims the bytes")
 }

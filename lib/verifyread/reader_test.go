@@ -266,3 +266,31 @@ func TestVerifyRead_ExpectedSize(t *testing.T) {
 		assert.ErrorIs(t, second, ErrSizeMismatch, "terminal error must stay latched")
 	})
 }
+
+func TestNewHashingReportsSum(t *testing.T) {
+	data := []byte("trailer hash")
+	r, err := NewHashing(bytes.NewReader(data), sha256.New(), WithExpectedSize(uint64(len(data))))
+	require.NoError(t, err)
+	_, ok := r.Sum()
+	require.False(t, ok, "no sum before EOF")
+	_, err = io.ReadAll(r)
+	require.NoError(t, err)
+	sum, ok := r.Sum()
+	require.True(t, ok)
+	want := sha256.Sum256(data)
+	require.Equal(t, want[:], sum)
+}
+
+func TestNewHashingEnforcesSize(t *testing.T) {
+	data := []byte("trailer hash")
+	for name, size := range map[string]uint64{"short": uint64(len(data)) + 1, "long": uint64(len(data)) - 1} {
+		t.Run(name, func(t *testing.T) {
+			r, err := NewHashing(bytes.NewReader(data), sha256.New(), WithExpectedSize(size))
+			require.NoError(t, err)
+			_, err = io.ReadAll(r)
+			require.ErrorIs(t, err, ErrSizeMismatch)
+			_, ok := r.Sum()
+			require.False(t, ok)
+		})
+	}
+}

@@ -164,6 +164,7 @@ func (s *RPCSuite) TestFXReplicaAllocateTransfer() {
 			// coverage when an allocation has been made but not transfered.
 			if tc.hasExistingAllocation {
 				require.NoError(t, allocs.Put(ctx, allocation.Allocation{
+					Allocation: testutil.RandomCID(t),
 					Space: expectedSpace,
 					Blob: allocation.Blob{
 						Digest: expectedDigest,

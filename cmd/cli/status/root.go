@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fil-forge/piri/pkg/client"
 	"github.com/spf13/cobra"
 )
 
@@ -33,9 +32,13 @@ func init() {
 }
 
 func runStatus(cmd *cobra.Command, _ []string) error {
+	// Flags and args are valid by now; failures from here on are runtime
+	// conditions, so don't print usage for them.
+	cmd.SilenceUsage = true
+
 	ctx := cmd.Context()
 
-	status, err := client.GetNodeStatus(ctx)
+	status, err := getNodeStatus(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get node status: %w", err)
 	}
@@ -63,11 +66,7 @@ func runStatus(cmd *cobra.Command, _ []string) error {
 	// Add explanation if update is not safe
 	if !status.UpgradeSafe {
 		cmd.Println()
-		if status.IsProving {
-			cmd.Println("⚠️  Node is currently generating a proof. Updates should wait.")
-		} else if status.InChallengeWindow && !status.HasProven {
-			cmd.Println("⚠️  Node is in a challenge window but has not proven yet. Updates should wait.")
-		}
+		cmd.Printf("⚠️  Not safe to update: %s\n", status.UnsafeReason)
 	}
 
 	return nil

@@ -474,3 +474,57 @@ func BenchmarkConsecutivePut(b *testing.B) {
 	}
 	b.StopTimer() // avoid counting cleanup
 }
+
+func TestMove(t *testing.T) { tryAllShardFuncs(t, testMove) }
+
+func testMove(dirFunc mkShardFunc, t *testing.T) {
+	temp, cleanup := tempdir(t)
+	defer cleanup()
+	fs, err := flatfs.New(temp, dirFunc(2), false)
+	if err != nil {
+		t.Fatalf("New fail: %v\n", err)
+	}
+	defer fs.Close()
+
+	get := func(key string) ([]byte, error) {
+		obj, err := fs.Get(bg, key)
+		if err != nil {
+			return nil, err
+		}
+		return io.ReadAll(obj.Body())
+	}
+	put := func(key, value string) {
+		if err := fs.Put(bg, key, uint64(len(value)), strings.NewReader(value)); err != nil {
+			t.Fatalf("Put fail: %v\n", err)
+		}
+	}
+
+	put("staged-one", "staged")
+	if err := fs.Move(bg, "staged-one", "quux"); err != nil {
+		t.Fatalf("Move fail: %v\n", err)
+	}
+	if got, err := get("quux"); err != nil || string(got) != "staged" {
+		t.Fatalf("after Move, dst = %q, %v", got, err)
+	}
+	if _, err := get("staged-one"); !errors.Is(err, objectstore.ErrNotExist) {
+		t.Fatalf("after Move, src still there: %v", err)
+	}
+
+	// Moving again, as a retry of a move already made would, succeeds.
+	if err := fs.Move(bg, "staged-one", "quux"); err != nil {
+		t.Fatalf("repeated Move fail: %v\n", err)
+	}
+
+	put("staged-two", "newer")
+	if err := fs.Move(bg, "staged-two", "quux"); err != nil {
+		t.Fatalf("Move over an existing object fail: %v\n", err)
+	}
+	if got, err := get("quux"); err != nil || string(got) != "newer" {
+		t.Fatalf("after Move over an existing object, dst = %q, %v", got, err)
+	}
+
+	if err := fs.Move(bg, "staged-none", "absent"); !errors.Is(err, objectstore.ErrNotExist) {
+		t.Fatalf("Move with neither key = %v, want ErrNotExist", err)
+	}
+	checkTemp(t, temp)
+}

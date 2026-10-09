@@ -93,6 +93,11 @@ type RootAdd struct {
 type PieceAllocation struct {
 	Piece  Piece
 	Notify *url.URL
+	// Allocation is the link to the `/blob/allocate` task of an allocation
+	// made without a digest. It is set exactly when Piece.Hash is empty: the
+	// upload then computes the digest as the data is received, and records it
+	// on the pending allocation.
+	Allocation cid.Cid
 }
 
 type Piece struct {
@@ -205,6 +210,9 @@ type PieceRemoverAPI interface {
 	// RemovePiece records a request to release a blob's bytes once nothing
 	// references them. Idempotent.
 	RemovePiece(ctx context.Context, blob multihash.Multihash) error
+	// DiscardUpload drops an upload that has not completed: its upload row
+	// and any data staged for it. Idempotent.
+	DiscardUpload(ctx context.Context, uploadID string) error
 }
 
 type ProofSetAPI interface {

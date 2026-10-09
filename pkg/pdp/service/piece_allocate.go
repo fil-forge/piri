@@ -33,6 +33,22 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 		return nil, types.WrapError(types.KindInvalidInput, "piece too large", err)
 	}
 
+	// Without a digest there is nothing to look up: the data is always
+	// uploaded, and hashed as it is received.
+	if len(allocation.Piece.Hash) == 0 {
+		if !allocation.Allocation.Defined() {
+			return nil, types.NewErrorf(types.KindInvalidInput, "an allocation without a digest needs its allocate task link")
+		}
+		uploadUUID := uuid.New()
+		if _, err := p.db.Exec(ctx,
+			`INSERT INTO pdp_piece_uploads (id, service, notify_url, check_hash_codec, check_hash, check_size, allocation)
+			 VALUES ($1, $2, $3, $4, NULL, $5, $6)`,
+			uploadUUID.String(), "storacha", "", allocation.Piece.Name, allocation.Piece.Size, allocation.Allocation.String()); err != nil {
+			return nil, fmt.Errorf("failed to store upload request in database: %w", err)
+		}
+		return &types.AllocatedPiece{Allocated: true, UploadID: uploadUUID}, nil
+	}
+
 	// check if we already have this piece
 	found, err := p.Has(ctx, allocation.Piece.Hash)
 	if err != nil {
