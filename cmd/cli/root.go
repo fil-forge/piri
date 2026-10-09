@@ -49,7 +49,16 @@ Piri can run entirely on its own with no software other than Filecoin Lotus, or 
 )
 
 func init() {
-	cobra.OnInitialize(initLogging, initConfig)
+	cobra.OnInitialize(initLogging)
+	// Config loads for the command cobra resolved on this run, rather than in an
+	// OnInitialize hook, so it can skip version, which reads no config: a config
+	// that fails to load must not stop it. Cobra runs only the nearest
+	// PersistentPreRun, so a subcommand that sets its own must load config too.
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		if cmd != versionCmd {
+			initConfig()
+		}
+	}
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "Config file path. Attempts to load from user config directory if not set e.g. ~/.config/"+configFilePath)
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "logging level")
