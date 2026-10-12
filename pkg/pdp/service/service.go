@@ -21,6 +21,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/tasks/message"
 
+	"github.com/fil-forge/libforge/syncutil"
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
@@ -29,7 +30,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -85,7 +85,7 @@ type PDPService struct {
 
 	// uploadLocks serializes the PUTs of one upload, so a retry that overlaps
 	// the PUT it retries waits for it instead of racing it.
-	uploadLocks keylock.Locks
+	uploadLocks syncutil.KeyedMutex
 
 	edc              *eip712.ExtraDataEncoder
 	verifierContract smartcontracts.Verifier
