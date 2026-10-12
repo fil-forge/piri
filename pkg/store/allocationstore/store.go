@@ -13,10 +13,10 @@ import (
 	"github.com/ipfs/go-datastore"
 	"github.com/multiformats/go-multihash"
 
+	"github.com/fil-forge/libforge/syncutil"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/genericstore"
-	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
 	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
@@ -92,7 +92,7 @@ type KeyEncoder interface {
 // reads the allocation first acts on the allocation it read. The lock is held
 // in this process, which is the only one using the store.
 type Store struct {
-	locks keylock.Locks
+	locks syncutil.KeyedMutex
 
 	store *genericstore.Store[allocation.Allocation]
 	// byTask indexes store by `/blob/allocate` task link: a copy of each
