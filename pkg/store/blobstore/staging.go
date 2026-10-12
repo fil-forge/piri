@@ -8,8 +8,8 @@ import (
 
 	"github.com/multiformats/go-multihash"
 
+	"github.com/fil-forge/libforge/syncutil"
 	"github.com/fil-forge/piri/pkg/store"
-	"github.com/fil-forge/piri/pkg/store/keylock"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
@@ -38,7 +38,7 @@ type StagingIndex interface {
 type StagingStore struct {
 	blobs *Store
 	index StagingIndex
-	locks keylock.Locks
+	locks syncutil.KeyedMutex
 }
 
 var _ Blobstore = (*StagingStore)(nil)
