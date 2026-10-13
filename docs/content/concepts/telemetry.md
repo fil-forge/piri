@@ -46,7 +46,35 @@ it derives from the service name. An attribute of that name silently replaces
 it.
 
 `replication` and `egress-tracker` are the only two queues. PDP runs on a
-separate scheduler inside Piri which emits no metrics of its own.
+separate scheduler inside Piri, reported by the PDP metrics below.
+
+### PDP Metrics
+
+The chain head the PDP pipeline last saw, the proving schedule and recorded
+proving failures of the node's proof sets, and when the proving tasks last
+ran. They come from Curio's database, not the chain, so they do not confirm
+that a proof landed. See
+[Monitoring > PDP Proving Health](../operator-guide/monitoring.md#pdp-proving-health)
+for example alerts.
+
+| Metric                                                       | Type  | Unit  | Description                                                  |
+|--------------------------------------------------------------|-------|-------|--------------------------------------------------------------|
+| <nobr>`piri_chain_head_epoch`</nobr>                         | Gauge | epoch | Epoch of the last tipset the chain scheduler applied         |
+| <nobr>`piri_chain_head_timestamp_seconds`</nobr>             | Gauge | s     | Unix timestamp of that tipset                                |
+| <nobr>`piri_pdp_proofset_next_challenge_epoch`</nobr>        | Gauge | epoch | Challenge epoch Curio scheduled for the current proving period (written when the scheduling transaction is sent; mid-window for the first period) |
+| <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
+| <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
+| <nobr>`piri_pdp_proofset_consecutive_prove_failures`</nobr>  | Gauge | count | Proving transactions Curio has handled as contract reverts since the last successful prove send, which alone resets it |
+| <nobr>`piri_pdp_proofset_next_prove_attempt_epoch`</nobr>    | Gauge | epoch | Backoff deadline Curio set after the last proving failure; Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send |
+| <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
+| <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |
+
+**Labels:**
+
+| Label | Description |
+|-------|-------------|
+| `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
+| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
 ### IPNI Publishing Metrics
 
