@@ -201,10 +201,10 @@ increase(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
 # Proof set unrecoverable: Curio has given up proving a proof set. It does so
 # either because the set's payment has ended or been terminated, or after five
 # consecutive rejected proving transactions, all but the last of which
-# "Proving failing" above has already alerted on. So it calls for cleaning up
-# rather than an urgent response. Piri does not run Curio's data set deletion,
-# so the count does not go down on its own; to alert only when a new one
-# appears, use
+# "Proving failing" above has already alerted on if you alert on it as
+# recommended. So it calls for finding out why Curio gave up rather than an
+# urgent response. Piri does not run Curio's data set deletion, so the count
+# does not go down on its own; to alert only when a new one appears, use
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
