@@ -20,6 +20,7 @@ import (
 // upstream starts traces for Piri yet, so a sampler that only follows a parent
 // records nothing at all.
 func TestSetupTracesRootSpans(t *testing.T) {
+	clearResourceEnv(t)
 	var exports atomic.Int32
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/traces" {
@@ -51,6 +52,7 @@ func TestSetupTracesRootSpans(t *testing.T) {
 // Piri's telemetry carries the Forge namespace alongside its own name, which is
 // what selects Forge's services together in Alloy and Grafana.
 func TestSetupResourceNamespace(t *testing.T) {
+	clearResourceEnv(t)
 	// With no collector configured the tracer provider is a no-op one, whose
 	// spans carry no resource.
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +107,7 @@ func TestSetupResourceInstanceID(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
+			clearResourceEnv(t)
 			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", tc.resourceAttributes)
 
 			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,4 +135,12 @@ func TestSetupResourceInstanceID(t *testing.T) {
 			require.Equal(t, tc.expectedInstanceID, instanceID.AsString())
 		})
 	}
+}
+
+// Setup reads OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME, so a test that
+// asserts Piri's own defaults clears whatever the test process inherited.
+func clearResourceEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	t.Setenv("OTEL_SERVICE_NAME", "")
 }
