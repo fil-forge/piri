@@ -15,11 +15,15 @@ concurrency:
 
 jobs:
   go-test:
-    uses: ipdxco/unified-github-workflows/.github/workflows/go-test.yml@1822b44541e3ad073b8f9109e346ba0ddd4ce96e # v1.0
+    uses: ipdxco/unified-github-workflows/.github/workflows/go-test.yml@d9b156f4be9fae6843707f5e5cda2fb079f821ac # v1.0
     with:
       go-versions: '["this"]'
       # Curio's dep tree includes FFI cgo packages unless built with the
-      # skiff tag (see Makefile); cgo is disabled via go-test-config.json.
+      # skiff tag (see Makefile). Tests run with cgo enabled (set in
+      # go-test-config.json): gosigar, an indirect dependency via lotus
+      # and curio, only builds with cgo on macOS, and the workflow does
+      # not support per-OS cgo settings. The CGO-free Linux build is
+      # covered by the Container workflow (Dockerfile).
       env: |
         GOFLAGS=-tags=skiff
     secrets:
