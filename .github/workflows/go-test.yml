@@ -19,7 +19,11 @@ jobs:
     with:
       go-versions: '["this"]'
       # Curio's dep tree includes FFI cgo packages unless built with the
-      # skiff tag (see Makefile); cgo is disabled via go-test-config.json.
+      # skiff tag (see Makefile). Tests run with cgo enabled (set in
+      # go-test-config.json): gosigar, an indirect dependency via lotus
+      # and curio, only builds with cgo on macOS, and the workflow does
+      # not support per-OS cgo settings. The CGO-free Linux build is
+      # covered by the Container workflow (Dockerfile).
       env: |
         GOFLAGS=-tags=skiff
     secrets:
