@@ -113,6 +113,29 @@ introducing a config-driven module — update `pkg/fx/app/full_test.go` so the
 new wiring is exercised. Add or adjust the storage/config variants in the test
 to cover the new graph shape.
 
+## Observability
+
+When a change adds or alters behavior an operator depends on, decide how they
+would see it working and see it fail, and add that in the same PR:
+
+- **Metrics and traces.** Instrument with OpenTelemetry in the package's
+  `telemetry.go` (for example `pkg/pdp/service/telemetry.go`,
+  `lib/jobqueue/worker/telemetry.go`). Prefer a signal that answers "is this
+  working?", such as a failure count or the time of the last success, over one
+  that only measures volume. Keep attributes low-cardinality: no CIDs, DIDs or
+  other per-request values.
+- **Docs.** List each new metric in `docs/content/concepts/telemetry.md`. If it
+  shows a failure an operator should act on, add a recommended alert with its
+  severity to the "Alerts to Configure" table in
+  `docs/content/operator-guide/monitoring.md`, with its query beside the
+  similar ones there.
+- **Forge's alerts and dashboards** live in fil-forge/infra-central, under
+  `terraform/envs/grafana/`. A new metric does nothing for Forge's on-call
+  until a rule or panel there reads it, so open a companion PR there, or say in
+  this PR that one is needed.
+
+Skip this for changes nothing operational depends on.
+
 ## Conventions
 
 - Go files: snake_case. Tests: testify (`assert`/`require`).
