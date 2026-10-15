@@ -20,6 +20,7 @@ import (
 // upstream starts traces for Piri yet, so a sampler that only follows a parent
 // records nothing at all.
 func TestSetupTracesRootSpans(t *testing.T) {
+	clearResourceEnv(t)
 	var exports atomic.Int32
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/traces" {
@@ -51,6 +52,7 @@ func TestSetupTracesRootSpans(t *testing.T) {
 // Piri's telemetry carries the Forge namespace alongside its own name, which is
 // what selects Forge's services together in Alloy and Grafana.
 func TestSetupResourceNamespace(t *testing.T) {
+	clearResourceEnv(t)
 	// With no collector configured the tracer provider is a no-op one, whose
 	// spans carry no resource.
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,4 +83,64 @@ func TestSetupResourceNamespace(t *testing.T) {
 	name, ok := attrs.Value(semconv.ServiceNameKey)
 	require.True(t, ok, "resource has no service.name")
 	require.Equal(t, "piri", name.AsString())
+}
+
+// An operator running several Piris on one host tells them apart by setting
+// service.instance.id through OTEL_RESOURCE_ATTRIBUTES. Without it, the
+// instance is the node's DID.
+func TestSetupResourceInstanceID(t *testing.T) {
+	testCases := []struct {
+		desc               string
+		resourceAttributes string
+		expectedInstanceID string
+	}{
+		{
+			desc:               "OTEL_RESOURCE_ATTRIBUTES is unset",
+			resourceAttributes: "",
+			expectedInstanceID: "did:key:test",
+		},
+		{
+			desc:               "OTEL_RESOURCE_ATTRIBUTES sets service.instance.id",
+			resourceAttributes: "service.instance.id=staging/eu-central-3/piri-1",
+			expectedInstanceID: "staging/eu-central-3/piri-1",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			clearResourceEnv(t)
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", tc.resourceAttributes)
+
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(collector.Close)
+
+			ctx := context.Background()
+			tel, err := Setup(ctx, "", "did:key:test", app.TelemetryConfig{
+				Environment: "test",
+				Traces: []app.TelemetryCollectorConfig{{
+					Endpoint: strings.TrimPrefix(collector.URL, "http://"),
+					Insecure: true,
+				}},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, tel.Shutdown(ctx)) })
+
+			_, span := otel.Tracer("test").Start(ctx, "root")
+			defer span.End()
+			ro, ok := span.(sdktrace.ReadOnlySpan)
+			require.True(t, ok, "span is not an SDK span")
+
+			instanceID, _ := ro.Resource().Set().Value(semconv.ServiceInstanceIDKey)
+			require.Equal(t, tc.expectedInstanceID, instanceID.AsString())
+		})
+	}
+}
+
+// Setup reads OTEL_RESOURCE_ATTRIBUTES and OTEL_SERVICE_NAME, so a test that
+// asserts Piri's own defaults clears whatever the test process inherited.
+func clearResourceEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	t.Setenv("OTEL_SERVICE_NAME", "")
 }
