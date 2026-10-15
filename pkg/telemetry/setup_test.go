@@ -82,3 +82,54 @@ func TestSetupResourceNamespace(t *testing.T) {
 	require.True(t, ok, "resource has no service.name")
 	require.Equal(t, "piri", name.AsString())
 }
+
+// An operator running several Piris on one host tells them apart by setting
+// service.instance.id through OTEL_RESOURCE_ATTRIBUTES. Without it, the
+// instance is the node's DID.
+func TestSetupResourceInstanceID(t *testing.T) {
+	testCases := []struct {
+		desc               string
+		resourceAttributes string
+		expectedInstanceID string
+	}{
+		{
+			desc:               "OTEL_RESOURCE_ATTRIBUTES is unset",
+			resourceAttributes: "",
+			expectedInstanceID: "did:key:test",
+		},
+		{
+			desc:               "OTEL_RESOURCE_ATTRIBUTES sets service.instance.id",
+			resourceAttributes: "service.instance.id=staging/eu-central-3/piri-1",
+			expectedInstanceID: "staging/eu-central-3/piri-1",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			t.Setenv("OTEL_RESOURCE_ATTRIBUTES", tc.resourceAttributes)
+
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			t.Cleanup(collector.Close)
+
+			ctx := context.Background()
+			tel, err := Setup(ctx, "", "did:key:test", app.TelemetryConfig{
+				Environment: "test",
+				Traces: []app.TelemetryCollectorConfig{{
+					Endpoint: strings.TrimPrefix(collector.URL, "http://"),
+					Insecure: true,
+				}},
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, tel.Shutdown(ctx)) })
+
+			_, span := otel.Tracer("test").Start(ctx, "root")
+			defer span.End()
+			ro, ok := span.(sdktrace.ReadOnlySpan)
+			require.True(t, ok, "span is not an SDK span")
+
+			instanceID, _ := ro.Resource().Set().Value(semconv.ServiceInstanceIDKey)
+			require.Equal(t, tc.expectedInstanceID, instanceID.AsString())
+		})
+	}
+}
