@@ -94,6 +94,10 @@ func Setup(ctx context.Context, network string, id string, cfg app.TelemetryConf
 			Collectors: traceCollectors,
 		},
 		resource.WithAttributes(semconv.ServiceNamespace(serviceNamespace)),
+		// Last, so OTEL_RESOURCE_ATTRIBUTES overrides the defaults above. An
+		// operator running several Piris on one host sets service.instance.id
+		// to a name of their choosing instead of the DID.
+		resource.WithFromEnv(),
 	)
 }
 
