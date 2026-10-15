@@ -448,7 +448,8 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	// Expired before any data arrived.
 	idle := w.allocate(t, testutil.RandomDID(t), 64, past)
 
-	// Expired after the data arrived, never accepted.
+	// Expired after the data arrived, never accepted: parked, like an
+	// allocation made with a digest.
 	space := testutil.RandomDID(t)
 	received := w.allocate(t, space, len(data), past)
 	require.NoError(t, w.upload(t, received, data))
@@ -483,18 +484,24 @@ func TestProcessExpiredAllocations(t *testing.T) {
 
 	require.NoError(t, w.svc.ProcessExpiredAllocations(ctx))
 
-	for _, p := range []allocation.Pending{idle, received, accepted} {
+	for _, p := range []allocation.Pending{idle, accepted} {
 		_, err := w.allocs.GetPending(ctx, p.Allocation)
-		require.ErrorIs(t, err, store.ErrNotFound, "expired pending allocations are deleted")
+		require.ErrorIs(t, err, store.ErrNotFound, "an expired allocation that was idle or accepted loses its pending record")
 	}
 	require.False(t, w.uploadLive(t, idle.UploadID), "the idle upload is discarded")
 
+	// The received upload stays parked: its pending record, its claim and its
+	// data are all kept, however long it has been waiting for an accept.
+	kept, err := w.allocs.GetPending(ctx, received.Allocation)
+	require.NoError(t, err, "a received allocation keeps its pending record past its expiry")
+	require.Equal(t, digest, kept.Digest)
 	_, err = w.allocs.Get(ctx, digest, space)
-	require.ErrorIs(t, err, store.ErrNotFound, "the received upload's claim is released")
+	require.NoError(t, err, "the received upload keeps its claim")
+	require.True(t, w.uploadData(t, received.UploadID), "the received upload keeps its data")
 	var queued int
 	require.NoError(t, w.svc.db.QueryRow(ctx,
 		`SELECT count(*) FROM pdp_pending_piece_removals WHERE digest = $1`, []byte(digest)).Scan(&queued))
-	require.Equal(t, 1, queued, "the released bytes are queued for removal")
+	require.Zero(t, queued, "nothing is queued for removal")
 
 	_, err = w.allocs.Get(ctx, acceptedDigest, acceptedSpace)
 	require.NoError(t, err, "an accepted upload keeps its claim")
@@ -510,6 +517,14 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	require.False(t, w.uploadRowExists(t, idle.UploadID), "a discarded upload's row is reaped")
 	require.False(t, w.uploadRowExists(t, orphan.UploadID.String()))
 	require.True(t, w.uploadRowExists(t, live.UploadID))
+
+	// An explicit release still undoes the parked allocation.
+	require.NoError(t, w.svc.DiscardUpload(ctx, received.UploadID))
+	released, err := w.allocs.ReleasePending(ctx, received)
+	require.NoError(t, err)
+	require.Equal(t, digest, released.Digest)
+	_, err = w.allocs.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "releasing the parked allocation releases its claim")
 }
 
 // TestUploadUnhashed_DiscardedWhileWriting: the allocation is rejected while
