@@ -10,6 +10,7 @@ import (
 	"github.com/ipfs/go-cid"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
 
@@ -41,7 +42,8 @@ type DBQueue struct {
 func NewDBQueue(db *harmonydb.DB) *DBQueue { return &DBQueue{db: db} }
 
 // Enqueue records that the claim's advertisement is owed, and what to
-// advertise. A claim already queued is left as it is.
+// advertise, in the caller's transaction when the context carries one. A
+// claim already queued is left as it is.
 func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) (err error) {
 	ctx, span := tracer.Start(ctx, "publisher.queue_advert")
 	defer func() {
@@ -55,10 +57,13 @@ func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) 
 	if err != nil {
 		return fmt.Errorf("queueing advertisement for %s: %w", claim, err)
 	}
-	_, err = q.db.Exec(ctx, `
-		INSERT INTO ipni_pending_adverts (claim, spec) VALUES ($1, $2)
-		ON CONFLICT (claim) DO NOTHING
-	`, claim.String(), encoded)
+	err = harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO ipni_pending_adverts (claim, spec) VALUES ($1, $2)
+			ON CONFLICT (claim) DO NOTHING
+		`, claim.String(), encoded)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("queueing advertisement for %s: %w", claim, err)
 	}
@@ -70,7 +75,10 @@ func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) 
 // claimed is either gone before the task loads its batch or still there
 // until the batch has committed.
 func (q *DBQueue) Dequeue(ctx context.Context, claim cid.Cid) error {
-	_, err := q.db.Exec(ctx, `DELETE FROM ipni_pending_adverts WHERE claim = $1`, claim.String())
+	err := harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`DELETE FROM ipni_pending_adverts WHERE claim = $1`, claim.String())
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("dequeueing advertisement for %s: %w", claim, err)
 	}

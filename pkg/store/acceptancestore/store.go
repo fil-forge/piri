@@ -13,7 +13,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // AcceptanceStore tracks the items that have been stored on the storage node.
@@ -98,17 +97,6 @@ func (s *Store) ListSpaces(ctx context.Context, digest multihash.Multihash) ([]d
 	return spaces, nil
 }
 
-// S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) string {
-	return fmt.Sprintf("%s/%s.cbor", digestutil.Format(digest), space.String())
-}
-
-func (S3KeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
-	return fmt.Sprintf("%s/", digestutil.Format(digest))
-}
-
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends (no suffix).
 type DatastoreKeyEncoder struct{}
 
@@ -118,12 +106,6 @@ func (DatastoreKeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) 
 
 func (DatastoreKeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
 	return fmt.Sprintf("%s/", digestutil.Format(digest))
-}
-
-// NewS3Store creates an AcceptanceStore for S3/MinIO backends.
-// Acceptances are stored with keys formatted as "acceptances/{digest}/{space}.cbor".
-func NewS3Store(backend *minio.Store) *Store {
-	return New(backend, S3KeyEncoder{})
 }
 
 // NewDatastoreStore creates an AcceptanceStore for LevelDB/datastore backends.

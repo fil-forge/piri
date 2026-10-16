@@ -31,6 +31,7 @@ import (
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
 
@@ -55,7 +56,9 @@ type PublisherService struct {
 // advertisement itself is published later by the IPNIPublish task, in a batch
 // with its neighbours, so an accept returns before it exists; the indexer is
 // told now, since that is what serves a read of the blob straight after its
-// write.
+// write. In a transaction (see harmonytx), the advertisement is queued in it
+// and the indexer is told once it commits, so it never learns of a claim
+// that was rolled back.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
@@ -70,7 +73,9 @@ func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation)
 		// Caching the claim with the indexing service stays synchronous: it is
 		// what makes a blob readable as soon as its accept returns, and it is
 		// what lets the IPNI advertisement chain above be built async.
-		return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
+		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
+			return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
+		})
 	default:
 		return fmt.Errorf("unknown claim: %s", ability)
 	}

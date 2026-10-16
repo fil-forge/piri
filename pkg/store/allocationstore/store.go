@@ -19,7 +19,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // AllocationStore tracks the items that have been, or will soon be stored on
@@ -301,17 +300,6 @@ func (s *Store) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, e
 	return s.pending.ListPrefix(ctx, "")
 }
 
-// S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) string {
-	return fmt.Sprintf("%s/%s.cbor", digestutil.Format(digest), space.String())
-}
-
-func (S3KeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
-	return fmt.Sprintf("%s/", digestutil.Format(digest))
-}
-
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends (no suffix).
 type DatastoreKeyEncoder struct{}
 
@@ -321,12 +309,6 @@ func (DatastoreKeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) 
 
 func (DatastoreKeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
 	return fmt.Sprintf("%s/", digestutil.Format(digest))
-}
-
-// NewS3Store creates an AllocationStore for S3/MinIO backends.
-// Allocations are stored with keys formatted as "allocations/{digest}/{space}.cbor".
-func NewS3Store(backend *minio.Store) *Store {
-	return New(backend, S3KeyEncoder{})
 }
 
 // NewDatastoreStore creates an AllocationStore for LevelDB/datastore backends.
