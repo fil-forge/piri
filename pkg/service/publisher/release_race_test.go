@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	ipnipub "github.com/fil-forge/go-ipni-tools/pkg/publisher"
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/libforge/digestutil"
 	"github.com/fil-forge/libforge/testutil"
@@ -16,6 +17,8 @@ import (
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
+	"github.com/ipld/go-ipld-prime"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
 
@@ -91,4 +94,63 @@ func TestPublishClaimed_WaitsForRelease(t *testing.T) {
 	claimed, err := queue.Claimed(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, []cid.Cid{kept}, claimsOf(claimed))
+}
+
+// blockingBatchPublisher holds a batch mid-publish until release is closed.
+type blockingBatchPublisher struct {
+	ipnipub.BatchPublisher
+	publishing chan struct{}
+	release    chan struct{}
+}
+
+func (b *blockingBatchPublisher) PublishBatch(ctx context.Context, provider peer.AddrInfo, specs []ipnipub.AdvertSpec) (ipld.Link, error) {
+	close(b.publishing)
+	<-b.release
+	return b.BatchPublisher.PublishBatch(ctx, provider, specs)
+}
+
+// A batch that has loaded its rows holds them until it has published: a
+// deletion of one of them waits for it, whether or not it goes through the
+// publisher's own lock, as a delete from another process would not.
+func TestPublishClaimed_HoldsRowsWhilePublishing(t *testing.T) {
+	db := piritestutil.NewHarmonyDB(t)
+	ctx := t.Context()
+	queue := NewDBQueue(db)
+	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
+		store.WithMetadataContext(metadata.MetadataContext))
+	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, WithTransactor(harmonytx.New(db)))
+	require.NoError(t, err)
+	blocking := &blockingBatchPublisher{BatchPublisher: svc.ipni, publishing: make(chan struct{}), release: make(chan struct{})}
+	svc.ipni = blocking
+
+	shard := testutil.RandomMultihash(t)
+	location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+	clm := mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
+	require.NoError(t, svc.Publish(ctx, clm))
+	const id harmonytask.TaskID = 11
+	stamped, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		return claimBatch(tx, id, publishBatchSize)
+	})
+	require.NoError(t, err)
+	require.True(t, stamped)
+
+	published := make(chan error, 1)
+	go func() {
+		_, _, err := svc.PublishClaimed(ctx, id)
+		published <- err
+	}()
+	<-blocking.publishing
+
+	dequeued := make(chan error, 1)
+	go func() { dequeued <- queue.Dequeue(ctx, clm.Link()) }()
+	select {
+	case err := <-dequeued:
+		t.Fatalf("the row was deleted while its batch was publishing it: %v", err)
+	case <-time.After(time.Second):
+	}
+
+	close(blocking.release)
+	require.NoError(t, <-published)
+	require.NoError(t, <-dequeued)
 }
