@@ -13,6 +13,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
@@ -27,6 +28,7 @@ func newAllocateDeps(t *testing.T) (AllocateDeps, *pdpfake.Pieces, *allocationst
 	return AllocateDeps{
 		Allocations: allocs,
 		Pieces:      pieces,
+		Tx:          store.NoTransaction{},
 	}, pieces, allocs
 }
 

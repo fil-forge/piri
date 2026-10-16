@@ -238,7 +238,15 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	// the acceptance as a sign the blob entered the pipeline, which the one
 	// commit makes exact. The pipeline's task is spawned, and the claim
 	// cached with the indexing service, once the records have committed.
+	// The space's allocation of the blob is locked first, as a reject or a
+	// release locks it, so they run one after the other: a reject that came
+	// first has dropped the allocation, and one that comes later sees the
+	// acceptance.
 	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		if err := deps.Pending.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
+			log.Errorw("locking allocation", "error", err)
+			return fmt.Errorf("locking allocation: %w", err)
+		}
 		if err := deps.Acceptances.Put(ctx, acc); err != nil {
 			log.Errorw("putting acceptance for blob", "error", err)
 			return fmt.Errorf("putting acceptance for blob: %w", err)

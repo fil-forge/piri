@@ -73,6 +73,24 @@ type AllocationStore interface {
 	DeletePending(context.Context, cid.Cid) error
 	// ListPending iterates every allocation made without a digest.
 	ListPending(context.Context) iter.Seq2[allocation.Pending, error]
+	// ListExpiredPending iterates the allocations made without a digest that
+	// expired at or before now.
+	ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error]
+	// Lock holds the space's allocation of the blob, if it has one, until the
+	// transaction the context carries ends. Every change that reads the
+	// space's acceptance of a blob and acts on its allocation takes this lock
+	// before the acceptance, so an accept and a reject of the blob in the
+	// space run one after the other. Outside a transaction it does nothing.
+	//
+	// Locks are taken in one order so that no two transactions wait on each
+	// other: an allocation made without a digest, then the space's
+	// allocation of the blob, then its acceptance.
+	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
+	// LockPending holds the allocation the `/blob/allocate` task link made
+	// without a digest, if there is one, until the transaction the context
+	// carries ends. A change that releases such an allocation takes this lock
+	// before [AllocationStore.Lock]. Outside a transaction it does nothing.
+	LockPending(ctx context.Context, link cid.Cid) error
 	// ReleasePending deletes an allocation made without a digest and, once
 	// its data was received, its claim on (digest, space), handing the claim
 	// to another received upload of the same content in the space if there
@@ -298,6 +316,30 @@ func (s *Store) DeletePending(ctx context.Context, link cid.Cid) error {
 
 func (s *Store) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error] {
 	return s.pending.ListPrefix(ctx, "")
+}
+
+func (s *Store) ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error] {
+	return func(yield func(allocation.Pending, error) bool) {
+		for p, err := range s.ListPending(ctx) {
+			if err != nil {
+				yield(allocation.Pending{}, err)
+				return
+			}
+			if p.Expires <= now && !yield(p, nil) {
+				return
+			}
+		}
+	}
+}
+
+// Lock does nothing: the datastore store keeps no transactions.
+func (s *Store) Lock(context.Context, multihash.Multihash, did.DID) error {
+	return nil
+}
+
+// LockPending does nothing: the datastore store keeps no transactions.
+func (s *Store) LockPending(context.Context, cid.Cid) error {
+	return nil
 }
 
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends (no suffix).

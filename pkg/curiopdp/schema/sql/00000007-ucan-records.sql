@@ -40,6 +40,9 @@ CREATE TABLE ucan_pending_allocations (
 CREATE INDEX ucan_pending_allocations_digest ON ucan_pending_allocations (digest, space)
     WHERE digest IS NOT NULL;
 
+-- The expiry task reads only the pending allocations that have expired.
+CREATE INDEX ucan_pending_allocations_expires ON ucan_pending_allocations (expires);
+
 -- A space's acceptance of a blob. pdp_accept is the /pdp/accept task its
 -- promise awaits; site is the location commitment's CID.
 CREATE TABLE ucan_acceptances (

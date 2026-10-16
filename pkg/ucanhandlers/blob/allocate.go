@@ -49,6 +49,8 @@ type AllocateDeps struct {
 	// PieceSize bounds how large a blob this node will accept. Its zero
 	// value reports the defaults, so tests may leave it unset.
 	PieceSize piecesize.Policy
+	// Tx runs the upload record and the allocation as one transaction.
+	Tx store.Transactor
 }
 
 // AllocationStore is the slice of allocationstore.AllocationStore the
@@ -223,9 +225,7 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 	expiresIn := ucan.UnixTimestamp(60 * 60 * 24) // 1 day
 	expiresAt := ucan.Now() + expiresIn
 
-	var address *blob.BlobAddress
-	// if not received yet, we need to generate an upload URL via PDP and
-	// include it in the receipt.
+	var name string
 	if !received {
 		dmh, err := multihash.Decode(req.Blob.Digest)
 		if err != nil {
@@ -235,52 +235,67 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 		if _, ok := presets.HasherRegistry[dmh.Name]; !ok {
 			return nil, fmt.Errorf("unsupported hash: %s", dmh.Name)
 		}
-		// TODO we need to provide backpressure to the upload service here
-		// based on the number of roots we are currently allocating.
-		alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
-			Piece: types.Piece{
-				Name: dmh.Name,
-				Hash: req.Blob.Digest,
-				Size: int64(req.Blob.Size),
-			},
-		})
-		if err != nil {
-			log.Errorw("adding to pdp service", "error", err)
-			return nil, fmt.Errorf("adding to pdp service: %w", err)
-		}
-		// The piece store can hold the bytes even when no allocation said so:
-		// a re-add of a digest whose last claim was just released, racing the
-		// pending-removal sweep. Then AllocatePiece reports Allocated=false
-		// with no upload ID, and there is nothing to upload — return no
-		// address (the caller proceeds straight to accept), never an address
-		// wrapping an empty URL. The allocation row written below is a claim,
-		// so the sweep cancels the queued removal instead of deleting the
-		// revived bytes.
-		if alloc.Allocated {
-			uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
-			if err != nil {
-				log.Errorw("getting piece write URL", "error", err)
-				return nil, fmt.Errorf("getting piece write URL: %w", err)
-			}
-			address = &blob.BlobAddress{
-				URL:     commands.CborURL(uploadURL),
-				Expires: int64(expiresAt),
-			}
-		}
+		name = dmh.Name
 	}
 
-	// even if a previous allocation was made in this space, we create
-	// another for the new invocation.
-	err = deps.Allocations.Put(ctx, allocation.Allocation{
-		Space:      req.Space,
-		Blob:       req.Blob,
-		Expires:    expiresAt,
-		Cause:      req.Cause,
-		Allocation: req.Allocation,
+	// The upload record and the allocation commit together, so neither is
+	// left without the other.
+	var address *blob.BlobAddress
+	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		address = nil
+		// if not received yet, we need to generate an upload URL via PDP and
+		// include it in the receipt.
+		if !received {
+			// TODO we need to provide backpressure to the upload service here
+			// based on the number of roots we are currently allocating.
+			alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
+				Piece: types.Piece{
+					Name: name,
+					Hash: req.Blob.Digest,
+					Size: int64(req.Blob.Size),
+				},
+			})
+			if err != nil {
+				log.Errorw("adding to pdp service", "error", err)
+				return fmt.Errorf("adding to pdp service: %w", err)
+			}
+			// The piece store can hold the bytes even when no allocation said
+			// so: a re-add of a digest whose last claim was just released,
+			// racing the pending-removal sweep. Then AllocatePiece reports
+			// Allocated=false with no upload ID, and there is nothing to
+			// upload — return no address (the caller proceeds straight to
+			// accept), never an address wrapping an empty URL. The allocation
+			// row written below is a claim, so the sweep cancels the queued
+			// removal instead of deleting the revived bytes.
+			if alloc.Allocated {
+				uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
+				if err != nil {
+					log.Errorw("getting piece write URL", "error", err)
+					return fmt.Errorf("getting piece write URL: %w", err)
+				}
+				address = &blob.BlobAddress{
+					URL:     commands.CborURL(uploadURL),
+					Expires: int64(expiresAt),
+				}
+			}
+		}
+
+		// even if a previous allocation was made in this space, we create
+		// another for the new invocation.
+		if err := deps.Allocations.Put(ctx, allocation.Allocation{
+			Space:      req.Space,
+			Blob:       req.Blob,
+			Expires:    expiresAt,
+			Cause:      req.Cause,
+			Allocation: req.Allocation,
+		}); err != nil {
+			log.Errorw("putting allocation", "error", err)
+			return fmt.Errorf("putting allocation: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		log.Errorw("putting allocation", "error", err)
-		return nil, fmt.Errorf("putting allocation: %w", err)
+		return nil, err
 	}
 
 	return &AllocateResponse{
@@ -366,35 +381,42 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 
 	expiresAt := ucan.Now() + ucan.UnixTimestamp(60*60*24) // 1 day
 
-	alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
-		Piece: types.Piece{
-			Name: name,
-			Size: int64(req.Size),
-		},
-		Allocation: req.Allocation,
+	// The upload record and the pending allocation commit together, so
+	// neither is left without the other.
+	var uploadURL url.URL
+	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
+			Piece: types.Piece{
+				Name: name,
+				Size: int64(req.Size),
+			},
+			Allocation: req.Allocation,
+		})
+		if err != nil {
+			log.Errorw("adding to pdp service", "error", err)
+			return fmt.Errorf("adding to pdp service: %w", err)
+		}
+		uploadURL, err = deps.Pieces.WritePieceURL(alloc.UploadID)
+		if err != nil {
+			log.Errorw("getting piece write URL", "error", err)
+			return fmt.Errorf("getting piece write URL: %w", err)
+		}
+		if err := deps.Pending.PutPending(ctx, allocation.Pending{
+			Allocation: req.Allocation,
+			Space:      req.Space,
+			Size:       req.Size,
+			DigestCode: req.DigestCode,
+			Cause:      req.Cause,
+			Expires:    expiresAt,
+			UploadID:   alloc.UploadID.String(),
+		}); err != nil {
+			log.Errorw("putting pending allocation", "error", err)
+			return fmt.Errorf("putting pending allocation: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
-		log.Errorw("adding to pdp service", "error", err)
-		return nil, fmt.Errorf("adding to pdp service: %w", err)
-	}
-	uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
-	if err != nil {
-		log.Errorw("getting piece write URL", "error", err)
-		return nil, fmt.Errorf("getting piece write URL: %w", err)
-	}
-
-	err = deps.Pending.PutPending(ctx, allocation.Pending{
-		Allocation: req.Allocation,
-		Space:      req.Space,
-		Size:       req.Size,
-		DigestCode: req.DigestCode,
-		Cause:      req.Cause,
-		Expires:    expiresAt,
-		UploadID:   alloc.UploadID.String(),
-	})
-	if err != nil {
-		log.Errorw("putting pending allocation", "error", err)
-		return nil, fmt.Errorf("putting pending allocation: %w", err)
+		return nil, err
 	}
 
 	return &AllocateResponse{

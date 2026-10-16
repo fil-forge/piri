@@ -36,6 +36,8 @@ type PendingAllocations interface {
 	ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error]
 	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (allocation.Allocation, error)
 	MakeCurrent(ctx context.Context, digest multihash.Multihash, space did.DID, link cid.Cid) error
+	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
+	LockPending(ctx context.Context, link cid.Cid) error
 	ReleasePending(ctx context.Context, p allocation.Pending) (allocation.Pending, error)
 }
 

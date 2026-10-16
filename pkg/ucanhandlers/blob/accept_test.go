@@ -17,6 +17,7 @@ import (
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -37,6 +38,7 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 	claimStore := invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	pub := &stubPublisher{}
 	pieces := pdpfake.NewPieces()
+	allocs := allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	return AcceptDeps{
 		ID:          identity.Identity{Issuer: testutil.WebService},
 		Acceptances: accepts,
@@ -44,6 +46,7 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 		Commp:       pdpfake.NewCommp(),
 		ClaimStore:  claimStore,
 		Publisher:   pub,
+		Pending:     allocs,
 		Tx:          store.NoTransaction{},
 	}, pieces, accepts, claimStore, pub
 }

@@ -103,15 +103,37 @@ func claimBatch(tx *harmonydb.Tx, id harmonytask.TaskID, limit int) (bool, error
 // queued before the spec was stored, or whose spec does not decode, comes
 // back with a nil Spec; the latter is logged, since it is corruption rather
 // than age.
+//
+// The rows are locked until the transaction the context carries ends, so a
+// release that dequeued one of them and has not committed holds the load
+// back, and the load then finds the row gone.
 func (q *DBQueue) Claimed(ctx context.Context, id harmonytask.TaskID) ([]QueuedAdvert, error) {
-	var rows []struct {
-		Claim string `db:"claim"`
-		Spec  []byte `db:"spec"`
+	type row struct {
+		Claim string
+		Spec  []byte
 	}
-	if err := q.db.Select(ctx, &rows, `
-		SELECT claim, spec FROM ipni_pending_adverts
-		WHERE publish_task_id = $1 ORDER BY created_at
-	`, id); err != nil {
+	var rows []row
+	err := harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		rows = rows[:0]
+		q, err := tx.Query(`
+			SELECT claim, spec FROM ipni_pending_adverts
+			WHERE publish_task_id = $1 ORDER BY created_at
+			FOR UPDATE
+		`, id)
+		if err != nil {
+			return err
+		}
+		defer q.Close()
+		for q.Next() {
+			var r row
+			if err := q.Scan(&r.Claim, &r.Spec); err != nil {
+				return err
+			}
+			rows = append(rows, r)
+		}
+		return q.Err()
+	})
+	if err != nil {
 		return nil, fmt.Errorf("loading claimed advertisements: %w", err)
 	}
 	out := make([]QueuedAdvert, len(rows))

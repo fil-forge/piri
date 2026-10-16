@@ -54,6 +54,7 @@ func newRejectWorld(t *testing.T) *rejectWorld {
 		Allocations: w.allocs,
 		Acceptances: w.accepts,
 		Pieces:      w.pieces,
+		Tx:          store.NoTransaction{},
 	}
 	return w
 }

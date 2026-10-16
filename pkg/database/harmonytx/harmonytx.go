@@ -34,6 +34,20 @@ func Run(ctx context.Context, db *harmonydb.DB, f func(ctx context.Context, tx *
 	if st, ok := ctx.Value(ctxKey{}).(*state); ok {
 		return f(ctx, st.tx)
 	}
+	st, err := run(ctx, db, f)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, fn := range st.afterCommit {
+		errs = append(errs, fn(ctx))
+	}
+	return errors.Join(errs...)
+}
+
+// run runs f in a new transaction and returns the committed transaction's
+// state.
+func run(ctx context.Context, db *harmonydb.DB, f func(ctx context.Context, tx *harmonydb.Tx) error) (*state, error) {
 	var (
 		st   *state
 		fErr error
@@ -50,16 +64,12 @@ func Run(ctx context.Context, db *harmonydb.DB, f func(ctx context.Context, tx *
 		return fErr == nil, nil
 	}, harmonydb.OptionRetry())
 	if fErr != nil {
-		return fErr
+		return nil, fErr
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var errs []error
-	for _, fn := range st.afterCommit {
-		errs = append(errs, fn(ctx))
-	}
-	return errors.Join(errs...)
+	return st, nil
 }
 
 // AfterCommit registers fn to run once the transaction ctx carries commits.

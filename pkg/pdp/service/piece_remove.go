@@ -10,6 +10,7 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store"
 )
 
@@ -18,7 +19,8 @@ import (
 // on-chain piece rows) races against the concurrently-advancing pipeline,
 // so classification is deferred to the removal machinery, which re-derives
 // everything per pass and only acts when it can prove nothing references
-// the bytes. Idempotent.
+// the bytes. Idempotent. The request joins the caller's transaction when the
+// context carries one.
 func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) (retErr error) {
 	log.Infow("queueing piece removal", "blob", blob.String())
 	defer func() {
@@ -27,10 +29,13 @@ func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) 
 		}
 	}()
 
-	if _, err := p.db.Exec(ctx, `
-		INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)
-		ON CONFLICT (digest) DO NOTHING
-	`, []byte(blob)); err != nil {
+	if err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)
+			ON CONFLICT (digest) DO NOTHING
+		`, []byte(blob))
+		return err
+	}); err != nil {
 		return fmt.Errorf("recording pending piece removal: %w", err)
 	}
 	return nil

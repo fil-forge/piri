@@ -7,19 +7,19 @@ import (
 	"time"
 
 	"github.com/fil-forge/ucantone/ucan"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/hashicorp/go-multierror"
-	"github.com/ipfs/go-cid"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
-// orphanUploadAge is how old an upload row for an allocation made without a
-// digest must be before a missing pending record marks it orphaned. The
-// allocate handler writes the pending record just after the row; only a node
-// stopping between the two leaves a row without one.
-const orphanUploadAge = time.Hour
+// discardedUploadAge is how long ago an upload must have been discarded
+// before the expiry task drops its data and its row: by then it has completed
+// or stopped.
+const discardedUploadAge = time.Hour
 
 // ProcessExpiredAllocations reaps allocations made without a digest once they
 // expire. A crash before the `/blob/add` receipt reaches the client leaves it
@@ -29,15 +29,12 @@ const orphanUploadAge = time.Hour
 // from then on. The bytes of a released claim are queued for removal, which
 // re-checks every claim before deleting anything.
 func (p *PDPService) ProcessExpiredAllocations(ctx context.Context) error {
-	now := ucan.Now()
 	var expired []allocation.Pending
-	for pending, err := range p.allocationStore.ListPending(ctx) {
+	for pending, err := range p.allocationStore.ListExpiredPending(ctx, ucan.Now()) {
 		if err != nil {
-			return fmt.Errorf("listing pending allocations: %w", err)
+			return fmt.Errorf("listing expired allocations: %w", err)
 		}
-		if pending.Expires <= now {
-			expired = append(expired, pending)
-		}
+		expired = append(expired, pending)
 	}
 
 	var merr *multierror.Error
@@ -46,74 +43,63 @@ func (p *PDPService) ProcessExpiredAllocations(ctx context.Context) error {
 			merr = multierror.Append(merr, fmt.Errorf("expiring allocation %s: %w", pending.Allocation, err))
 		}
 	}
-	if err := p.discardOrphanUploads(ctx); err != nil {
-		merr = multierror.Append(merr, err)
-	}
 	if err := p.reapDiscardedUploads(ctx); err != nil {
 		merr = multierror.Append(merr, err)
 	}
 	return merr.ErrorOrNil()
 }
 
-func (p *PDPService) expireAllocation(ctx context.Context, pending allocation.Pending) error {
-	accepted, err := acceptancestore.AcceptedAllocation(ctx, p.acceptanceStore, pending.Digest, pending.Space, pending.Allocation)
-	if err != nil {
-		return err
-	}
-	if accepted {
-		return p.allocationStore.DeletePending(ctx, pending.Allocation)
-	}
-	if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
-		return err
-	}
-	released, err := p.allocationStore.ReleasePending(ctx, pending)
-	if err != nil {
-		return err
-	}
-	if len(released.Digest) > 0 {
-		if err := p.RemovePiece(ctx, released.Digest); err != nil {
+// expireAllocation expires one allocation in its own transaction, so one
+// that fails leaves the others expired. The allocation is locked and read
+// again, since its upload may have recorded a digest since it was listed;
+// then the space's claim on a received blob is locked before its acceptance
+// is read, as an accept locks it. The upload's data is dropped once the
+// expiry commits.
+func (p *PDPService) expireAllocation(ctx context.Context, listed allocation.Pending) error {
+	return harmonytx.Run(ctx, p.db, func(ctx context.Context, _ *harmonydb.Tx) error {
+		if err := p.allocationStore.LockPending(ctx, listed.Allocation); err != nil {
 			return err
 		}
-	}
-	log.Infow("expired allocation", "allocation", pending.Allocation, "space", pending.Space)
-	return nil
-}
-
-func (p *PDPService) discardOrphanUploads(ctx context.Context) error {
-	var rows []struct {
-		ID         string `db:"id"`
-		Allocation string `db:"allocation"`
-	}
-	if err := p.db.Select(ctx, &rows,
-		`SELECT id, allocation FROM pdp_piece_uploads
-		 WHERE allocation IS NOT NULL AND discarded_at IS NULL AND created_at < $1`,
-		time.Now().Add(-orphanUploadAge)); err != nil {
-		return fmt.Errorf("listing uploads without a digest: %w", err)
-	}
-	var merr *multierror.Error
-	for _, row := range rows {
-		link, err := cid.Parse(row.Allocation)
+		pending, err := p.allocationStore.GetPending(ctx, listed.Allocation)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil
+		}
 		if err != nil {
-			merr = multierror.Append(merr, fmt.Errorf("parsing allocation of upload %s: %w", row.ID, err))
-			continue
+			return err
 		}
-		if _, err := p.allocationStore.GetPending(ctx, link); err == nil {
-			continue
-		} else if !errors.Is(err, store.ErrNotFound) {
-			merr = multierror.Append(merr, fmt.Errorf("getting allocation of upload %s: %w", row.ID, err))
-			continue
+		if len(pending.Digest) > 0 {
+			if err := p.allocationStore.Lock(ctx, pending.Digest, pending.Space); err != nil {
+				return err
+			}
 		}
-		if err := p.DiscardUpload(ctx, row.ID); err != nil {
-			merr = multierror.Append(merr, err)
-			continue
+		accepted, err := acceptancestore.AcceptedAllocation(ctx, p.acceptanceStore, pending.Digest, pending.Space, pending.Allocation)
+		if err != nil {
+			return err
 		}
-		log.Infow("discarded orphaned upload", "upload_id", row.ID, "allocation", link)
-	}
-	return merr.ErrorOrNil()
+		if accepted {
+			return p.allocationStore.DeletePending(ctx, pending.Allocation)
+		}
+		if err := p.DiscardUpload(ctx, pending.UploadID); err != nil {
+			return err
+		}
+		released, err := p.allocationStore.ReleasePending(ctx, pending)
+		if err != nil {
+			return err
+		}
+		if len(released.Digest) > 0 {
+			if err := p.RemovePiece(ctx, released.Digest); err != nil {
+				return err
+			}
+		}
+		return harmonytx.AfterCommit(ctx, func(context.Context) error {
+			log.Infow("expired allocation", "allocation", pending.Allocation, "space", pending.Space)
+			return nil
+		})
+	})
 }
 
 // reapDiscardedUploads drops the data and the rows of uploads discarded at
-// least orphanUploadAge ago. Their upload has completed or stopped by then:
+// least discardedUploadAge ago. Their upload has completed or stopped by then:
 // one that completed after its discard already dropped both, so a row left is
 // one whose upload stopped before completing, and whose data, if it wrote
 // any, nothing else refers to.
@@ -123,7 +109,7 @@ func (p *PDPService) reapDiscardedUploads(ctx context.Context) error {
 	}
 	if err := p.db.Select(ctx, &rows,
 		`SELECT id FROM pdp_piece_uploads WHERE discarded_at < $1`,
-		time.Now().Add(-orphanUploadAge)); err != nil {
+		time.Now().Add(-discardedUploadAge)); err != nil {
 		return fmt.Errorf("listing discarded uploads: %w", err)
 	}
 	var merr *multierror.Error

@@ -234,9 +234,47 @@ func (s *PostgresStore) DeletePending(ctx context.Context, link cid.Cid) error {
 	return nil
 }
 
+func (s *PostgresStore) Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			SELECT 1 FROM ucan_allocations WHERE digest = $1 AND space = $2 FOR UPDATE`,
+			[]byte(digest), space.String())
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("locking allocation: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStore) LockPending(ctx context.Context, link cid.Cid) error {
+	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			SELECT 1 FROM ucan_pending_allocations WHERE allocation = $1 FOR UPDATE`,
+			link.String())
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("locking pending allocation: %w", err)
+	}
+	return nil
+}
+
 // ListPending reads a page at a time, each in its own transaction unless ctx
 // carries one, so the caller may change the store while it iterates.
 func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error] {
+	return s.listPending(ctx, nil)
+}
+
+// ListExpiredPending reads as ListPending does.
+func (s *PostgresStore) ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error] {
+	expires := int64(now)
+	return s.listPending(ctx, &expires)
+}
+
+// listPending lists the pending allocations, those expiring at or before
+// expiresBy when it is set, in pages ordered by allocate task.
+func (s *PostgresStore) listPending(ctx context.Context, expiresBy *int64) iter.Seq2[allocation.Pending, error] {
 	return func(yield func(allocation.Pending, error) bool) {
 		after := ""
 		for {
@@ -245,9 +283,10 @@ func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pe
 				page = page[:0]
 				rows, err := tx.Query(`
 					SELECT allocation, space, size, digest_code, cause, expires, upload_id, digest
-					FROM ucan_pending_allocations WHERE allocation > $1
-					ORDER BY allocation LIMIT $2`,
-					after, listPendingPage)
+					FROM ucan_pending_allocations
+					WHERE allocation > $1 AND ($2::bigint IS NULL OR expires <= $2)
+					ORDER BY allocation LIMIT $3`,
+					after, expiresBy, listPendingPage)
 				if err != nil {
 					return err
 				}
@@ -282,7 +321,8 @@ func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pe
 // recorded its digest since p was read. Once the data was received, the
 // claim is locked before it is handed over, so a concurrent release of
 // another upload of the same content waits, then sees this record gone and
-// the claim's holder as it now is.
+// the claim's holder as it now is. The record is locked before the claim, in
+// the order [AllocationStore.Lock] describes.
 func (s *PostgresStore) ReleasePending(ctx context.Context, p allocation.Pending) (allocation.Pending, error) {
 	released := p
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {

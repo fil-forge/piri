@@ -41,11 +41,14 @@ type ReleaseDeps struct {
 	ClaimStore  invocationstore.InvocationStore
 	Adverts     publisher.Withdrawer
 	Pieces      PieceRemover
+	// Tx runs the release's writes as one transaction.
+	Tx store.Transactor
 }
 
 // AllocationRemover is the slice of allocationstore.AllocationStore the
 // Remove handler depends on.
 type AllocationRemover interface {
+	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	ListSpaces(ctx context.Context, digest multihash.Multihash) ([]did.DID, error)
 	GetByTask(ctx context.Context, link cid.Cid) (allocation.Allocation, error)
@@ -191,73 +194,78 @@ func Release(ctx context.Context, deps ReleaseDeps, req *ReleaseRequest) (err er
 		attribute.Stringer("blob.digest", req.Digest),
 	)
 
-	// Delete the space's location claim first (found via the acceptance
-	// record) so a failure never leaves a claim without its acceptance.
-	acc, err := deps.Acceptances.Get(ctx, req.Digest, req.Space)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Errorw("getting acceptance", "error", err)
-		return fmt.Errorf("getting acceptance: %w", err)
-	}
-	accepted := err == nil
-	if accepted && acc.Site.Defined() {
-		// The claim's advertisement may still be queued rather than
-		// published; a location for a released blob must not go out. The
-		// withdrawal waits for any batch mid-publish, so it cannot slip in
-		// between that batch deciding its contents and committing them. It
-		// comes before the claim is deleted: a batch publishes from what its
-		// row holds, not from the claim store, so the row must be gone before
-		// the claim is, or a batch could publish a location for a claim that
-		// no longer exists.
-		if err := deps.Adverts.Withdraw(ctx, acc.Site); err != nil {
-			log.Errorw("withdrawing location advertisement", "error", err)
-			return fmt.Errorf("withdrawing location advertisement: %w", err)
+	// The release commits as a unit: the location claim and its queued
+	// advertisement, the allocation, the acceptance and the request to
+	// release the bytes. The space's allocation of the blob is locked first,
+	// as an accept locks it, so a release and an accept of the blob in the
+	// space run one after the other.
+	return deps.Tx.Run(ctx, func(ctx context.Context) error {
+		if err := deps.Allocations.Lock(ctx, req.Digest, req.Space); err != nil {
+			log.Errorw("locking allocation", "error", err)
+			return fmt.Errorf("locking allocation: %w", err)
 		}
-		if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
-			log.Errorw("deleting location claim", "error", err)
-			return fmt.Errorf("deleting location claim: %w", err)
+		acc, err := deps.Acceptances.Get(ctx, req.Digest, req.Space)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			log.Errorw("getting acceptance", "error", err)
+			return fmt.Errorf("getting acceptance: %w", err)
 		}
-	}
+		accepted := err == nil
+		if accepted && acc.Site.Defined() {
+			// The claim's advertisement may still be queued rather than
+			// published; a location for a released blob must not go out.
+			// The withdrawal waits for any batch mid-publish, and a batch
+			// loading its rows waits for this release to commit.
+			if err := deps.Adverts.Withdraw(ctx, acc.Site); err != nil {
+				log.Errorw("withdrawing location advertisement", "error", err)
+				return fmt.Errorf("withdrawing location advertisement: %w", err)
+			}
+			if err := deps.ClaimStore.Delete(ctx, acc.Site); err != nil {
+				log.Errorw("deleting location claim", "error", err)
+				return fmt.Errorf("deleting location claim: %w", err)
+			}
+		}
 
-	// The allocation goes before the acceptance, which records the allocation
-	// it accepted: a release retried after a failure in between still finds
-	// it. Releasing that allocation, rather than whatever is the space's
-	// allocation now, leaves a later allocation of the same content alone and
-	// hands the claim to another upload of it the space has not accepted yet.
-	if accepted && acc.Allocation != nil {
-		if _, err := deps.Allocations.ReleaseByTask(ctx, *acc.Allocation); err != nil {
-			log.Errorw("releasing allocation", "error", err)
-			return fmt.Errorf("releasing allocation: %w", err)
+		// Releasing the allocation the acceptance accepted, rather than
+		// whatever is the space's allocation now, leaves a later allocation
+		// of the same content alone and hands the claim to another upload of
+		// it the space has not accepted yet.
+		if accepted && acc.Allocation != nil {
+			if _, err := deps.Allocations.ReleaseByTask(ctx, *acc.Allocation); err != nil {
+				log.Errorw("releasing allocation", "error", err)
+				return fmt.Errorf("releasing allocation: %w", err)
+			}
+		} else if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
+			log.Errorw("deleting allocation", "error", err)
+			return fmt.Errorf("deleting allocation: %w", err)
 		}
-	} else if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
-		log.Errorw("deleting allocation", "error", err)
-		return fmt.Errorf("deleting allocation: %w", err)
-	}
-	if err := deps.Acceptances.Delete(ctx, req.Digest, req.Space); err != nil {
-		log.Errorw("deleting acceptance", "error", err)
-		return fmt.Errorf("deleting acceptance: %w", err)
-	}
+		if err := deps.Acceptances.Delete(ctx, req.Digest, req.Space); err != nil {
+			log.Errorw("deleting acceptance", "error", err)
+			return fmt.Errorf("deleting acceptance: %w", err)
+		}
 
-	// Physical deletion is gated on zero claims across all spaces, in both
-	// stores: a live allocation means an upload may still be in flight.
-	acceptSpaces, err := deps.Acceptances.ListSpaces(ctx, req.Digest)
-	if err != nil {
-		log.Errorw("listing acceptance spaces", "error", err)
-		return fmt.Errorf("listing acceptance spaces: %w", err)
-	}
-	allocSpaces, err := deps.Allocations.ListSpaces(ctx, req.Digest)
-	if err != nil {
-		log.Errorw("listing allocation spaces", "error", err)
-		return fmt.Errorf("listing allocation spaces: %w", err)
-	}
-	if len(acceptSpaces) > 0 || len(allocSpaces) > 0 {
-		log.Infow("blob still claimed, retaining bytes",
-			"acceptances", len(acceptSpaces), "allocations", len(allocSpaces))
+		// Physical deletion is gated on zero claims across all spaces, in
+		// both stores: a live allocation means an upload may still be in
+		// flight.
+		acceptSpaces, err := deps.Acceptances.ListSpaces(ctx, req.Digest)
+		if err != nil {
+			log.Errorw("listing acceptance spaces", "error", err)
+			return fmt.Errorf("listing acceptance spaces: %w", err)
+		}
+		allocSpaces, err := deps.Allocations.ListSpaces(ctx, req.Digest)
+		if err != nil {
+			log.Errorw("listing allocation spaces", "error", err)
+			return fmt.Errorf("listing allocation spaces: %w", err)
+		}
+		if len(acceptSpaces) > 0 || len(allocSpaces) > 0 {
+			log.Infow("blob still claimed, retaining bytes",
+				"acceptances", len(acceptSpaces), "allocations", len(allocSpaces))
+			return nil
+		}
+
+		if err := deps.Pieces.RemovePiece(ctx, req.Digest); err != nil {
+			log.Errorw("removing piece", "error", err)
+			return fmt.Errorf("removing piece: %w", err)
+		}
 		return nil
-	}
-
-	if err := deps.Pieces.RemovePiece(ctx, req.Digest); err != nil {
-		log.Errorw("removing piece", "error", err)
-		return fmt.Errorf("removing piece: %w", err)
-	}
-	return nil
+	})
 }
