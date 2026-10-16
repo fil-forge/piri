@@ -460,3 +460,38 @@ func TestAllocate_AfterRemovalAsksForUpload(t *testing.T) {
 	resp := <-allocated
 	require.NotNil(t, resp.Address, "the bytes are gone, so an upload is asked for")
 }
+
+// An accept of a digest-less allocation whose allocate task was released and
+// allocated again since its digest was resolved is refused: the new
+// allocation's upload has not recorded that digest.
+func TestAccept_WithoutDigestOfReallocatedTaskIsRefused(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	resolved := allocation.Pending{
+		Allocation: testutil.RandomCID(t),
+		Space:      testutil.RandomDID(t),
+		Size:       4,
+		DigestCode: multihash.SHA2_256,
+		Cause:      testutil.RandomCID(t),
+		Expires:    1,
+		UploadID:   "upload",
+		Digest:     testutil.RandomMultihash(t),
+	}
+	again := resolved
+	again.UploadID, again.Digest = "upload-again", nil
+	require.NoError(t, p.allocs.PutPending(ctx, again))
+	deps := p.acceptDeps()
+	deps.Pieces.(*pdpfake.Pieces).Put(resolved.Digest, []byte("data"))
+
+	_, err := Accept(ctx, deps, &AcceptRequest{
+		Space:         resolved.Space,
+		Blob:          blob.Blob{Digest: resolved.Digest, Size: resolved.Size},
+		Cause:         testutil.RandomCID(t),
+		Allocation:    &resolved.Allocation,
+		WithoutDigest: true,
+	})
+	require.ErrorContains(t, err, "was released before it was accepted")
+
+	_, err = p.accepts.Get(ctx, resolved.Digest, resolved.Space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
+}

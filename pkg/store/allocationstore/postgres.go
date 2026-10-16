@@ -338,16 +338,21 @@ func (s *PostgresStore) listPending(ctx context.Context, expiresBy *int64) iter.
 	}
 }
 
-// ReleasePending re-reads the record under its row lock: the upload may have
-// recorded its digest since p was read. Once the data was received, the
-// claim is locked before it is handed over, so a concurrent release of
-// another upload of the same content waits, then sees this record gone and
-// the claim's holder as it now is. The record is locked before the claim, in
-// the order [AllocationStore.Lock] describes.
+// ReleasePending takes the allocate task link's lock and re-reads the record
+// under it: the upload may have recorded its digest since p was read. Once the
+// data was received, the blob in the space is locked before the claim is
+// handed over, so an accept of the allocation, or a concurrent release of
+// another upload of the same content, runs before or after it, never
+// between. It takes these locks itself, in the order [AllocationStore.Lock]
+// describes, so every caller holds them; a caller that already holds them
+// in the same transaction takes them again without waiting.
 func (s *PostgresStore) ReleasePending(ctx context.Context, p allocation.Pending) (allocation.Pending, error) {
 	released := p
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
 		released = p
+		if err := s.LockPending(ctx, p.Allocation); err != nil {
+			return err
+		}
 		latest, err := scanPending(tx.QueryRow(`
 			SELECT allocation, space, size, digest_code, cause, expires, upload_id, digest
 			FROM ucan_pending_allocations WHERE allocation = $1 FOR UPDATE`,
@@ -358,6 +363,9 @@ func (s *PostgresStore) ReleasePending(ctx context.Context, p allocation.Pending
 			return fmt.Errorf("getting pending allocation: %w", err)
 		}
 		if len(released.Digest) > 0 {
+			if err := s.Lock(ctx, released.Digest, released.Space); err != nil {
+				return err
+			}
 			alloc, err := scanAllocation(tx.QueryRow(`
 				SELECT digest, space, size, expires, cause, allocation
 				FROM ucan_allocations WHERE digest = $1 AND space = $2 FOR UPDATE`,

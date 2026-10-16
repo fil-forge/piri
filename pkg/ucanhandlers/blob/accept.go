@@ -1,6 +1,7 @@
 package blob
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
@@ -299,11 +300,18 @@ func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptReq
 			log.Errorw("locking pending allocation", "error", err)
 			return fmt.Errorf("locking pending allocation: %w", err)
 		}
-		if _, err := allocs.GetPending(ctx, *req.Allocation); err != nil {
+		p, err := allocs.GetPending(ctx, *req.Allocation)
+		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
 			}
 			return fmt.Errorf("getting pending allocation: %w", err)
+		}
+		// The digest was resolved from the record before the lock was taken.
+		// The allocate task can have been released and allocated again since,
+		// so the record must still be the one the digest came from.
+		if p.Space != req.Space || p.Size != req.Blob.Size || !bytes.Equal(p.Digest, req.Blob.Digest) {
+			return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
 		}
 	}
 	if err := allocs.LockBlob(ctx, req.Blob.Digest); err != nil {
