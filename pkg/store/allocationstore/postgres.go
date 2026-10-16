@@ -234,9 +234,68 @@ func (s *PostgresStore) DeletePending(ctx context.Context, link cid.Cid) error {
 	return nil
 }
 
+// Lock takes a transaction-level advisory lock on (digest, space), which
+// holds whether or not an allocation row exists: a row lock would hold
+// nothing for a space with no allocation of the blob. Two pairs whose keys
+// hash alike only wait on each other.
+func (s *PostgresStore) Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error {
+	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			SELECT pg_advisory_xact_lock(hashtextextended('ucan_allocations:' || encode($1, 'hex') || ':' || $2, 0))`,
+			[]byte(digest), space.String())
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("locking allocation: %w", err)
+	}
+	return nil
+}
+
+// LockBlob takes a transaction-level advisory lock on the digest.
+func (s *PostgresStore) LockBlob(ctx context.Context, digest multihash.Multihash) error {
+	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			SELECT pg_advisory_xact_lock(hashtextextended('blob:' || encode($1, 'hex'), 0))`,
+			[]byte(digest))
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("locking blob: %w", err)
+	}
+	return nil
+}
+
+// LockPending takes a transaction-level advisory lock on the allocate task
+// link, which holds whether or not a pending allocation exists for it, so an
+// allocate of the link serializes with a reject or a retry of it.
+func (s *PostgresStore) LockPending(ctx context.Context, link cid.Cid) error {
+	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			SELECT pg_advisory_xact_lock(hashtextextended('ucan_pending_allocations:' || $1, 0))`,
+			link.String())
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("locking pending allocation: %w", err)
+	}
+	return nil
+}
+
 // ListPending reads a page at a time, each in its own transaction unless ctx
 // carries one, so the caller may change the store while it iterates.
 func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, error] {
+	return s.listPending(ctx, nil)
+}
+
+// ListExpiredPending reads as ListPending does.
+func (s *PostgresStore) ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error] {
+	expires := int64(now)
+	return s.listPending(ctx, &expires)
+}
+
+// listPending lists the pending allocations, those expiring at or before
+// expiresBy when it is set, in pages ordered by allocate task.
+func (s *PostgresStore) listPending(ctx context.Context, expiresBy *int64) iter.Seq2[allocation.Pending, error] {
 	return func(yield func(allocation.Pending, error) bool) {
 		after := ""
 		for {
@@ -245,9 +304,10 @@ func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pe
 				page = page[:0]
 				rows, err := tx.Query(`
 					SELECT allocation, space, size, digest_code, cause, expires, upload_id, digest
-					FROM ucan_pending_allocations WHERE allocation > $1
-					ORDER BY allocation LIMIT $2`,
-					after, listPendingPage)
+					FROM ucan_pending_allocations
+					WHERE allocation > $1 AND ($2::bigint IS NULL OR expires <= $2)
+					ORDER BY allocation LIMIT $3`,
+					after, expiresBy, listPendingPage)
 				if err != nil {
 					return err
 				}
@@ -278,15 +338,21 @@ func (s *PostgresStore) ListPending(ctx context.Context) iter.Seq2[allocation.Pe
 	}
 }
 
-// ReleasePending re-reads the record under its row lock: the upload may have
-// recorded its digest since p was read. Once the data was received, the
-// claim is locked before it is handed over, so a concurrent release of
-// another upload of the same content waits, then sees this record gone and
-// the claim's holder as it now is.
+// ReleasePending takes the allocate task link's lock and re-reads the record
+// under it: the upload may have recorded its digest since p was read. Once the
+// data was received, the blob in the space is locked before the claim is
+// handed over, so an accept of the allocation, or a concurrent release of
+// another upload of the same content, runs before or after it, never
+// between. It takes these locks itself, in the order [AllocationStore.Lock]
+// describes, so every caller holds them; a caller that already holds them
+// in the same transaction takes them again without waiting.
 func (s *PostgresStore) ReleasePending(ctx context.Context, p allocation.Pending) (allocation.Pending, error) {
 	released := p
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
 		released = p
+		if err := s.LockPending(ctx, p.Allocation); err != nil {
+			return err
+		}
 		latest, err := scanPending(tx.QueryRow(`
 			SELECT allocation, space, size, digest_code, cause, expires, upload_id, digest
 			FROM ucan_pending_allocations WHERE allocation = $1 FOR UPDATE`,
@@ -297,6 +363,9 @@ func (s *PostgresStore) ReleasePending(ctx context.Context, p allocation.Pending
 			return fmt.Errorf("getting pending allocation: %w", err)
 		}
 		if len(released.Digest) > 0 {
+			if err := s.Lock(ctx, released.Digest, released.Space); err != nil {
+				return err
+			}
 			alloc, err := scanAllocation(tx.QueryRow(`
 				SELECT digest, space, size, expires, cause, allocation
 				FROM ucan_allocations WHERE digest = $1 AND space = $2 FOR UPDATE`,
