@@ -217,6 +217,11 @@ upgrade. To read the version alongside a metric:
 failed_jobs_total * on (job, instance) group_left (service_version) target_info
 ```
 
+The standard `OTEL_RESOURCE_ATTRIBUTES` environment variable overrides any of these attributes. An
+operator running several Piris on one host can name each one, for example
+`OTEL_RESOURCE_ATTRIBUTES=service.instance.id=staging/eu-central-3/piri-1`, so `instance` reads as
+that name instead of the DID.
+
 ## Configuration
 
 See [Configuration > telemetry](../configuration/telemetry.md) for collector setup options.
