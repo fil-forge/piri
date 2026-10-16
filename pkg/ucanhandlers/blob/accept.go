@@ -30,6 +30,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	pdptypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/service/publisher"
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
@@ -53,14 +54,14 @@ type AcceptDeps struct {
 	// Pending resolves the digest of an accept that names only a digest
 	// code. Only the handler uses it; Accept itself always has a digest.
 	Pending PendingAllocations
+	// Tx runs the accept's writes as one transaction.
+	Tx store.Transactor
 }
 
 // AcceptanceStore is the slice of acceptancestore.AcceptanceStore the
-// Accept handler depends on. Delete is the compensating action when the
-// pipeline enqueue fails after the acceptance has been written.
+// Accept handler depends on.
 type AcceptanceStore interface {
 	Put(ctx context.Context, a acceptance.Acceptance) error
-	Delete(ctx context.Context, digest multihash.Multihash, space did.DID) error
 }
 
 // PieceReader is the slice of the PDP piece API the Accept handler depends on.
@@ -230,49 +231,49 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		Site:       claim.Link(),
 		Allocation: req.Allocation,
 	}
-	// The acceptance is written BEFORE the pipeline enqueue so "an
-	// acceptance exists" is a conservative superset of "the blob entered
-	// the PDP pipeline" — the ordering /blob/reject's BlobAccepted guard
-	// and the removal machinery's claim re-checks rely on. If the enqueue
-	// then fails, the acceptance is compensated away so a failed accept
-	// leaves no state.
-	err = deps.Acceptances.Put(ctx, acc)
-	if err != nil {
-		log.Errorw("putting acceptance for blob", "error", err)
-		return nil, fmt.Errorf("putting acceptance for blob: %w", err)
-	}
-
-	// submit the piece for aggregation
-	if err := deps.Commp.Enqueue(ctx, req.Blob.Digest); err != nil {
-		log.Errorw("submitting piece for aggregation", "error", err)
-		if derr := deps.Acceptances.Delete(ctx, req.Blob.Digest, req.Space); derr != nil {
-			log.Errorw("compensating acceptance delete after enqueue failure", "error", derr)
+	// The accept's records commit together or not at all: the acceptance,
+	// the blob's entry in the PDP pipeline, the allocation it accepted, the
+	// location claim and its queued advertisement. /blob/reject's
+	// BlobAccepted guard and the removal machinery's claim re-checks read
+	// the acceptance as a sign the blob entered the pipeline, which the one
+	// commit makes exact. The pipeline's task is spawned, and the claim
+	// cached with the indexing service, once the records have committed.
+	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		if err := deps.Acceptances.Put(ctx, acc); err != nil {
+			log.Errorw("putting acceptance for blob", "error", err)
+			return fmt.Errorf("putting acceptance for blob: %w", err)
 		}
-		return nil, fmt.Errorf("submitting piece for aggregation: %w", err)
-	}
 
-	// The acceptance stands from here on, so the allocation it accepted
-	// becomes the space's allocation of the blob again if a later allocation
-	// of the same content replaced it: a reject of it then finds the
-	// acceptance, and a reject of the other finds nothing to drop. An accept
-	// that failed before this point leaves the allocations as they were.
-	if req.Allocation != nil {
-		if err := deps.Pending.MakeCurrent(ctx, req.Blob.Digest, req.Space, *req.Allocation); err != nil {
-			log.Errorw("recording accepted allocation", "error", err)
-			return nil, fmt.Errorf("recording accepted allocation: %w", err)
+		// submit the piece for aggregation
+		if err := deps.Commp.Enqueue(ctx, req.Blob.Digest); err != nil {
+			log.Errorw("submitting piece for aggregation", "error", err)
+			return fmt.Errorf("submitting piece for aggregation: %w", err)
 		}
-	}
 
-	err = deps.ClaimStore.Put(ctx, claim)
-	if err != nil {
-		log.Errorw("putting location claim for blob", "error", err)
-		return nil, fmt.Errorf("putting location claim for blob: %w", err)
-	}
+		// The allocation the acceptance accepted becomes the space's
+		// allocation of the blob again if a later allocation of the same
+		// content replaced it: a reject of it then finds the acceptance, and
+		// a reject of the other finds nothing to drop.
+		if req.Allocation != nil {
+			if err := deps.Pending.MakeCurrent(ctx, req.Blob.Digest, req.Space, *req.Allocation); err != nil {
+				log.Errorw("recording accepted allocation", "error", err)
+				return fmt.Errorf("recording accepted allocation: %w", err)
+			}
+		}
 
-	err = deps.Publisher.Publish(ctx, claim)
+		if err := deps.ClaimStore.Put(ctx, claim); err != nil {
+			log.Errorw("putting location claim for blob", "error", err)
+			return fmt.Errorf("putting location claim for blob: %w", err)
+		}
+
+		if err := deps.Publisher.Publish(ctx, claim); err != nil {
+			log.Errorw("publishing location commitment", "error", err)
+			return fmt.Errorf("publishing location commitment: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		log.Errorw("publishing location commitment", "error", err)
-		return nil, fmt.Errorf("publishing location commitment: %w", err)
+		return nil, err
 	}
 
 	return &AcceptResponse{

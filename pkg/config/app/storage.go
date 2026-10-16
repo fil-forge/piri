@@ -59,32 +59,27 @@ type StorageConfig struct {
 	// Database configuration (sqlite or postgres)
 	Database DatabaseConfig
 
-	// Global S3 config - when set, all supported stores use S3 with separate buckets
-	// named using BucketPrefix (e.g., "piri-blobs", "piri-allocations")
+	// Global S3 config - when set, blobs are stored in S3, in a bucket named
+	// using BucketPrefix (e.g., "piri-pdp")
 	S3 *S3Config
 
 	// Service-specific storage subdirectories
 	Aggregator       AggregatorStorageConfig
 	Blobs            BlobStorageConfig
-	Claims           ClaimStorageConfig
 	Publisher        PublisherStorageConfig
-	Receipts         ReceiptStorageConfig
 	EgressTracker    EgressTrackerStorageConfig
-	Allocations      AllocationStorageConfig
-	Acceptance       AcceptanceStorageConfig
 	Replicator       ReplicatorStorageConfig
 	KeyStore         KeyStoreConfig
 	StashStore       StashStoreConfig
 	SchedulerStorage SchedulerConfig
 	PDPStore         PDPStoreConfig
-	Consolidation    ConsolidationStorageConfig
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
-// When set on StorageConfig, all supported stores use S3 with separate buckets.
+// When set on StorageConfig, blobs are stored in S3.
 type S3Config struct {
 	Endpoint     string      // API URL (e.g., "minio.example.com:9000")
-	BucketPrefix string      // Prefix for bucket names (e.g., "piri-" creates piri-blobs, piri-allocations, etc.)
+	BucketPrefix string      // Prefix for bucket names (e.g., "piri-" creates piri-pdp)
 	Credentials  Credentials // access credentials
 	Insecure     bool        // set to true to disable SSL (for development only)
 }
@@ -100,33 +95,13 @@ type BlobStorageConfig struct {
 	TmpDir string
 }
 
-// ClaimStorageConfig contains claim-specific storage paths
-type ClaimStorageConfig struct {
-	Dir string
-}
-
 // PublisherStorageConfig contains publisher-specific storage paths
 type PublisherStorageConfig struct {
 	Dir string
 }
 
-// ReceiptStorageConfig contains receipt-specific storage paths
-type ReceiptStorageConfig struct {
-	Dir string
-}
-
 // EgressTrackerStorageConfig contains egress tracker store-specific storage paths
 type EgressTrackerStorageConfig struct {
-	Dir string
-}
-
-// AllocationStorageConfig contains allocation-specific storage paths
-type AllocationStorageConfig struct {
-	Dir string
-}
-
-// AcceptanceStorageConfig contains acceptance-specific storage paths
-type AcceptanceStorageConfig struct {
 	Dir string
 }
 
@@ -143,11 +118,6 @@ type StashStoreConfig struct {
 }
 
 type PDPStoreConfig struct {
-	Dir string
-}
-
-// ConsolidationStorageConfig contains consolidation-specific storage paths
-type ConsolidationStorageConfig struct {
 	Dir string
 }
 

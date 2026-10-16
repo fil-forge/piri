@@ -13,7 +13,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // InvocationStore stores UCAN invocations.
@@ -79,24 +78,11 @@ func (Codec) Decode(data []byte) (ucan.Invocation, error) {
 	return out, nil
 }
 
-// S3KeyEncoder encodes keys for S3/MinIO backends.
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(link cid.Cid) string {
-	return link.String()
-}
-
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends.
 type DatastoreKeyEncoder struct{}
 
 func (DatastoreKeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
-}
-
-// NewS3Store creates a InvocationStore for S3/MinIO backends.
-// Delegations are stored with keys formatted as "invocations/{cid}".
-func NewS3Store(backend *minio.Store) *Store {
-	return New(backend, S3KeyEncoder{})
 }
 
 // NewDatastoreStore creates a InvocationStore for LevelDB/datastore backends.

@@ -7,17 +7,15 @@ import (
 	"github.com/fil-forge/libforge/commands/space/egress"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore/consolidation"
 )
 
-func TestDatastoreConsolidationStore(t *testing.T) {
+func testConsolidationStore(t *testing.T, newStore func(*testing.T) Store) {
 	t.Run("roundtrip", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-		s := NewDatastoreStore(ds)
+		s := newStore(t)
 
 		batchCID := randomCID(t)
 		c := createTestConsolidation(t)
@@ -31,8 +29,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-		s := NewDatastoreStore(ds)
+		s := newStore(t)
 
 		batchCID := randomCID(t)
 
@@ -41,8 +38,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-		s := NewDatastoreStore(ds)
+		s := newStore(t)
 
 		batchCID := randomCID(t)
 		c := createTestConsolidation(t)
@@ -66,8 +62,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 	})
 
 	t.Run("delete non-existent", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-		s := NewDatastoreStore(ds)
+		s := newStore(t)
 
 		batchCID := randomCID(t)
 
@@ -77,8 +72,7 @@ func TestDatastoreConsolidationStore(t *testing.T) {
 	})
 
 	t.Run("overwrite", func(t *testing.T) {
-		ds := datastore.NewMapDatastore()
-		s := NewDatastoreStore(ds)
+		s := newStore(t)
 
 		batchCID := randomCID(t)
 		c1 := createTestConsolidation(t)
@@ -130,3 +124,5 @@ func requireEqualConsolidation(t *testing.T, expected, actual consolidation.Cons
 	require.Equal(t, expected.TrackInvocationBytes, actual.TrackInvocationBytes)
 	require.Equal(t, expected.ConsolidateInvocationCID, actual.ConsolidateInvocationCID)
 }
+
+func TestConsolidationStore(t *testing.T) { forEachImpl(t, testConsolidationStore) }
