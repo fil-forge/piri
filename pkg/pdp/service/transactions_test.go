@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/stretchr/testify/require"
 
@@ -61,4 +62,24 @@ func TestDiscardUpload_DropsDataAfterCommit(t *testing.T) {
 	}))
 	require.False(t, w.uploadLive(t, p.UploadID))
 	require.False(t, w.uploadData(t, p.UploadID), "the data goes once the discard commits")
+}
+
+// An allocation made again under the same allocate task after the expiry
+// task listed it has a new expiry, and is not expired with the listed one.
+func TestExpireAllocation_SkipsAllocationMadeAgain(t *testing.T) {
+	w := setupUploadTest(t)
+	ctx := t.Context()
+	listed := w.allocate(t, testutil.RandomDID(t), 64, ucan.Now()-1)
+
+	again := listed
+	again.Expires = day()
+	require.NoError(t, w.allocs.DeletePending(ctx, listed.Allocation))
+	require.NoError(t, w.allocs.PutPending(ctx, again))
+
+	require.NoError(t, w.svc.expireAllocation(ctx, listed))
+
+	got, err := w.allocs.GetPending(ctx, listed.Allocation)
+	require.NoError(t, err, "the allocation made again is kept")
+	require.Equal(t, again.Expires, got.Expires)
+	require.True(t, w.uploadLive(t, listed.UploadID), "its upload is not discarded")
 }

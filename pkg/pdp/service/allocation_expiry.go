@@ -51,10 +51,11 @@ func (p *PDPService) ProcessExpiredAllocations(ctx context.Context) error {
 
 // expireAllocation expires one allocation in its own transaction, so one
 // that fails leaves the others expired. The allocation is locked and read
-// again, since its upload may have recorded a digest since it was listed;
-// then the space's claim on a received blob is locked before its acceptance
-// is read, as an accept locks it. The upload's data is dropped once the
-// expiry commits.
+// again, since its upload may have recorded a digest since it was listed, and
+// an allocation made again under the same allocate task since it was listed
+// has not expired; then the space's claim on a received blob is locked before
+// its acceptance is read, as an accept locks it. The upload's data is dropped
+// once the expiry commits.
 func (p *PDPService) expireAllocation(ctx context.Context, listed allocation.Pending) error {
 	return harmonytx.Run(ctx, p.db, func(ctx context.Context, _ *harmonydb.Tx) error {
 		if err := p.allocationStore.LockPending(ctx, listed.Allocation); err != nil {
@@ -66,6 +67,9 @@ func (p *PDPService) expireAllocation(ctx context.Context, listed allocation.Pen
 		}
 		if err != nil {
 			return err
+		}
+		if pending.Expires > ucan.Now() {
+			return nil
 		}
 		if len(pending.Digest) > 0 {
 			if err := p.allocationStore.Lock(ctx, pending.Digest, pending.Space); err != nil {
