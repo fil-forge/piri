@@ -119,7 +119,7 @@ func (w *uploadWorld) ageDiscards(t *testing.T) {
 	t.Helper()
 	_, err := w.svc.db.Exec(t.Context(),
 		`UPDATE pdp_piece_uploads SET discarded_at = $1 WHERE discarded_at IS NOT NULL`,
-		time.Now().Add(-2*orphanUploadAge))
+		time.Now().Add(-2*discardedUploadAge))
 	require.NoError(t, err)
 }
 
@@ -471,16 +471,6 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	// Not yet expired.
 	live := w.allocate(t, testutil.RandomDID(t), 64, day())
 
-	// An upload row whose pending record was never written.
-	orphan, err := w.svc.AllocatePiece(ctx, types.PieceAllocation{
-		Piece:      types.Piece{Name: "sha2-256", Size: 64},
-		Allocation: testutil.RandomCID(t),
-	})
-	require.NoError(t, err)
-	_, err = w.svc.db.Exec(ctx, `UPDATE pdp_piece_uploads SET created_at = $1 WHERE id = $2`,
-		time.Now().Add(-2*orphanUploadAge), orphan.UploadID.String())
-	require.NoError(t, err)
-
 	require.NoError(t, w.svc.ProcessExpiredAllocations(ctx))
 
 	for _, p := range []allocation.Pending{idle, received, accepted} {
@@ -489,7 +479,7 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	}
 	require.False(t, w.uploadLive(t, idle.UploadID), "the idle upload is discarded")
 
-	_, err = w.allocs.Get(ctx, digest, space)
+	_, err := w.allocs.Get(ctx, digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "the received upload's claim is released")
 	var queued int
 	require.NoError(t, w.svc.db.QueryRow(ctx,
@@ -503,12 +493,9 @@ func TestProcessExpiredAllocations(t *testing.T) {
 	require.NoError(t, err, "a live allocation is kept")
 	require.True(t, w.uploadRowExists(t, live.UploadID))
 
-	require.False(t, w.uploadLive(t, orphan.UploadID.String()), "the orphaned upload is discarded")
-
 	w.ageDiscards(t)
 	require.NoError(t, w.svc.ProcessExpiredAllocations(ctx))
 	require.False(t, w.uploadRowExists(t, idle.UploadID), "a discarded upload's row is reaped")
-	require.False(t, w.uploadRowExists(t, orphan.UploadID.String()))
 	require.True(t, w.uploadRowExists(t, live.UploadID))
 }
 

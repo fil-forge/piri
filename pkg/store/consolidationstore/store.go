@@ -13,7 +13,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // Store stores egress/track invocations and their corresponding
@@ -31,13 +30,6 @@ type Store interface {
 // KeyEncoder defines how to encode keys for a specific backend.
 type KeyEncoder interface {
 	EncodeKey(batchCID cid.Cid) string
-}
-
-// S3KeyEncoder encodes keys for S3/MinIO backends.
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(batchCID cid.Cid) string {
-	return batchCID.String() + ".cbor"
 }
 
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends.
@@ -79,15 +71,6 @@ func (s *consolidationStore) Put(ctx context.Context, batchCID cid.Cid, c consol
 
 func (s *consolidationStore) Delete(ctx context.Context, batchCID cid.Cid) error {
 	return s.store.Delete(ctx, s.encoder.EncodeKey(batchCID))
-}
-
-// NewS3Store creates a ConsolidationStore for S3/MinIO backends.
-// Consolidations are stored with keys formatted as "consolidations/{batchCID}.cbor".
-func NewS3Store(backend *minio.Store) *consolidationStore {
-	return New(
-		backend,
-		S3KeyEncoder{},
-	)
 }
 
 // NewDatastoreStore creates a ConsolidationStore for LevelDB/datastore backends.

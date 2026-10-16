@@ -13,18 +13,15 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/piri/pkg/store/acceptancestore"
-	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
-	"github.com/fil-forge/piri/pkg/store/consolidationstore"
-	"github.com/fil-forge/piri/pkg/store/invocationstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
-	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
-// Module provides all stores backed by the local filesystem.
+// Module provides the stores backed by the local filesystem: blobs and the
+// local-only stores. Use it alongside postgres.Module, which provides the
+// record stores.
 var Module = fx.Module("filesystem-store",
 	fx.Provide(
 		ProvideConfigs,
@@ -42,13 +39,8 @@ var Module = fx.Module("filesystem-store",
 			fx.As(new(store.PublisherStore)),
 			fx.As(new(store.EncodeableStore)),
 		),
-		NewAllocationStore,
-		NewAcceptanceStore,
-		NewClaimStore,
-		NewReceiptStore,
 		NewRetrievalJournal,
 		NewKeyStore,
-		NewConsolidationStore,
 		NewPDPStore,
 	),
 )
@@ -108,16 +100,11 @@ type Configs struct {
 	fx.Out
 	Aggregator    app.AggregatorStorageConfig
 	Publisher     app.PublisherStorageConfig
-	Allocation    app.AllocationStorageConfig
 	Blob          app.BlobStorageConfig
-	Claim         app.ClaimStorageConfig
-	Receipt       app.ReceiptStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
 	KeyStore      app.KeyStoreConfig
 	Stash         app.StashStoreConfig
 	PDP           app.PDPStoreConfig
-	Acceptance    app.AcceptanceStorageConfig
-	Consolidation app.ConsolidationStorageConfig
 }
 
 // ProvideConfigs provides the fields of a storage config
@@ -125,16 +112,11 @@ func ProvideConfigs(cfg app.StorageConfig) Configs {
 	return Configs{
 		Aggregator:    cfg.Aggregator,
 		Publisher:     cfg.Publisher,
-		Allocation:    cfg.Allocations,
 		Blob:          cfg.Blobs,
-		Claim:         cfg.Claims,
-		Receipt:       cfg.Receipts,
 		EgressTracker: cfg.EgressTracker,
 		KeyStore:      cfg.KeyStore,
 		Stash:         cfg.StashStore,
 		PDP:           cfg.PDPStore,
-		Acceptance:    cfg.Acceptance,
-		Consolidation: cfg.Consolidation,
 	}
 }
 
@@ -156,62 +138,6 @@ func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (d
 	return ds, nil
 }
 
-func NewAllocationStore(cfg app.AllocationStorageConfig, lc fx.Lifecycle) (allocationstore.AllocationStore, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for allocation store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating allocation store: %w", err)
-	}
-
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return allocationstore.NewDatastoreStore(ds), nil
-}
-
-func NewAcceptanceStore(cfg app.AcceptanceStorageConfig, lc fx.Lifecycle) (acceptancestore.AcceptanceStore, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for acceptance store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating acceptance store: %w", err)
-	}
-
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return acceptancestore.NewDatastoreStore(ds), nil
-}
-
-func NewClaimStore(cfg app.ClaimStorageConfig, lc fx.Lifecycle) (invocationstore.InvocationStore, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for claim store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating claim store: %w", err)
-	}
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return invocationstore.NewDatastoreStore(ds), nil
-}
-
 func NewPublisherStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (store.FullStore, error) {
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for publisher store")
@@ -228,24 +154,6 @@ func NewPublisherStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (store.F
 	})
 
 	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext)), nil
-}
-
-func NewReceiptStore(cfg app.ReceiptStorageConfig, lc fx.Lifecycle) (receiptstore.ReceiptStore, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for receipt store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating receipt store: %w", err)
-	}
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return receiptstore.NewDatastoreStore(ds), nil
 }
 
 func NewRetrievalJournal(storeCfg app.EgressTrackerStorageConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {
@@ -298,24 +206,6 @@ func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (*blobstore.Store, err
 		},
 	})
 	return blobstore.NewFlatfsStore(objStore), nil
-}
-
-func NewConsolidationStore(cfg app.ConsolidationStorageConfig, lc fx.Lifecycle) (consolidationstore.Store, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for consolidation store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating consolidation store: %w", err)
-	}
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return consolidationstore.NewDatastoreStore(ds), nil
 }
 
 func newDs(path string) (*leveldb.Datastore, error) {

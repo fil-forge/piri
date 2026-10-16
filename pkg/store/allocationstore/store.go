@@ -19,7 +19,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // AllocationStore tracks the items that have been, or will soon be stored on
@@ -74,6 +73,33 @@ type AllocationStore interface {
 	DeletePending(context.Context, cid.Cid) error
 	// ListPending iterates every allocation made without a digest.
 	ListPending(context.Context) iter.Seq2[allocation.Pending, error]
+	// ListExpiredPending iterates the allocations made without a digest that
+	// expired at or before now.
+	ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error]
+	// Lock holds the blob in the space until the transaction the context
+	// carries ends, whether or not the space has an allocation of it. Every
+	// change that reads the space's acceptance of a blob and acts on its
+	// allocation or acceptance takes this lock first, so an accept and a
+	// reject or a release of the blob in the space run one after the other.
+	// Outside a transaction it does nothing.
+	//
+	// Locks are taken in one order so that no two transactions wait on each
+	// other: an allocate task link (LockPending), then the blob (LockBlob),
+	// then the blob in the space (Lock), then rows.
+	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
+	// LockBlob holds the blob, in every space, until the transaction the
+	// context carries ends. A change that decides from whether the node holds
+	// the blob's bytes and then claims them, an accept or an allocate, takes
+	// it before checking for the bytes, and the removal sweep takes it before
+	// checking for claims and deleting the bytes, so the sweep never deletes
+	// bytes a claim is being made on. Outside a transaction it does nothing.
+	LockBlob(ctx context.Context, digest multihash.Multihash) error
+	// LockPending holds the `/blob/allocate` task link until the transaction
+	// the context carries ends, whether or not it has made an allocation
+	// without a digest. A change that makes or releases such an allocation
+	// takes this lock before [AllocationStore.Lock]. Outside a transaction it
+	// does nothing.
+	LockPending(ctx context.Context, link cid.Cid) error
 	// ReleasePending deletes an allocation made without a digest and, once
 	// its data was received, its claim on (digest, space), handing the claim
 	// to another received upload of the same content in the space if there
@@ -301,15 +327,33 @@ func (s *Store) ListPending(ctx context.Context) iter.Seq2[allocation.Pending, e
 	return s.pending.ListPrefix(ctx, "")
 }
 
-// S3KeyEncoder encodes keys for S3/MinIO backends (keys end with .cbor).
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) string {
-	return fmt.Sprintf("%s/%s.cbor", digestutil.Format(digest), space.String())
+func (s *Store) ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error] {
+	return func(yield func(allocation.Pending, error) bool) {
+		for p, err := range s.ListPending(ctx) {
+			if err != nil {
+				yield(allocation.Pending{}, err)
+				return
+			}
+			if p.Expires <= now && !yield(p, nil) {
+				return
+			}
+		}
+	}
 }
 
-func (S3KeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
-	return fmt.Sprintf("%s/", digestutil.Format(digest))
+// Lock does nothing: the datastore store keeps no transactions.
+func (s *Store) Lock(context.Context, multihash.Multihash, did.DID) error {
+	return nil
+}
+
+// LockBlob does nothing: the datastore store keeps no transactions.
+func (s *Store) LockBlob(context.Context, multihash.Multihash) error {
+	return nil
+}
+
+// LockPending does nothing: the datastore store keeps no transactions.
+func (s *Store) LockPending(context.Context, cid.Cid) error {
+	return nil
 }
 
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends (no suffix).
@@ -321,12 +365,6 @@ func (DatastoreKeyEncoder) EncodeKey(digest multihash.Multihash, space did.DID) 
 
 func (DatastoreKeyEncoder) EncodeKeyPrefix(digest multihash.Multihash) string {
 	return fmt.Sprintf("%s/", digestutil.Format(digest))
-}
-
-// NewS3Store creates an AllocationStore for S3/MinIO backends.
-// Allocations are stored with keys formatted as "allocations/{digest}/{space}.cbor".
-func NewS3Store(backend *minio.Store) *Store {
-	return New(backend, S3KeyEncoder{})
 }
 
 // NewDatastoreStore creates an AllocationStore for LevelDB/datastore backends.

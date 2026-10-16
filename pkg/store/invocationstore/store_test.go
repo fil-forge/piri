@@ -7,13 +7,12 @@ import (
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/invocation"
-	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 )
 
-func TestInvocationStore(t *testing.T) {
+func testInvocationStore(t *testing.T, newStore func(*testing.T) InvocationStore) {
 	t.Run("roundtrip", func(t *testing.T) {
-		store := NewDatastoreStore(datastore.NewMapDatastore())
+		store := newStore(t)
 
 		inv, err := invocation.Invoke(
 			testutil.RandomIssuer(t),
@@ -31,3 +30,5 @@ func TestInvocationStore(t *testing.T) {
 		require.Equal(t, inv.Link(), res.Link())
 	})
 }
+
+func TestInvocationStore(t *testing.T) { forEachImpl(t, testInvocationStore) }

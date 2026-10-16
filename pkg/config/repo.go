@@ -172,23 +172,11 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 			Dir:    filepath.Join(r.DataDir, "blobs"),
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
-		Claims: app.ClaimStorageConfig{
-			Dir: filepath.Join(r.DataDir, "claim"),
-		},
 		Publisher: app.PublisherStorageConfig{
 			Dir: filepath.Join(r.DataDir, "publisher"),
 		},
-		Receipts: app.ReceiptStorageConfig{
-			Dir: filepath.Join(r.DataDir, "receipt"),
-		},
 		EgressTracker: app.EgressTrackerStorageConfig{
 			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),
-		},
-		Allocations: app.AllocationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "allocation"),
-		},
-		Acceptance: app.AcceptanceStorageConfig{
-			Dir: filepath.Join(r.DataDir, "acceptance"),
 		},
 		Replicator: app.ReplicatorStorageConfig{},
 		KeyStore: app.KeyStoreConfig{
@@ -200,9 +188,6 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		SchedulerStorage: app.SchedulerConfig{},
 		PDPStore: app.PDPStoreConfig{
 			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
-		},
-		Consolidation: app.ConsolidationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "consolidation"),
 		},
 	}
 

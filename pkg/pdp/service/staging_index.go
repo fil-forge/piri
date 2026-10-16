@@ -9,6 +9,7 @@ import (
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
 
@@ -25,7 +26,9 @@ type stagingIndex struct {
 
 func (u stagingIndex) GetID(ctx context.Context, digest multihash.Multihash) (string, bool, error) {
 	var id string
-	err := u.db.QueryRow(ctx, `SELECT upload_id FROM pdp_staged_blobs WHERE digest = $1`, []byte(digest)).Scan(&id)
+	err := harmonytx.Run(ctx, u.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		return tx.QueryRow(`SELECT upload_id FROM pdp_staged_blobs WHERE digest = $1`, []byte(digest)).Scan(&id)
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
@@ -36,7 +39,10 @@ func (u stagingIndex) GetID(ctx context.Context, digest multihash.Multihash) (st
 }
 
 func (u stagingIndex) Delete(ctx context.Context, digest multihash.Multihash) error {
-	if _, err := u.db.Exec(ctx, `DELETE FROM pdp_staged_blobs WHERE digest = $1`, []byte(digest)); err != nil {
+	if err := harmonytx.Run(ctx, u.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`DELETE FROM pdp_staged_blobs WHERE digest = $1`, []byte(digest))
+		return err
+	}); err != nil {
 		return fmt.Errorf("deleting from pdp_staged_blobs: %w", err)
 	}
 	return nil
