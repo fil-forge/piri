@@ -7,6 +7,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/store"
 )
 
 type options struct {
@@ -15,6 +16,7 @@ type options struct {
 	announceURLs          []url.URL
 	indexingService       app.IndexingServiceConfig
 	indexingServiceProofs []ucan.Delegation
+	tx                    store.Transactor
 }
 
 type Option func(*options) error
@@ -60,6 +62,16 @@ func WithIndexingService(conn app.IndexingServiceConfig) Option {
 func WithIndexingServiceProof(proofs []ucan.Delegation) Option {
 	return func(opts *options) error {
 		opts.indexingServiceProofs = proofs
+		return nil
+	}
+}
+
+// WithTransactor sets what a batch of advertisements is published in, so the
+// rows it loads stay locked until it has published them. Without it a batch
+// runs in no transaction.
+func WithTransactor(tx store.Transactor) Option {
+	return func(o *options) error {
+		o.tx = tx
 		return nil
 	}
 }

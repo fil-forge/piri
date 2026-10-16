@@ -57,35 +57,26 @@ blobstore.NewDatastoreStore(ds)       // IPFS datastore
 
 ## Store Patterns
 
-### Structured Data Stores (via genericstore)
+### Record Stores (Postgres)
 
-These stores use `genericstore.Store[T]` which provides typed access with automatic serialization. Objects are fully buffered in memory during read/write since they're small (KB-sized).
+The per-blob records the UCAN handlers keep live in tables in the node's
+harmonydb Postgres database (migration
+`pkg/curiopdp/schema/sql/00000007-ucan-records.sql`), whichever backend holds
+the blobs. Each store keeps its interface, a `NewPostgresStore(db)` used by the
+node (`pkg/fx/store/postgres`), and a `NewDatastoreStore(ds)` over
+`genericstore` for in-memory use and tests.
 
-| Store | Type Parameter | Description |
-|-------|----------------|-------------|
-| `allocationstore` | `Allocation` | Pending blob allocations |
-| `acceptancestore` | `Acceptance` | Accepted/stored blob records |
-| `delegationstore` | `delegation.Delegation` | UCAN delegations |
-| `receiptstore` | `*receipt.Receipt` | UCAN invocation receipts |
-| `consolidationstore` | `Consolidation` | Consolidation tracking |
+| Store | Record | Table |
+|-------|--------|-------|
+| `allocationstore` | `Allocation`, `Pending` | `ucan_allocations`, `ucan_pending_allocations` |
+| `acceptancestore` | `Acceptance` | `ucan_acceptances` |
+| `invocationstore` | `ucan.Invocation` (location commitments, the claim store) | `ucan_invocations` |
+| `receiptstore` | `ucan.Receipt`, found by CID or by the task it ran | `ucan_receipts`, `ucan_receipts_by_ran` |
+| `consolidationstore` | `Consolidation` | `ucan_consolidations` |
 
-Each store follows a consistent pattern with backend-specific constructors:
-
-```go
-// S3/MinIO backends
-allocationstore.NewS3Store(minioStore)
-acceptancestore.NewS3Store(minioStore)
-delegationstore.NewS3Store(minioStore)
-receiptstore.NewS3Store(minioStore)
-
-// Datastore backends (LevelDB, in-memory)
-allocationstore.NewDatastoreStore(ds)
-acceptancestore.NewDatastoreStore(ds)
-delegationstore.NewDatastoreStore(ds)
-receiptstore.NewDatastoreStore(ds)
-```
-
-Note: `receiptstore` also maintains a secondary index (RanLinkIndex) for looking up receipts by their "ran" CID.
+Changes that read an allocation first lock its row, so they hold across
+processes. Each store's tests run against both implementations
+(`impls_test.go`); the Postgres runs skip on darwin.
 
 ### Binary Data Store (direct objectstore wrapper)
 
@@ -97,15 +88,9 @@ Note: `receiptstore` also maintains a secondary index (RanLinkIndex) for looking
 
 The blobstore adds only a `KeyEncoder` for consistent key formatting across backends.
 
-### Other Stores
-
-| Store | Backend | Notes |
-|-------|---------|-------|
-| `claimstore` | delegationstore | Alias for delegation storage |
-
 ### Local-Only Stores (`local/`)
 
-These stores are in the `local/` subdirectory because they are inherently filesystem-based and do not participate in S3/filesystem backend selection. They will never have cloud implementations.
+These stores are in the `local/` subdirectory because they are inherently filesystem-based and do not participate in S3/filesystem backend selection. They will never have cloud or Postgres implementations.
 
 | Store | Backend | Notes |
 |-------|---------|-------|
@@ -124,6 +109,6 @@ Both patterns use key encoding for backend compatibility:
 
 Storage backend is selected via configuration:
 
-- `storage.s3` configured → S3/MinIO backends (`pkg/fx/store/s3`)
-- `storage.data_dir` configured → Filesystem backends (`pkg/fx/store/filesystem`)
-- Neither configured → In-memory backends (`pkg/fx/store/memory`)
+- `storage.s3` configured → blobs on S3/MinIO (`pkg/fx/store/s3`), records in Postgres (`pkg/fx/store/postgres`)
+- `storage.data_dir` configured → blobs on the filesystem (`pkg/fx/store/filesystem`), records in Postgres
+- Neither configured → every store in memory (`pkg/fx/store/memory`)

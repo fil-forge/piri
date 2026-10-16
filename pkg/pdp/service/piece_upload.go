@@ -19,6 +19,7 @@ import (
 	"github.com/fil-forge/libforge/digestutil"
 	libpiece "github.com/fil-forge/libforge/piece"
 	"github.com/fil-forge/piri/lib/verifyread"
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/presets"
 	"github.com/fil-forge/piri/pkg/store"
@@ -302,21 +303,29 @@ func (p *PDPService) releaseDiscardedUpload(ctx context.Context, id string, pend
 // upload still being written may write its data after this drops it: the
 // upload drops it again when it completes, and the expiry task drops the data
 // and the row of one that never does.
+//
+// The mark joins the caller's transaction when the context carries one, and
+// the data is dropped once it commits: a delete from the blob store cannot be
+// rolled back.
 func (p *PDPService) DiscardUpload(ctx context.Context, uploadID string) error {
-	if _, err := p.db.Exec(ctx, `
-		UPDATE pdp_piece_uploads SET discarded_at = now() WHERE id = $1 AND discarded_at IS NULL
-	`, uploadID); err != nil {
-		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to mark piece upload ID %s discarded", uploadID), err)
-	}
-	var holds bool
-	if err := p.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pdp_staged_blobs WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {
-		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to check whether upload %s holds a blob", uploadID), err)
-	}
-	if holds {
-		return nil
-	}
-	if err := p.blobstore.Unstage(ctx, uploadID); err != nil {
-		return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete data of upload %s", uploadID), err)
-	}
-	return nil
+	return harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		if _, err := tx.Exec(`
+			UPDATE pdp_piece_uploads SET discarded_at = now() WHERE id = $1 AND discarded_at IS NULL
+		`, uploadID); err != nil {
+			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to mark piece upload ID %s discarded", uploadID), err)
+		}
+		var holds bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM pdp_staged_blobs WHERE upload_id = $1)`, uploadID).Scan(&holds); err != nil {
+			return types.WrapError(types.KindInternal, fmt.Sprintf("failed to check whether upload %s holds a blob", uploadID), err)
+		}
+		if holds {
+			return nil
+		}
+		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
+			if err := p.blobstore.Unstage(ctx, uploadID); err != nil {
+				return types.WrapError(types.KindInternal, fmt.Sprintf("failed to delete data of upload %s", uploadID), err)
+			}
+			return nil
+		})
+	})
 }
