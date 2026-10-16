@@ -116,25 +116,12 @@ to cover the new graph shape.
 ## Observability
 
 When a change adds or alters behavior an operator depends on, decide how they
-would see it working and see it fail, and add that in the same PR:
-
-- **Metrics and traces.** Instrument with OpenTelemetry in the package's
-  `telemetry.go` or `*_metrics.go` (for example `pkg/curiopdp/metrics.go`,
-  `lib/jobqueue/worker/telemetry.go`). Prefer a signal that answers "is this
-  working?", such as a failure count or the time of the last success, over one
-  that only measures volume. Keep attributes low-cardinality: no CIDs, DIDs or
-  other per-request values.
-- **Docs.** List each new metric in `docs/content/concepts/telemetry.md`, and
-  in the "Key Metrics" table of `docs/content/operator-guide/monitoring.md` if
-  operators should watch it. If it shows a failure an operator should act on,
-  add a recommended alert with its severity to that page's "Alerts to
-  Configure" table, and its query to the PromQL block with the others.
-- **Forge's alerts and dashboards** live in fil-forge/infra-central, under
-  `terraform/envs/grafana/`. A new metric does nothing for Forge's on-call
-  until a rule or panel there reads it, so open a companion PR there, or say in
-  this PR that one is needed.
-
-Skip this for changes nothing operational depends on.
+would see it working and see it fail, and add what is useful in the same PR:
+OpenTelemetry metrics or traces, entries in
+`docs/content/concepts/telemetry.md` and
+`docs/content/operator-guide/monitoring.md`, and an alert or dashboard panel in
+fil-forge/infra-central. Skip it for changes nothing operational depends on.
+"Adding a signal" in `docs/observability.md` says how to do each.
 
 ## Conventions
 
