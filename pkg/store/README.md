@@ -71,7 +71,7 @@ node (`pkg/fx/store/postgres`), and a `NewDatastoreStore(ds)` over
 | `allocationstore` | `Allocation`, `Pending` | `ucan_allocations`, `ucan_pending_allocations` |
 | `acceptancestore` | `Acceptance` | `ucan_acceptances` |
 | `invocationstore` | `ucan.Invocation` (location commitments, the claim store) | `ucan_invocations` |
-| `receiptstore` | `ucan.Receipt`, found by CID or by the task it ran | `ucan_receipts` |
+| `receiptstore` | `ucan.Receipt`, found by CID or by the task it ran | `ucan_receipts`, `ucan_receipts_by_ran` |
 | `consolidationstore` | `Consolidation` | `ucan_consolidations` |
 
 Changes that read an allocation first lock its row, so they hold across

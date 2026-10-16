@@ -63,8 +63,9 @@ CREATE TABLE ucan_invocations (
     CONSTRAINT ucan_invocations_pk PRIMARY KEY (cid)
 );
 
--- Receipts, found by their own CID or by the task they ran. The latest
--- receipt stored for a task is the one found by it.
+-- Receipts, found by their own CID or by the task they ran. Every receipt
+-- stays readable by its CID; ucan_receipts_by_ran names the latest receipt
+-- stored for a task.
 CREATE TABLE ucan_receipts (
     cid text NOT NULL,
     ran text NOT NULL,
@@ -73,7 +74,11 @@ CREATE TABLE ucan_receipts (
     CONSTRAINT ucan_receipts_pk PRIMARY KEY (cid)
 );
 
-CREATE UNIQUE INDEX ucan_receipts_ran ON ucan_receipts (ran);
+CREATE TABLE ucan_receipts_by_ran (
+    ran text NOT NULL,
+    cid text NOT NULL REFERENCES ucan_receipts (cid),
+    CONSTRAINT ucan_receipts_by_ran_pk PRIMARY KEY (ran)
+);
 
 -- Egress batches: the track invocation and the consolidate invocation that
 -- settles it, keyed by batch CID.

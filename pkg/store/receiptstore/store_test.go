@@ -5,6 +5,7 @@ import (
 
 	"github.com/fil-forge/libforge/commands"
 	"github.com/fil-forge/libforge/testutil"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/receipt"
@@ -59,6 +60,12 @@ func testReceiptStore(t *testing.T, newStore func(*testing.T) ReceiptStore) {
 		got, err := s.GetByRan(t.Context(), inv.Link())
 		require.NoError(t, err)
 		require.Equal(t, second.Link(), got.Link())
+
+		for _, rcpt := range []ucan.Receipt{first, second} {
+			got, err := s.Get(t.Context(), rcpt.Link())
+			require.NoError(t, err, "every receipt stays readable by its CID")
+			require.Equal(t, rcpt.Link(), got.Link())
+		}
 	})
 }
 

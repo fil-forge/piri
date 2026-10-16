@@ -43,7 +43,10 @@ func (s *PostgresStore) Get(ctx context.Context, link cid.Cid) (ucan.Receipt, er
 func (s *PostgresStore) GetByRan(ctx context.Context, ran cid.Cid) (ucan.Receipt, error) {
 	var data []byte
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
-		return tx.QueryRow(`SELECT bytes FROM ucan_receipts WHERE ran = $1`, ran.String()).Scan(&data)
+		return tx.QueryRow(`
+			SELECT r.bytes FROM ucan_receipts_by_ran b
+			JOIN ucan_receipts r ON r.cid = b.cid
+			WHERE b.ran = $1`, ran.String()).Scan(&data)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("getting receipt by ran: %w", store.ErrNotFound)
@@ -54,14 +57,21 @@ func (s *PostgresStore) GetByRan(ctx context.Context, ran cid.Cid) (ucan.Receipt
 	return Codec{}.Decode(data)
 }
 
-// Put replaces any receipt stored for the same task, so the task finds the
-// latest.
+// Put stores the receipt under its CID and makes it the one found by the
+// task it ran. A receipt stored earlier for the same task stays readable by
+// its CID.
 func (s *PostgresStore) Put(ctx context.Context, rcpt ucan.Receipt) error {
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
-		_, err := tx.Exec(`
+		if _, err := tx.Exec(`
 			INSERT INTO ucan_receipts (cid, ran, bytes) VALUES ($1, $2, $3)
-			ON CONFLICT (ran) DO UPDATE SET cid = EXCLUDED.cid, bytes = EXCLUDED.bytes`,
-			rcpt.Link().String(), rcpt.Ran().String(), rcpt.Bytes())
+			ON CONFLICT (cid) DO NOTHING`,
+			rcpt.Link().String(), rcpt.Ran().String(), rcpt.Bytes()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`
+			INSERT INTO ucan_receipts_by_ran (ran, cid) VALUES ($1, $2)
+			ON CONFLICT (ran) DO UPDATE SET cid = EXCLUDED.cid`,
+			rcpt.Ran().String(), rcpt.Link().String())
 		return err
 	})
 	if err != nil {

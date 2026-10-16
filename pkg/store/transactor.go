@@ -10,8 +10,10 @@ type Transactor interface {
 	Run(ctx context.Context, f func(ctx context.Context) error) error
 }
 
-// NoTransaction is the Transactor for stores that keep no database: f runs as
-// it is, and work deferred until a commit runs as it is deferred.
+// NoTransaction is the Transactor for the in-memory stores, which exist for
+// tests: f runs as it is, and work deferred until a commit runs as it is
+// deferred. Nothing is rolled back when f fails, so stores a node runs on
+// must take part in a transaction.
 type NoTransaction struct{}
 
 var _ Transactor = NoTransaction{}
