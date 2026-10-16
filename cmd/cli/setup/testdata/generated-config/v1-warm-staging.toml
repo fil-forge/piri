@@ -1,0 +1,84 @@
+config_version = 1
+network = "warm-staging"
+
+[identity]
+  key_file = "/keys/piri.pem"
+
+[repo]
+  data_dir = "/data/piri"
+  temp_dir = "/tmp/piri"
+  [repo.database]
+    type = "postgres"
+    [repo.database.postgres]
+      url = "postgres://piri:fixture-db-password@db.example.com:5432/piri"
+      max_open_conns = 21
+      max_idle_conns = 19
+      conn_max_lifetime = "50m"
+  [repo.s3]
+    endpoint = "s3.example.com:9000"
+    bucket_prefix = "fixture-"
+    insecure = true
+    [repo.s3.credentials]
+      access_key_id = "fixture-access-key"
+      secret_access_key = "fixture-secret-key"
+
+[server]
+  port = 3000
+  host = "0.0.0.0"
+  public_url = "https://piri.example.com"
+
+[pdp]
+  owner_address = "0x9012345678901234567890123456789012345678"
+  lotus_endpoint = "wss://lotus.example.com/rpc/v1"
+  lotus_auth_token = "fixture-lotus-token"
+  chain_id = "314159"
+  payer_address = "0x8d3d7cE4F43607C9d0ac01f695c7A9caC135f9AD"
+  [pdp.signing_service]
+    did = "did:web:staging.signer.warm.storacha.network"
+    url = "https://staging.signer.warm.storacha.network"
+  [pdp.contracts]
+    verifier = "0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"
+    provider_registry = "0x6A96aaB210B75ee733f0A291B5D8d4A053643979"
+    service = "0x0c6875983B20901a7C3c86871f43FdEE77946424"
+    service_view = "0xEAD67d775f36D1d2894854D20e042C77A3CC20a5"
+    payments = "0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0"
+    usdfc_token = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
+  [pdp.aggregation]
+    [pdp.aggregation.commp]
+      [pdp.aggregation.commp.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.aggregator]
+      min_aggregate_size = 134217728
+      [pdp.aggregation.aggregator.job_queue]
+        workers = 4
+        retries = 50
+        retry_delay = "10s"
+    [pdp.aggregation.manager]
+      poll_interval = "30s"
+      batch_size = 10
+      [pdp.aggregation.manager.job_queue]
+        workers = 3
+        retries = 50
+        retry_delay = "1m0s"
+
+[ucan]
+  proof_set = 42
+  plc_directory = "https://plc.example.com"
+  [ucan.services]
+    [ucan.services.indexer]
+      did = "did:web:staging.indexer.warm.storacha.network"
+      url = "https://staging.indexer.warm.storacha.network/claims"
+      proof = "indexer-proof"
+    [ucan.services.etracker]
+      did = "did:web:staging.etracker.warm.storacha.network"
+      url = "https://staging.etracker.warm.storacha.network"
+      receipts_endpoint = "https://staging.etracker.warm.storacha.network/receipts"
+      max_batch_size_bytes = 10485760
+      proof = "egress-proof"
+    [ucan.services.upload]
+      did = "did:web:staging.up.warm.storacha.network"
+      url = "https://staging.up.warm.storacha.network"
+    [ucan.services.publisher]
+      ipni_announce_urls = ["https://cid.contact/announce", "https://staging.ipni.warm.storacha.network"]
