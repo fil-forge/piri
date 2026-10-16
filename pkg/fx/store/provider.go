@@ -6,22 +6,28 @@ import (
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/fx/store/filesystem"
 	"github.com/fil-forge/piri/pkg/fx/store/memory"
+	"github.com/fil-forge/piri/pkg/fx/store/postgres"
 	"github.com/fil-forge/piri/pkg/fx/store/s3"
 )
 
 // StorageModule returns the appropriate storage module based on configuration.
-// If S3 is configured, returns S3Module + LocalOnlyModule.
-// Otherwise, returns the full filesystem or memory module.
+// Blobs go to S3 when it is configured, otherwise to the filesystem, and the
+// records about them go to Postgres either way. With no data dir, every store
+// is in memory.
 func StorageModule(cfg app.StorageConfig) fx.Option {
 	if cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != "" {
-		// Use S3 for most stores, but LocalOnlyModule for stores that must remain
-		// on the local filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal, KeyStore)
+		// LocalOnlyModule keeps the stores that must remain on the local
+		// filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal, KeyStore)
 		return fx.Options(
 			s3.Module,
 			filesystem.LocalOnlyModule,
+			postgres.Module,
 		)
 	} else if cfg.DataDir == "" {
 		return memory.Module
 	}
-	return filesystem.Module
+	return fx.Options(
+		filesystem.Module,
+		postgres.Module,
+	)
 }

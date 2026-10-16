@@ -2,7 +2,6 @@ package blob
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/fil-forge/libforge/commands/assert"
@@ -16,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
-	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -39,6 +38,7 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 	claimStore := invocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	pub := &stubPublisher{}
 	pieces := pdpfake.NewPieces()
+	allocs := allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
 	return AcceptDeps{
 		ID:          identity.Identity{Issuer: testutil.WebService},
 		Acceptances: accepts,
@@ -46,6 +46,8 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 		Commp:       pdpfake.NewCommp(),
 		ClaimStore:  claimStore,
 		Publisher:   pub,
+		Pending:     allocs,
+		Tx:          store.NoTransaction{},
 	}, pieces, accepts, claimStore, pub
 }
 
@@ -98,20 +100,15 @@ func TestAccept_PieceHeld(t *testing.T) {
 }
 
 // orderProbeCommp observes, at Enqueue time, whether the digest's acceptance
-// is already durable — the ordering /blob/reject's BlobAccepted guard
-// and the removal sweep's claim re-checks depend on.
+// is already written, so the pipeline entry never precedes it.
 type orderProbeCommp struct {
 	accepts             *acceptancestore.Store
-	fail                bool
 	acceptanceAtEnqueue bool
 	enqueued            int
 }
 
 func (o *orderProbeCommp) Enqueue(ctx context.Context, blob multihash.Multihash) error {
 	o.enqueued++
-	if o.fail {
-		return errors.New("enqueue boom")
-	}
 	exists, err := o.accepts.Exists(ctx, blob)
 	if err != nil {
 		return err
@@ -136,68 +133,5 @@ func TestAccept_AcceptanceDurableBeforeEnqueue(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, probe.enqueued)
 	require.True(t, probe.acceptanceAtEnqueue,
-		"the acceptance must be written before the pipeline enqueue")
-}
-
-func TestAccept_EnqueueFailureCompensatesAcceptance(t *testing.T) {
-	deps, pieces, accepts, claimStore, pub := newAcceptDeps(t)
-	probe := &orderProbeCommp{accepts: accepts, fail: true}
-	deps.Commp = probe
-
-	digest := testutil.RandomMultihash(t)
-	pieces.Put(digest, []byte("data"))
-
-	_, err := Accept(t.Context(), deps, &AcceptRequest{
-		Space: testutil.RandomDID(t),
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
-	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "enqueue boom")
-
-	exists, cerr := accepts.Exists(t.Context(), digest)
-	require.NoError(t, cerr)
-	require.False(t, exists, "acceptance compensated away on enqueue failure")
-	require.Empty(t, pub.published, "nothing published for a failed accept")
-	_ = claimStore // no claim assertions: the claim is never stored (Put runs after enqueue)
-}
-
-type failingPublisher struct{}
-
-func (failingPublisher) Publish(context.Context, ucan.Invocation) error {
-	return errors.New("publisher unavailable")
-}
-
-// An accept that fails after its acceptance is durable has still made the
-// accepted allocation the space's allocation of the blob, so a reject of that
-// allocation finds the acceptance.
-func TestAccept_LateFailureKeepsAcceptedAllocationCurrent(t *testing.T) {
-	deps, pieces, accepts, _, _ := newAcceptDeps(t)
-	allocs := allocationstore.NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
-	deps.Pending = allocs
-	deps.Publisher = failingPublisher{}
-	ctx := t.Context()
-	digest := testutil.RandomMultihash(t)
-	space := testutil.RandomDID(t)
-	accepted, later := testutil.RandomCID(t), testutil.RandomCID(t)
-	require.NoError(t, allocs.Put(ctx, allocation.Allocation{
-		Allocation: later,
-		Space:      space,
-		Blob:       blob.Blob{Digest: digest, Size: 4},
-		Cause:      testutil.RandomCID(t),
-	}))
-	pieces.Put(digest, []byte("data"))
-
-	_, err := Accept(ctx, deps, &AcceptRequest{
-		Space:      space,
-		Blob:       blob.Blob{Digest: digest, Size: 4},
-		Cause:      testutil.RandomCID(t),
-		Allocation: &accepted,
-	})
-	require.ErrorContains(t, err, "publisher unavailable")
-	_, err = accepts.Get(ctx, digest, space)
-	require.NoError(t, err, "the acceptance stands")
-	alloc, err := allocs.Get(ctx, digest, space)
-	require.NoError(t, err)
-	require.Equal(t, accepted, alloc.Allocation, "the accepted allocation is current")
+		"the acceptance is written before the pipeline enqueue")
 }

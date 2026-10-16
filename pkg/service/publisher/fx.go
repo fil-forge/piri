@@ -11,6 +11,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
+	pstore "github.com/fil-forge/piri/pkg/store"
 )
 
 var Module = fx.Module("publisher",
@@ -75,6 +76,7 @@ func NewFx(
 	id identity.Identity,
 	publisherStore store.PublisherStore,
 	queue AdvertQueue,
+	tx pstore.Transactor,
 ) (*PublisherService, error) {
 	if pubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
@@ -90,5 +92,6 @@ func NewFx(
 		WithIndexingServiceProof(idxCfg.Proofs),
 		WithAnnounceAddress(pubCfg.AnnounceMaddr),
 		WithBlobAddress(pubCfg.BlobMaddr),
+		WithTransactor(tx),
 	)
 }
