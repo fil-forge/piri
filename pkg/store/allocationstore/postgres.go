@@ -234,10 +234,14 @@ func (s *PostgresStore) DeletePending(ctx context.Context, link cid.Cid) error {
 	return nil
 }
 
+// Lock takes a transaction-level advisory lock on (digest, space), which
+// holds whether or not an allocation row exists: a row lock would hold
+// nothing for a space with no allocation of the blob. Two pairs whose keys
+// hash alike only wait on each other.
 func (s *PostgresStore) Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error {
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
 		_, err := tx.Exec(`
-			SELECT 1 FROM ucan_allocations WHERE digest = $1 AND space = $2 FOR UPDATE`,
+			SELECT pg_advisory_xact_lock(hashtextextended('ucan_allocations:' || encode($1, 'hex') || ':' || $2, 0))`,
 			[]byte(digest), space.String())
 		return err
 	})

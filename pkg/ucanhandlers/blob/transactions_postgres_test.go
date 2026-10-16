@@ -314,3 +314,26 @@ func TestAccept_WithoutDigestAfterRejectIsRefused(t *testing.T) {
 	_, err = p.accepts.Get(ctx, pending.Digest, pending.Space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
 }
+
+// With no allocation of the blob in the space, an accept that names no
+// allocation still waits for a release that holds the blob's lock.
+func TestAccept_WaitsForReleaseWithoutAllocation(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	space, digest := testutil.RandomDID(t), testutil.RandomMultihash(t)
+	deps := p.acceptDeps()
+	deps.Pieces.(*pdpfake.Pieces).Put(digest, []byte("data"))
+
+	commit := p.rejectFirst(t, func(ctx context.Context) error {
+		return p.allocs.Lock(ctx, digest, space)
+	})
+	err := p.acceptAfter(t, deps, &AcceptRequest{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: 4},
+		Cause: testutil.RandomCID(t),
+	}, commit)
+	require.NoError(t, err)
+
+	_, err = p.accepts.Get(ctx, digest, space)
+	require.NoError(t, err)
+}

@@ -220,6 +220,11 @@ func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err e
 				return fmt.Errorf("locking allocation: %w", err)
 			}
 		}
+		// Only an acceptance of this allocation refuses. An accept of an
+		// allocation made without a digest always records it, so an
+		// acceptance that names no allocation accepted another one, and this
+		// upload can still be rejected; its bytes stay while that acceptance
+		// claims them.
 		accepted, err := acceptancestore.AcceptedAllocation(ctx, deps.Acceptances, p.Digest, p.Space, p.Allocation)
 		if err != nil {
 			log.Errorw("checking acceptance", "error", err)

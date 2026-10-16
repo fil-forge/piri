@@ -76,15 +76,16 @@ type AllocationStore interface {
 	// ListExpiredPending iterates the allocations made without a digest that
 	// expired at or before now.
 	ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) iter.Seq2[allocation.Pending, error]
-	// Lock holds the space's allocation of the blob, if it has one, until the
-	// transaction the context carries ends. Every change that reads the
-	// space's acceptance of a blob and acts on its allocation takes this lock
-	// before the acceptance, so an accept and a reject of the blob in the
-	// space run one after the other. Outside a transaction it does nothing.
+	// Lock holds the blob in the space until the transaction the context
+	// carries ends, whether or not the space has an allocation of it. Every
+	// change that reads the space's acceptance of a blob and acts on its
+	// allocation or acceptance takes this lock first, so an accept and a
+	// reject or a release of the blob in the space run one after the other.
+	// Outside a transaction it does nothing.
 	//
 	// Locks are taken in one order so that no two transactions wait on each
-	// other: an allocation made without a digest, then the space's
-	// allocation of the blob, then its acceptance.
+	// other: an allocation made without a digest, then the blob in the space,
+	// then the space's allocation and acceptance of it.
 	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	// LockPending holds the allocation the `/blob/allocate` task link made
 	// without a digest, if there is one, until the transaction the context
