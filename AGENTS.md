@@ -113,6 +113,16 @@ introducing a config-driven module — update `pkg/fx/app/full_test.go` so the
 new wiring is exercised. Add or adjust the storage/config variants in the test
 to cover the new graph shape.
 
+## Observability
+
+When a change adds or alters behavior an operator depends on, decide how they
+would see it working and see it fail, and add what is useful in the same PR:
+OpenTelemetry metrics or traces, entries in
+`docs/content/concepts/telemetry.md` and
+`docs/content/operator-guide/monitoring.md`, and an alert or dashboard panel in
+fil-forge/infra-central. Skip it for changes nothing operational depends on.
+"Adding a signal" in `docs/observability.md` says how to do each.
+
 ## Conventions
 
 - Go files: snake_case. Tests: testify (`assert`/`require`).
