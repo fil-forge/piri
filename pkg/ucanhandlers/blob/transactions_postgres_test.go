@@ -393,3 +393,70 @@ func TestAllocateUnhashed_OverlappingRetryGetsSameUpload(t *testing.T) {
 	require.Equal(t, first.resp.Address.URL, second.resp.Address.URL, "both get the same upload")
 	require.EqualValues(t, 1, pieces.calls.Load(), "one upload is made")
 }
+
+// An accept that waits for a removal holding the blob's lock finds the bytes
+// gone once it commits, and is refused without recording an acceptance.
+func TestAccept_AfterRemovalIsRefused(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	space, digest := testutil.RandomDID(t), testutil.RandomMultihash(t)
+	deps := p.acceptDeps()
+	pieces := deps.Pieces.(*pdpfake.Pieces)
+	pieces.Put(digest, []byte("data"))
+
+	commit := p.rejectFirst(t, func(ctx context.Context) error {
+		if err := p.allocs.LockBlob(ctx, digest); err != nil {
+			return err
+		}
+		return pieces.RemovePiece(ctx, digest)
+	})
+	err := p.acceptAfter(t, deps, &AcceptRequest{
+		Space: space,
+		Blob:  blob.Blob{Digest: digest, Size: 4},
+		Cause: testutil.RandomCID(t),
+	}, commit)
+	require.ErrorContains(t, err, "piece not found")
+
+	_, err = p.accepts.Get(ctx, digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
+}
+
+// An allocate that waits for a removal holding the blob's lock sees the bytes
+// gone, and asks for them to be uploaded rather than reporting them held.
+func TestAllocate_AfterRemovalAsksForUpload(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	held := p.allocated(t) // another space's claim, so the bytes are looked for
+	pieces := pdpfake.NewPieces()
+	pieces.Put(held.Blob.Digest, []byte("data"))
+	deps := AllocateDeps{Allocations: p.allocs, Pieces: pieces, Pending: p.allocs, Tx: p.tx}
+	space := testutil.RandomDID(t)
+	require.NoError(t, p.allocs.Put(ctx, allocation.Allocation{
+		Space: space, Blob: held.Blob, Expires: 1, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t),
+	}))
+
+	commit := p.rejectFirst(t, func(ctx context.Context) error {
+		if err := p.allocs.LockBlob(ctx, held.Blob.Digest); err != nil {
+			return err
+		}
+		return pieces.RemovePiece(ctx, held.Blob.Digest)
+	})
+	allocated := make(chan *AllocateResponse, 1)
+	failed := make(chan error, 1)
+	go func() {
+		resp, err := Allocate(ctx, deps, &AllocateRequest{
+			Space: space, Blob: held.Blob, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t),
+		})
+		failed <- err
+		allocated <- resp
+	}()
+	select {
+	case err := <-failed:
+		t.Fatalf("the allocate finished while the removal held the blob: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	commit()
+	require.NoError(t, <-failed)
+	resp := <-allocated
+	require.NotNil(t, resp.Address, "the bytes are gone, so an upload is asked for")
+}

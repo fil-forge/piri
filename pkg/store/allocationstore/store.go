@@ -84,9 +84,16 @@ type AllocationStore interface {
 	// Outside a transaction it does nothing.
 	//
 	// Locks are taken in one order so that no two transactions wait on each
-	// other: an allocation made without a digest, then the blob in the space,
-	// then the space's allocation and acceptance of it.
+	// other: an allocate task link (LockPending), then the blob (LockBlob),
+	// then the blob in the space (Lock), then rows.
 	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
+	// LockBlob holds the blob, in every space, until the transaction the
+	// context carries ends. A change that decides from whether the node holds
+	// the blob's bytes and then claims them, an accept or an allocate, takes
+	// it before checking for the bytes, and the removal sweep takes it before
+	// checking for claims and deleting the bytes, so the sweep never deletes
+	// bytes a claim is being made on. Outside a transaction it does nothing.
+	LockBlob(ctx context.Context, digest multihash.Multihash) error
 	// LockPending holds the `/blob/allocate` task link until the transaction
 	// the context carries ends, whether or not it has made an allocation
 	// without a digest. A change that makes or releases such an allocation
@@ -336,6 +343,11 @@ func (s *Store) ListExpiredPending(ctx context.Context, now ucan.UnixTimestamp) 
 
 // Lock does nothing: the datastore store keeps no transactions.
 func (s *Store) Lock(context.Context, multihash.Multihash, did.DID) error {
+	return nil
+}
+
+// LockBlob does nothing: the datastore store keeps no transactions.
+func (s *Store) LockBlob(context.Context, multihash.Multihash) error {
 	return nil
 }
 

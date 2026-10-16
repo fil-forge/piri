@@ -164,16 +164,6 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		attribute.Int64("blob.size", int64(req.Blob.Size)),
 	)
 
-	// ensure the blob exists, else it cannot be accepted.
-	found, err := deps.Pieces.Has(ctx, req.Blob.Digest)
-	if err != nil {
-		log.Errorw("finding piece for blob", "error", err)
-		return nil, fmt.Errorf("finding piece for blob: %w", err)
-	}
-	if !found {
-		log.Errorw("piece not found", "blob", req.Blob.Digest)
-		return nil, fmt.Errorf("piece not found")
-	}
 	// get a download url
 	blobCID := cid.NewCidV1(cid.Raw, req.Blob.Digest)
 	loc, err := deps.Pieces.ReadPieceURL(blobCID)
@@ -242,12 +232,13 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	// the acceptance as a sign the blob entered the pipeline, which the one
 	// commit makes exact. The pipeline's task is spawned, and the claim
 	// cached with the indexing service, once the records have committed.
-	// The allocation is locked first, as a reject, a release or the expiry
-	// task locks it, so they run one after the other: a reject that comes
-	// later sees the acceptance, and an allocation released first is not
-	// accepted.
+	// The allocation and the blob are locked first, as a reject, a release,
+	// the expiry task or the removal sweep locks them, so they run one after
+	// the other: a reject that comes later sees the acceptance, an allocation
+	// released first is not accepted, and bytes the sweep removed first are
+	// not found.
 	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
-		if err := lockAcceptedAllocation(ctx, deps.Pending, req); err != nil {
+		if err := lockAcceptedAllocation(ctx, deps, req); err != nil {
 			return err
 		}
 		if err := deps.Acceptances.Put(ctx, acc); err != nil {
@@ -293,13 +284,16 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	}, nil
 }
 
-// lockAcceptedAllocation locks the allocation the accept accepts, in the
-// order allocationstore.AllocationStore.Lock describes, and refuses one that
-// was released before the lock was taken. An allocation made without a digest
-// is released once its pending record is gone; one made with a digest, once
-// the space holds no allocation of the blob. An accept that does not identify
-// its allocation takes the lock and accepts whatever the space holds.
-func lockAcceptedAllocation(ctx context.Context, allocs PendingAllocations, req *AcceptRequest) error {
+// lockAcceptedAllocation locks the allocation the accept accepts and the
+// blob, in the order allocationstore.AllocationStore.Lock describes, and
+// refuses an allocation released, or bytes removed, before the locks were
+// taken. An allocation made without a digest is released once its pending
+// record is gone; one made with a digest, once the space holds no allocation
+// of the blob. An accept that does not identify its allocation accepts
+// whatever the space holds. The bytes are checked under the blob's lock,
+// which the removal sweep takes before it deletes them.
+func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptRequest) error {
+	allocs := deps.Pending
 	if req.Allocation != nil && req.WithoutDigest {
 		if err := allocs.LockPending(ctx, *req.Allocation); err != nil {
 			log.Errorw("locking pending allocation", "error", err)
@@ -311,6 +305,20 @@ func lockAcceptedAllocation(ctx context.Context, allocs PendingAllocations, req 
 			}
 			return fmt.Errorf("getting pending allocation: %w", err)
 		}
+	}
+	if err := allocs.LockBlob(ctx, req.Blob.Digest); err != nil {
+		log.Errorw("locking blob", "error", err)
+		return fmt.Errorf("locking blob: %w", err)
+	}
+	// ensure the blob exists, else it cannot be accepted.
+	found, err := deps.Pieces.Has(ctx, req.Blob.Digest)
+	if err != nil {
+		log.Errorw("finding piece for blob", "error", err)
+		return fmt.Errorf("finding piece for blob: %w", err)
+	}
+	if !found {
+		log.Errorw("piece not found", "blob", req.Blob.Digest)
+		return fmt.Errorf("piece not found")
 	}
 	if err := allocs.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
 		log.Errorw("locking allocation", "error", err)
