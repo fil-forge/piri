@@ -87,10 +87,11 @@ type AllocationStore interface {
 	// other: an allocation made without a digest, then the blob in the space,
 	// then the space's allocation and acceptance of it.
 	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
-	// LockPending holds the allocation the `/blob/allocate` task link made
-	// without a digest, if there is one, until the transaction the context
-	// carries ends. A change that releases such an allocation takes this lock
-	// before [AllocationStore.Lock]. Outside a transaction it does nothing.
+	// LockPending holds the `/blob/allocate` task link until the transaction
+	// the context carries ends, whether or not it has made an allocation
+	// without a digest. A change that makes or releases such an allocation
+	// takes this lock before [AllocationStore.Lock]. Outside a transaction it
+	// does nothing.
 	LockPending(ctx context.Context, link cid.Cid) error
 	// ReleasePending deletes an allocation made without a digest and, once
 	// its data was received, its claim on (digest, space), handing the claim

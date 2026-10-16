@@ -251,10 +251,13 @@ func (s *PostgresStore) Lock(ctx context.Context, digest multihash.Multihash, sp
 	return nil
 }
 
+// LockPending takes a transaction-level advisory lock on the allocate task
+// link, which holds whether or not a pending allocation exists for it, so an
+// allocate of the link serializes with a reject or a retry of it.
 func (s *PostgresStore) LockPending(ctx context.Context, link cid.Cid) error {
 	err := harmonytx.Run(ctx, s.db, func(ctx context.Context, tx *harmonydb.Tx) error {
 		_, err := tx.Exec(`
-			SELECT 1 FROM ucan_pending_allocations WHERE allocation = $1 FOR UPDATE`,
+			SELECT pg_advisory_xact_lock(hashtextextended('ucan_pending_allocations:' || $1, 0))`,
 			link.String())
 		return err
 	})

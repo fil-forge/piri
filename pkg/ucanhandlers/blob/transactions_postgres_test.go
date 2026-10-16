@@ -3,6 +3,7 @@ package blob
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
+	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
@@ -336,4 +338,58 @@ func TestAccept_WaitsForReleaseWithoutAllocation(t *testing.T) {
 
 	_, err = p.accepts.Get(ctx, digest, space)
 	require.NoError(t, err)
+}
+
+// blockingAllocator holds the first AllocatePiece until release is closed,
+// and counts the calls that reach it.
+type blockingAllocator struct {
+	*pdpfake.Pieces
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (b *blockingAllocator) AllocatePiece(ctx context.Context, alloc types.PieceAllocation) (*types.AllocatedPiece, error) {
+	if b.calls.Add(1) == 1 {
+		close(b.entered)
+		<-b.release
+	}
+	return b.Pieces.AllocatePiece(ctx, alloc)
+}
+
+// A retry of a digest-less allocate that overlaps the first attempt waits for
+// it and gets the same upload, so one task link never has two.
+func TestAllocateUnhashed_OverlappingRetryGetsSameUpload(t *testing.T) {
+	p := newPostgresBlob(t)
+	pieces := &blockingAllocator{Pieces: pdpfake.NewPieces(), entered: make(chan struct{}), release: make(chan struct{})}
+	deps := AllocateDeps{Allocations: p.allocs, Pieces: pieces, Pending: p.allocs, Tx: p.tx}
+	req := &AllocateUnhashedRequest{
+		Space:      testutil.RandomDID(t),
+		DigestCode: multihash.SHA2_256,
+		Size:       4,
+		Cause:      testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+	}
+
+	type result struct {
+		resp *AllocateResponse
+		err  error
+	}
+	results := make(chan result, 2)
+	allocate := func() {
+		resp, err := AllocateUnhashed(t.Context(), deps, req)
+		results <- result{resp, err}
+	}
+	go allocate()
+	<-pieces.entered
+	go allocate()
+	time.Sleep(200 * time.Millisecond)
+	require.EqualValues(t, 1, pieces.calls.Load(), "the retry waits for the first attempt")
+
+	close(pieces.release)
+	first, second := <-results, <-results
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	require.Equal(t, first.resp.Address.URL, second.resp.Address.URL, "both get the same upload")
+	require.EqualValues(t, 1, pieces.calls.Load(), "one upload is made")
 }

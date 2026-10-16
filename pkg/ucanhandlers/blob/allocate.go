@@ -354,37 +354,43 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 		)
 	}
 
-	// A retry of the same `/blob/allocate` gets the upload the first attempt
-	// made, so one task link never has two uploads to record a digest from.
-	if p, err := deps.Pending.GetPending(ctx, req.Allocation); err == nil {
-		id, err := uuid.Parse(p.UploadID)
-		if err != nil {
-			return nil, fmt.Errorf("parsing upload ID of pending allocation: %w", err)
-		}
-		uploadURL, err := deps.Pieces.WritePieceURL(id)
-		if err != nil {
-			log.Errorw("getting piece write URL", "error", err)
-			return nil, fmt.Errorf("getting piece write URL: %w", err)
-		}
-		log.Info("blob allocation already exists")
-		return &AllocateResponse{
-			Size: p.Size,
-			Address: &blob.BlobAddress{
-				URL:     commands.CborURL(uploadURL),
-				Expires: int64(p.Expires),
-			},
-		}, nil
-	} else if !errors.Is(err, store.ErrNotFound) {
-		log.Errorw("getting pending allocation", "error", err)
-		return nil, fmt.Errorf("getting pending allocation: %w", err)
-	}
-
-	expiresAt := ucan.Now() + ucan.UnixTimestamp(60*60*24) // 1 day
-
 	// The upload record and the pending allocation commit together, so
-	// neither is left without the other.
-	var uploadURL url.URL
+	// neither is left without the other. The allocate task link is locked
+	// before the pending allocation is looked up, so a retry of the same
+	// `/blob/allocate` that arrives meanwhile waits, then gets the upload this
+	// attempt made: one task link never has two uploads to record a digest
+	// from.
 	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		resp = nil
+		if err := deps.Pending.LockPending(ctx, req.Allocation); err != nil {
+			log.Errorw("locking pending allocation", "error", err)
+			return fmt.Errorf("locking pending allocation: %w", err)
+		}
+		if p, err := deps.Pending.GetPending(ctx, req.Allocation); err == nil {
+			id, err := uuid.Parse(p.UploadID)
+			if err != nil {
+				return fmt.Errorf("parsing upload ID of pending allocation: %w", err)
+			}
+			uploadURL, err := deps.Pieces.WritePieceURL(id)
+			if err != nil {
+				log.Errorw("getting piece write URL", "error", err)
+				return fmt.Errorf("getting piece write URL: %w", err)
+			}
+			log.Info("blob allocation already exists")
+			resp = &AllocateResponse{
+				Size: p.Size,
+				Address: &blob.BlobAddress{
+					URL:     commands.CborURL(uploadURL),
+					Expires: int64(p.Expires),
+				},
+			}
+			return nil
+		} else if !errors.Is(err, store.ErrNotFound) {
+			log.Errorw("getting pending allocation", "error", err)
+			return fmt.Errorf("getting pending allocation: %w", err)
+		}
+
+		expiresAt := ucan.Now() + ucan.UnixTimestamp(60*60*24) // 1 day
 		alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
 			Piece: types.Piece{
 				Name: name,
@@ -396,7 +402,7 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 			log.Errorw("adding to pdp service", "error", err)
 			return fmt.Errorf("adding to pdp service: %w", err)
 		}
-		uploadURL, err = deps.Pieces.WritePieceURL(alloc.UploadID)
+		uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
 		if err != nil {
 			log.Errorw("getting piece write URL", "error", err)
 			return fmt.Errorf("getting piece write URL: %w", err)
@@ -413,17 +419,17 @@ func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhas
 			log.Errorw("putting pending allocation", "error", err)
 			return fmt.Errorf("putting pending allocation: %w", err)
 		}
+		resp = &AllocateResponse{
+			Size: req.Size,
+			Address: &blob.BlobAddress{
+				URL:     commands.CborURL(uploadURL),
+				Expires: int64(expiresAt),
+			},
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	return &AllocateResponse{
-		Size: req.Size,
-		Address: &blob.BlobAddress{
-			URL:     commands.CborURL(uploadURL),
-			Expires: int64(expiresAt),
-		},
-	}, nil
+	return resp, nil
 }
