@@ -11,6 +11,7 @@ import (
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/testutil"
 	ucanerrors "github.com/fil-forge/ucantone/errors"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
@@ -184,4 +185,132 @@ func TestReject_WaitsForAccept(t *testing.T) {
 	require.Equal(t, blob.BlobAcceptedErrorName, named.Name())
 	_, err = p.allocs.Get(ctx, alloc.Blob.Digest, alloc.Space)
 	require.NoError(t, err, "the accepted allocation stays")
+}
+
+// rejectFirst runs drop in a transaction that holds its locks until the
+// returned commit is called, so an accept started meanwhile waits for it.
+func (p postgresBlob) rejectFirst(t *testing.T, drop func(ctx context.Context) error) (commit func()) {
+	t.Helper()
+	held, finish := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- p.tx.Run(t.Context(), func(ctx context.Context) error {
+			if err := drop(ctx); err != nil {
+				return err
+			}
+			close(held)
+			<-finish
+			return nil
+		})
+	}()
+	<-held
+	return func() {
+		close(finish)
+		require.NoError(t, <-done)
+	}
+}
+
+func (p postgresBlob) acceptDeps() AcceptDeps {
+	return AcceptDeps{
+		ID:          identity.Identity{Issuer: testutil.WebService},
+		Acceptances: p.accepts,
+		Pieces:      pdpfake.NewPieces(),
+		Commp:       pdpfake.NewCommp(),
+		ClaimStore:  p.claims,
+		Publisher:   publishFunc(func(context.Context, ucan.Invocation) error { return nil }),
+		Pending:     p.allocs,
+		Tx:          p.tx,
+	}
+}
+
+// acceptAfter starts an accept of req, checks it waits while the reject holds
+// its locks, then commits the reject and returns the accept's error.
+func (p postgresBlob) acceptAfter(t *testing.T, deps AcceptDeps, req *AcceptRequest, commit func()) error {
+	t.Helper()
+	accepted := make(chan error, 1)
+	go func() {
+		_, err := Accept(t.Context(), deps, req)
+		accepted <- err
+	}()
+	select {
+	case err := <-accepted:
+		t.Fatalf("the accept finished while the reject held the allocation: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	commit()
+	return <-accepted
+}
+
+// An accept of an allocation a reject released first is refused, and leaves
+// no acceptance.
+func TestAccept_AfterRejectIsRefused(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	alloc := p.allocated(t)
+	deps := p.acceptDeps()
+	deps.Pieces.(*pdpfake.Pieces).Put(alloc.Blob.Digest, []byte("data"))
+
+	commit := p.rejectFirst(t, func(ctx context.Context) error {
+		if err := p.allocs.Lock(ctx, alloc.Blob.Digest, alloc.Space); err != nil {
+			return err
+		}
+		_, err := p.allocs.ReleaseByTask(ctx, alloc.Allocation)
+		return err
+	})
+	err := p.acceptAfter(t, deps, &AcceptRequest{
+		Space:      alloc.Space,
+		Blob:       alloc.Blob,
+		Cause:      testutil.RandomCID(t),
+		Allocation: &alloc.Allocation,
+	}, commit)
+	require.ErrorContains(t, err, "was released before it was accepted")
+
+	_, err = p.accepts.Get(ctx, alloc.Blob.Digest, alloc.Space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
+}
+
+// The same for an allocation made without a digest: the reject releases its
+// pending record and claim first, and the accept is refused.
+func TestAccept_WithoutDigestAfterRejectIsRefused(t *testing.T) {
+	p := newPostgresBlob(t)
+	ctx := t.Context()
+	pending := allocation.Pending{
+		Allocation: testutil.RandomCID(t),
+		Space:      testutil.RandomDID(t),
+		Size:       4,
+		DigestCode: multihash.SHA2_256,
+		Cause:      testutil.RandomCID(t),
+		Expires:    1,
+		UploadID:   "upload",
+		Digest:     testutil.RandomMultihash(t),
+	}
+	require.NoError(t, p.allocs.PutPending(ctx, pending))
+	_, err := p.allocs.Claim(ctx, allocation.Allocation{
+		Space:      pending.Space,
+		Blob:       blob.Blob{Digest: pending.Digest, Size: pending.Size},
+		Cause:      pending.Cause,
+		Allocation: pending.Allocation,
+	})
+	require.NoError(t, err)
+	deps := p.acceptDeps()
+	deps.Pieces.(*pdpfake.Pieces).Put(pending.Digest, []byte("data"))
+
+	commit := p.rejectFirst(t, func(ctx context.Context) error {
+		if err := p.allocs.LockPending(ctx, pending.Allocation); err != nil {
+			return err
+		}
+		_, err := p.allocs.ReleasePending(ctx, pending)
+		return err
+	})
+	err = p.acceptAfter(t, deps, &AcceptRequest{
+		Space:         pending.Space,
+		Blob:          blob.Blob{Digest: pending.Digest, Size: pending.Size},
+		Cause:         testutil.RandomCID(t),
+		Allocation:    &pending.Allocation,
+		WithoutDigest: true,
+	}, commit)
+	require.ErrorContains(t, err, "was released before it was accepted")
+
+	_, err = p.accepts.Get(ctx, pending.Digest, pending.Space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
 }

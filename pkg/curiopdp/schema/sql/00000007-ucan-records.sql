@@ -92,3 +92,11 @@ CREATE TABLE ucan_consolidations (
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT ucan_consolidations_pk PRIMARY KEY (batch)
 );
+
+-- An upload for an allocation made without a digest is committed together
+-- with its pending record from here on, and pending records made before
+-- this migration did not carry over into ucan_pending_allocations. Such an
+-- upload still in flight can no longer complete or be found by the expiry
+-- task, so it is discarded now; the expiry task reaps its row and data.
+UPDATE pdp_piece_uploads SET discarded_at = now()
+WHERE allocation IS NOT NULL AND discarded_at IS NULL;

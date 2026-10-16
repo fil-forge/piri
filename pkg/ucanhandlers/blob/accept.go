@@ -106,6 +106,7 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		}
 		if !hashed {
 			accReq.Allocation = &pending.Allocation
+			accReq.WithoutDigest = true
 		} else if link, ok := putAllocation(req.Metadata(), args.Put.Task, digest); ok {
 			accReq.Allocation = &link
 		}
@@ -135,6 +136,9 @@ type AcceptRequest struct {
 	// when the accept identifies it. It is recorded on the acceptance, which
 	// a reject of that allocation refuses on.
 	Allocation *cid.Cid
+	// WithoutDigest says Allocation was made without a digest, so its pending
+	// record is what says it has not been released.
+	WithoutDigest bool
 }
 
 type AcceptResponse struct {
@@ -238,14 +242,13 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 	// the acceptance as a sign the blob entered the pipeline, which the one
 	// commit makes exact. The pipeline's task is spawned, and the claim
 	// cached with the indexing service, once the records have committed.
-	// The space's allocation of the blob is locked first, as a reject or a
-	// release locks it, so they run one after the other: a reject that came
-	// first has dropped the allocation, and one that comes later sees the
-	// acceptance.
+	// The allocation is locked first, as a reject, a release or the expiry
+	// task locks it, so they run one after the other: a reject that comes
+	// later sees the acceptance, and an allocation released first is not
+	// accepted.
 	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
-		if err := deps.Pending.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
-			log.Errorw("locking allocation", "error", err)
-			return fmt.Errorf("locking allocation: %w", err)
+		if err := lockAcceptedAllocation(ctx, deps.Pending, req); err != nil {
+			return err
 		}
 		if err := deps.Acceptances.Put(ctx, acc); err != nil {
 			log.Errorw("putting acceptance for blob", "error", err)
@@ -288,4 +291,38 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 		Claim: claim,
 		PDP:   pdpAcceptInv,
 	}, nil
+}
+
+// lockAcceptedAllocation locks the allocation the accept accepts, in the
+// order allocationstore.AllocationStore.Lock describes, and refuses one that
+// was released before the lock was taken. An allocation made without a digest
+// is released once its pending record is gone; one made with a digest, once
+// the space holds no allocation of the blob. An accept that does not identify
+// its allocation takes the lock and accepts whatever the space holds.
+func lockAcceptedAllocation(ctx context.Context, allocs PendingAllocations, req *AcceptRequest) error {
+	if req.Allocation != nil && req.WithoutDigest {
+		if err := allocs.LockPending(ctx, *req.Allocation); err != nil {
+			log.Errorw("locking pending allocation", "error", err)
+			return fmt.Errorf("locking pending allocation: %w", err)
+		}
+		if _, err := allocs.GetPending(ctx, *req.Allocation); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
+			}
+			return fmt.Errorf("getting pending allocation: %w", err)
+		}
+	}
+	if err := allocs.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
+		log.Errorw("locking allocation", "error", err)
+		return fmt.Errorf("locking allocation: %w", err)
+	}
+	if req.Allocation != nil && !req.WithoutDigest {
+		if _, err := allocs.Get(ctx, req.Blob.Digest, req.Space); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
+			}
+			return fmt.Errorf("getting allocation: %w", err)
+		}
+	}
+	return nil
 }
