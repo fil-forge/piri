@@ -92,7 +92,8 @@ func (t *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 	}
 
 	// Handoff: spawn the commP task for this blob. Dedup on commp_task_id; a
-	// lost spawn is scavenged by the commP task's IAmBored.
+	// lost spawn, or a row the commP delay has not released yet (the spawn
+	// then claims nothing), is picked up by the commP task's IAmBored.
 	t.commp.spawn(ctx, blob)
 	return true, nil
 }

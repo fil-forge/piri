@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -291,15 +292,23 @@ func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Mu
 // process; waiting for the task keeps that true however the tasks are
 // placed.
 func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Multihash) (active bool, err error) {
-	if _, err := p.db.Exec(ctx, `
+	var cancelled []struct {
+		CreatedAt time.Time `db:"created_at"`
+		Hashed    bool      `db:"hashed"`
+	}
+	if err := p.db.Select(ctx, &cancelled, `
 		DELETE FROM pdp_blob_pipeline
 		WHERE digest = $1 AND aggregate_root IS NULL
 		  AND (commp IS NOT NULL OR commp_task_id IS NULL
 		       OR NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.commp_task_id))
 		  AND NOT (staged AND settle_task_id IS NOT NULL
 		       AND EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.settle_task_id))
+		RETURNING created_at, commp IS NOT NULL AS hashed
 	`, []byte(blob)); err != nil {
 		return false, fmt.Errorf("cancelling pipeline row for %s: %w", blob.String(), err)
+	}
+	for _, c := range cancelled {
+		p.cancels.record(ctx, time.Since(c.CreatedAt), c.Hashed)
 	}
 	var remaining int
 	if err := p.db.QueryRow(ctx, `

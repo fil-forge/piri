@@ -76,6 +76,19 @@ func TestDurationSchema_ParseAndValidate(t *testing.T) {
 			errType: &RangeError[time.Duration]{},
 		},
 		{
+			name:   "accepts zero when the min is zero",
+			schema: DurationSchema{Min: 0, Max: time.Hour},
+			input:  "0s",
+			want:   0,
+		},
+		{
+			name:    "rejects a negative duration even with a zero min",
+			schema:  DurationSchema{Min: 0, Max: time.Hour},
+			input:   "-1s",
+			wantErr: true,
+			errType: &RangeError[time.Duration]{},
+		},
+		{
 			name:   "accepts value at min boundary",
 			schema: DurationSchema{Min: time.Minute, Max: time.Hour},
 			input:  "1m",

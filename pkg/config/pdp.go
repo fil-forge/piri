@@ -17,6 +17,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
@@ -222,6 +223,10 @@ type AggregationConfig struct {
 }
 
 type CommpConfig struct {
+	// Delay is how long an accepted blob waits before its commP is computed
+	// and it enters aggregation. A blob released within the delay costs no
+	// commP and adds no root. Zero means no delay. Dynamic.
+	Delay    time.Duration  `mapstructure:"delay" toml:"delay,omitempty"`
 	JobQueue JobQueueConfig `mapstructure:"job_queue" toml:"job_queue,omitempty"`
 }
 
@@ -311,6 +316,12 @@ func (j JobQueueConfig) ToAppConfig() (app.JobQueueConfig, error) {
 }
 
 func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
+	if c.CommP.Delay < 0 {
+		return app.AggregationConfig{}, fmt.Errorf("invalid pdp.aggregation.commp.delay: must not be negative, got %s", c.CommP.Delay)
+	}
+	if c.CommP.Delay > commp.MaxDelay {
+		return app.AggregationConfig{}, fmt.Errorf("invalid pdp.aggregation.commp.delay: %s exceeds %s", c.CommP.Delay, commp.MaxDelay)
+	}
 	commpJobQueueCfg, err := c.CommP.JobQueue.ToAppConfig()
 	if err != nil {
 		return app.AggregationConfig{}, err
@@ -325,6 +336,7 @@ func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
 	}
 	return app.AggregationConfig{
 		CommP: app.CommpConfig{
+			Delay:    c.CommP.Delay,
 			JobQueue: commpJobQueueCfg,
 		},
 		Aggregator: aggregatorCfg,
@@ -369,6 +381,7 @@ func (c GasConfig) ToAppConfig() app.GasConfig {
 func DefaultAggregationConfig() AggregationConfig {
 	return AggregationConfig{
 		CommP: CommpConfig{
+			Delay: commp.DefaultDelay,
 			JobQueue: JobQueueConfig{
 				Workers:    uint(runtime.NumCPU()),
 				Retries:    50,
