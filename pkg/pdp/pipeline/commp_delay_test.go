@@ -94,7 +94,8 @@ func TestBored_ClaimsEveryDueRow(t *testing.T) {
 
 // TestCommPBacklog: the backlog splits unclaimed, settled rows into held and
 // due against the current delay, and measures how long the oldest due row
-// has waited past its due time. Claimed and staged rows do not count.
+// has waited past its due time. Claimed and staged rows do not count, nor
+// does a row whose blob has a removal pending, which the claims skip too.
 func TestCommPBacklog(t *testing.T) {
 	p := newTestPipeline(t)
 	*p.delay = time.Hour
@@ -118,11 +119,15 @@ func TestCommPBacklog(t *testing.T) {
 	insert("due-recent", false, nil, "61 minutes")
 	insert("claimed", false, 7, "4 hours")
 	insert("staged", true, nil, "5 hours")
+	insert("removal-pending", false, nil, "6 hours")
+	removing, _, _ := testBlobAndPiece(t, "removal-pending")
+	_, err = p.db.Exec(ctx, `INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)`, []byte(removing))
+	require.NoError(t, err)
 
 	b, err = p.commp.backlog(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, b.held, "rows inside the delay are held")
-	require.EqualValues(t, 2, b.due, "unclaimed rows past the delay are due")
+	require.EqualValues(t, 2, b.due, "unclaimed rows past the delay are due; one with a removal pending is the sweep's, not due")
 	require.InDelta(t, (2 * time.Hour).Seconds(), b.oldestDue.Seconds(), 60,
 		"the oldest due row came due two hours ago")
 

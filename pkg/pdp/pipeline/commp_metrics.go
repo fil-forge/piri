@@ -96,7 +96,9 @@ type commpBacklog struct {
 
 // backlog measures the unclaimed, settled pipeline rows against the current
 // delay: those still held by it and those due, with how long the oldest due
-// row has waited past its due time.
+// row has waited past its due time. A row whose blob has a removal pending
+// is left out, as the claims leave it out: it is the sweep's to cancel, and
+// counting it as due would show claims stalled while they are working.
 func (t *CommPTask) backlog(ctx context.Context) (commpBacklog, error) {
 	var rows []struct {
 		Held   int64   `db:"held"`
@@ -109,6 +111,7 @@ func (t *CommPTask) backlog(ctx context.Context) (commpBacklog, error) {
 		           created_at + make_interval(secs => $1::double precision) AS due_at
 		    FROM pdp_blob_pipeline
 		    WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged
+		      AND NOT EXISTS (SELECT 1 FROM pdp_pending_piece_removals r WHERE r.digest = pdp_blob_pipeline.digest)
 		)
 		SELECT count(*) FILTER (WHERE due_at > now()) AS held,
 		       count(*) FILTER (WHERE due_at <= now()) AS due,
