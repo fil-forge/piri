@@ -21,7 +21,9 @@ import (
 // acceptance that motivated it. The task spawn waits for the commit and is
 // best-effort (AddTask swallows errors); rows that miss their spawn are
 // scavenged by the task's IAmBored. A blob that is still staged starts at the
-// PDPSettle task, any other at PDPCommP.
+// PDPSettle task, any other at PDPCommP. With a commP delay set, no PDPCommP
+// task is spawned here: the row is claimed by the task's IAmBored once the
+// delay has passed, and a release before then cancels it unhashed.
 type Entry struct {
 	db     *harmonydb.DB
 	commp  *CommPTask
@@ -92,11 +94,14 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 		if err != nil {
 			return fmt.Errorf("inserting pipeline entry: %w", err)
 		}
-		// The task reads the row, so it is spawned once the row commits.
+		// The task reads the row, so it is spawned once the row commits. A
+		// settle runs at once whatever the delay (the staging area is
+		// bounded); the commP task only when there is none, as the row is
+		// not due before then.
 		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
 			if staged {
 				e.settle.spawn(ctx, blob)
-			} else {
+			} else if e.commp.policy.Delay() == 0 {
 				e.commp.spawn(ctx, blob)
 			}
 			return nil

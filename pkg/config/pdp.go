@@ -17,6 +17,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
@@ -222,6 +223,13 @@ type AggregationConfig struct {
 }
 
 type CommpConfig struct {
+	// Delay is how long an accepted blob waits before its commP is computed
+	// and it enters aggregation. A blob released within the delay costs no
+	// commP and adds no root. Zero means no delay; nil (the key absent) means
+	// the default. A pointer so that a file written back by `setup install`
+	// keeps an explicit "0s" and omits an absent key, instead of turning one
+	// into the other. Dynamic.
+	Delay    *time.Duration `mapstructure:"delay" toml:"delay,omitempty"`
 	JobQueue JobQueueConfig `mapstructure:"job_queue" toml:"job_queue,omitempty"`
 }
 
@@ -311,6 +319,16 @@ func (j JobQueueConfig) ToAppConfig() (app.JobQueueConfig, error) {
 }
 
 func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
+	delay := commp.DefaultDelay
+	if c.CommP.Delay != nil {
+		delay = *c.CommP.Delay
+	}
+	if delay < 0 {
+		return app.AggregationConfig{}, fmt.Errorf("invalid pdp.aggregation.commp.delay: must not be negative, got %s", delay)
+	}
+	if delay > commp.MaxDelay {
+		return app.AggregationConfig{}, fmt.Errorf("invalid pdp.aggregation.commp.delay: %s exceeds %s", delay, commp.MaxDelay)
+	}
 	commpJobQueueCfg, err := c.CommP.JobQueue.ToAppConfig()
 	if err != nil {
 		return app.AggregationConfig{}, err
@@ -325,6 +343,7 @@ func (c AggregationConfig) ToAppConfig() (app.AggregationConfig, error) {
 	}
 	return app.AggregationConfig{
 		CommP: app.CommpConfig{
+			Delay:    delay,
 			JobQueue: commpJobQueueCfg,
 		},
 		Aggregator: aggregatorCfg,
@@ -369,6 +388,7 @@ func (c GasConfig) ToAppConfig() app.GasConfig {
 func DefaultAggregationConfig() AggregationConfig {
 	return AggregationConfig{
 		CommP: CommpConfig{
+			Delay: ptr(commp.DefaultDelay),
 			JobQueue: JobQueueConfig{
 				Workers:    uint(runtime.NumCPU()),
 				Retries:    50,
@@ -394,3 +414,6 @@ func DefaultAggregationConfig() AggregationConfig {
 		},
 	}
 }
+
+// ptr returns a pointer to v, for optional config fields.
+func ptr[T any](v T) *T { return &v }

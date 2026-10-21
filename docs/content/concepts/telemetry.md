@@ -76,6 +76,29 @@ for example alerts.
 | `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
 | `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
+### Aggregation Pipeline Metrics
+
+The entry of the aggregation pipeline. An accepted blob waits out
+[`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
+before a CommP task claims it; the removal sweep cancels the blob's pipeline
+row if the blob is released before it is aggregated. See
+[Monitoring > Aggregation Pipeline Health](../operator-guide/monitoring.md#aggregation-pipeline-health)
+for an example alert.
+
+| Metric                                                    | Type      | Unit  | Description                                                  |
+|-----------------------------------------------------------|-----------|-------|--------------------------------------------------------------|
+| <nobr>`piri_pdp_commp_held_blobs`</nobr>                  | Gauge     | count | Accepted blobs waiting out the CommP delay                   |
+| <nobr>`piri_pdp_commp_due_blobs`</nobr>                   | Gauge     | count | Accepted blobs past the delay that no CommP task has claimed yet |
+| <nobr>`piri_pdp_commp_due_blobs_oldest_seconds`</nobr>    | Gauge     | s     | How long the oldest unclaimed blob has been past the delay   |
+| <nobr>`piri_pdp_pipeline_cancelled`</nobr>                | Counter   | count | Pipeline rows the removal sweep cancelled before aggregation |
+| <nobr>`piri_pdp_pipeline_cancelled_age_seconds`</nobr>    | Histogram | s     | Age of a cancelled row since the blob's acceptance; buckets at 1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d and 7d |
+
+**Labels:**
+
+| Label | Description |
+|-------|-------------|
+| `stage` | `before_commp` when the blob's CommP was never computed (the delay saved it), `after_commp` when it was computed but not yet aggregated (`piri_pdp_pipeline_cancelled*`) |
+
 ### IPNI Publishing Metrics
 
 The advertisement queue's backlog. Publishing is asynchronous, so the
