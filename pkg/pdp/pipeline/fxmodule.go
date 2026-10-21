@@ -8,7 +8,6 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	commppolicy "github.com/fil-forge/piri/pkg/pdp/aggregation/commp/policy"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
-	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
@@ -19,7 +18,6 @@ import (
 // aggregation fold.
 var Module = fx.Module("pdp/pipeline",
 	fx.Provide(
-		aggtypes.NewStore,
 		aggregatorpolicy.New,
 		commppolicy.New,
 		manager.NewConfigProvider,
