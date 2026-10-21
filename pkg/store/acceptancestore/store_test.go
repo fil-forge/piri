@@ -7,7 +7,6 @@ import (
 
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan/promise"
-	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/store"
@@ -15,9 +14,9 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
 )
 
-func TestDsAcceptanceStore(t *testing.T) {
+func testAcceptanceStore(t *testing.T, newStore func(*testing.T) acceptancestore.AcceptanceStore) {
 	t.Run("roundtrip", func(t *testing.T) {
-		s := acceptancestore.NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		acc := acceptance.Acceptance{
 			Space: testutil.RandomDID(t),
@@ -48,7 +47,7 @@ func TestDsAcceptanceStore(t *testing.T) {
 	})
 
 	t.Run("multiple", func(t *testing.T) {
-		s := acceptancestore.NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		digest := testutil.RandomMultihash(t)
 
@@ -99,7 +98,7 @@ func TestDsAcceptanceStore(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		s := acceptancestore.NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		digest := testutil.RandomMultihash(t)
 		space := testutil.RandomDID(t)
@@ -115,3 +114,5 @@ func TestDsAcceptanceStore(t *testing.T) {
 		require.False(t, exists)
 	})
 }
+
+func TestAcceptanceStore(t *testing.T) { forEachImpl(t, testAcceptanceStore) }

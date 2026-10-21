@@ -26,6 +26,7 @@ func tag(path string) {
 func main() {
 	models := []any{
 		allocation.Allocation{},
+		allocation.Pending{},
 	}
 	const (
 		cborFile = "../cbor_gen.go"

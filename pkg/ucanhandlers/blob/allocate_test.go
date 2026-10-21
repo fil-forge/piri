@@ -13,6 +13,7 @@ import (
 
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
+	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
@@ -27,6 +28,7 @@ func newAllocateDeps(t *testing.T) (AllocateDeps, *pdpfake.Pieces, *allocationst
 	return AllocateDeps{
 		Allocations: allocs,
 		Pieces:      pieces,
+		Tx:          store.NoTransaction{},
 	}, pieces, allocs
 }
 
@@ -38,9 +40,10 @@ func TestAllocate_NoExistingAllocationOrBlob(t *testing.T) {
 	cause := testutil.RandomCID(t)
 
 	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: cause,
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      cause,
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(256), resp.Size, "size reflects the full requested allocation")
@@ -59,15 +62,17 @@ func TestAllocate_ExistingAllocationButBlobNotReceived(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	}))
 
 	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), resp.Size, "allocation already existed, no new space allocated")
@@ -80,16 +85,18 @@ func TestAllocate_BlobAlreadyReceivedInSameSpace(t *testing.T) {
 	space := testutil.RandomDID(t)
 
 	require.NoError(t, allocs.Put(t.Context(), allocation.Allocation{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	}))
 	pieces.Put(digest, []byte("data"))
 
 	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), resp.Size)
@@ -106,16 +113,18 @@ func TestAllocate_BlobInOtherSpace(t *testing.T) {
 	thisSpace := testutil.RandomDID(t)
 
 	require.NoError(t, allocs.Put(t.Context(), allocation.Allocation{
-		Space: otherSpace,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      otherSpace,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	}))
 	pieces.Put(digest, []byte("data"))
 
 	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-		Space: thisSpace,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      thisSpace,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(256), resp.Size, "first allocation in this space")
@@ -137,9 +146,10 @@ func TestAllocate_BlobPendingRemovalNoAllocations(t *testing.T) {
 	pieces.Put(digest, []byte("data")) // bytes present, zero allocations
 
 	resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-		Space: space,
-		Blob:  blob.Blob{Digest: digest, Size: 256},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 256},
+		Cause:      testutil.RandomCID(t),
 	})
 	require.NoError(t, err)
 	require.Equal(t, uint64(256), resp.Size, "first allocation in this space")
@@ -157,9 +167,10 @@ func TestAllocate_UnsupportedHashRejected(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = Allocate(t.Context(), deps, &AllocateRequest{
-		Space: testutil.RandomDID(t),
-		Blob:  blob.Blob{Digest: digest, Size: 4},
-		Cause: testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      testutil.RandomDID(t),
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported hash")
@@ -177,9 +188,10 @@ func TestAllocate_SizeLimitBoundary(t *testing.T) {
 		space := testutil.RandomDID(t)
 
 		resp, err := Allocate(t.Context(), deps, &AllocateRequest{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: maxRaw},
-			Cause: testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      space,
+			Blob:       blob.Blob{Digest: digest, Size: maxRaw},
+			Cause:      testutil.RandomCID(t),
 		})
 		require.NoError(t, err)
 		require.Equal(t, uint64(maxRaw), resp.Size)
@@ -197,9 +209,10 @@ func TestAllocate_SizeLimitBoundary(t *testing.T) {
 		space := testutil.RandomDID(t)
 
 		_, err := Allocate(t.Context(), deps, &AllocateRequest{
-			Space: space,
-			Blob:  blob.Blob{Digest: digest, Size: maxRaw + 1},
-			Cause: testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      space,
+			Blob:       blob.Blob{Digest: digest, Size: maxRaw + 1},
+			Cause:      testutil.RandomCID(t),
 		})
 		require.Error(t, err)
 
@@ -231,9 +244,10 @@ func TestAllocate_UsesConfiguredPolicy(t *testing.T) {
 
 	alloc := func(size uint64) error {
 		_, err := Allocate(t.Context(), deps, &AllocateRequest{
-			Space: testutil.RandomDID(t),
-			Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: size},
-			Cause: testutil.RandomCID(t),
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Blob:       blob.Blob{Digest: testutil.RandomMultihash(t), Size: size},
+			Cause:      testutil.RandomCID(t),
 		})
 		return err
 	}

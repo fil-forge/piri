@@ -5,25 +5,18 @@ import (
 	"errors"
 	"fmt"
 
-	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/multiformats/go-multihash"
 )
 
-const DefaultHasSetSize = 100_000
-
 type StoreReader struct {
-	store  blobstore.Blobstore
-	hasSet mapset.Set[string]
+	store blobstore.Blobstore
 }
 
 func NewStoreReader(store blobstore.Blobstore) (types.PieceReaderAPI, error) {
-	return &StoreReader{
-		store:  store,
-		hasSet: mapset.NewSetWithSize[string](DefaultHasSetSize),
-	}, nil
+	return &StoreReader{store: store}, nil
 }
 
 func (r *StoreReader) Read(ctx context.Context, blob multihash.Multihash, options ...types.ReadPieceOption) (*types.PieceReader, error) {
@@ -52,10 +45,9 @@ func (r *StoreReader) Read(ctx context.Context, blob multihash.Multihash, option
 	}, nil
 }
 
+// Has asks the store every time: a blob can be removed, and a staged one moves
+// to its digest's key, so an earlier answer says nothing about now.
 func (r *StoreReader) Has(ctx context.Context, blob multihash.Multihash) (bool, error) {
-	if r.hasSet.ContainsOne(blob.String()) {
-		return true, nil
-	}
 	_, err := r.store.Get(ctx, blob)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -63,6 +55,5 @@ func (r *StoreReader) Has(ctx context.Context, blob multihash.Multihash) (bool, 
 		}
 		return false, types.WrapError(types.KindInternal, "failed to read data", err)
 	}
-	r.hasSet.Add(blob.String())
 	return true, nil
 }

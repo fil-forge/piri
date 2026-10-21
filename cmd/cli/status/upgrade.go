@@ -1,7 +1,6 @@
 package status
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/fil-forge/piri/pkg/client"
@@ -22,34 +21,45 @@ This command is designed for use in scripts and automation.`,
 	RunE: runUpgradeCheck,
 }
 
+// Test seams: the node status source and process exit.
+var (
+	getNodeStatus = client.GetNodeStatus
+	exit          = os.Exit
+)
+
+const (
+	exitNotSafe           = 1
+	exitUnableToDetermine = 2
+)
+
 func init() {
 	upgradeCheckCmd.SetOut(os.Stdout)
 	upgradeCheckCmd.SetErr(os.Stderr)
 }
 
 func runUpgradeCheck(cmd *cobra.Command, _ []string) error {
+	// Flags and args are valid by now; failures from here on are runtime
+	// conditions, so don't print usage for them.
+	cmd.SilenceUsage = true
+
 	ctx := cmd.Context()
 
-	status, err := client.GetNodeStatus(ctx)
+	status, err := getNodeStatus(ctx)
 	if err != nil {
-		// Exit code 2 for unable to determine
 		cmd.PrintErrln("Unable to determine node status:", err)
-		os.Exit(2)
+		exit(exitUnableToDetermine)
+		return nil
 	}
 
 	if !status.UpgradeSafe {
-		// Exit code 1 for not safe
-		if status.IsProving {
-			cmd.PrintErrln("Not safe: node is currently proving")
-		} else if status.InChallengeWindow && !status.HasProven {
-			cmd.PrintErrln("Not safe: node is in an unproven challenge window")
-		} else {
-			cmd.PrintErrln("Not safe: node is busy")
-		}
-		return fmt.Errorf("upgrade not safe")
+		// Exit directly rather than returning an error, so the reason is the
+		// only thing printed: a returned error would be echoed again by cobra
+		// and by the root command's log.Fatal.
+		cmd.PrintErrln("Not safe to upgrade:", status.UnsafeReason)
+		exit(exitNotSafe)
+		return nil
 	}
 
-	// Exit code 0 for safe
 	cmd.Println("Safe to upgrade")
 	return nil
 }

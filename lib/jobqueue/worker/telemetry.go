@@ -85,18 +85,23 @@ func newMetrics() (*metricsRecorder, error) {
 	}, nil
 }
 
+// The job's name is reported as job_name rather than job: an OTLP metric
+// attribute becomes a Prometheus label, and `job` there is the reserved target
+// label a collector sets from service.name. A datapoint attribute called `job`
+// silently overwrites it, so every series would claim to come from a service
+// named after the job that produced it.
 func (m *metricsRecorder) recordQueuedDelta(ctx context.Context, queueName, jobName string, delta int64) {
 	if m == nil || m.queuedJobs == nil {
 		return
 	}
-	m.queuedJobs.Add(ctx, delta, attribute.String("queue", queueName), attribute.String("job", jobName))
+	m.queuedJobs.Add(ctx, delta, attribute.String("queue", queueName), attribute.String("job_name", jobName))
 }
 
 func (m *metricsRecorder) recordActiveDelta(ctx context.Context, queueName, jobName string, delta int64) {
 	if m == nil || m.activeJobs == nil {
 		return
 	}
-	m.activeJobs.Add(ctx, delta, attribute.String("queue", queueName), attribute.String("job", jobName))
+	m.activeJobs.Add(ctx, delta, attribute.String("queue", queueName), attribute.String("job_name", jobName))
 }
 
 func (m *metricsRecorder) recordJobFailure(ctx context.Context, queueName, jobName, reason string, attempt int) {
@@ -106,7 +111,7 @@ func (m *metricsRecorder) recordJobFailure(ctx context.Context, queueName, jobNa
 
 	attrs := []attribute.KeyValue{
 		attribute.String("queue", queueName),
-		attribute.String("job", jobName),
+		attribute.String("job_name", jobName),
 	}
 	if reason != "" {
 		attrs = append(attrs, attribute.String("failure_reason", reason))
@@ -125,7 +130,7 @@ func (m *metricsRecorder) recordJobDuration(ctx context.Context, queueName, jobN
 
 	attrs := []attribute.KeyValue{
 		attribute.String("queue", queueName),
-		attribute.String("job", jobName),
+		attribute.String("job_name", jobName),
 		attribute.String("status", status),
 	}
 	if attempt > 0 {

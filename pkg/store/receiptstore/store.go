@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
@@ -19,7 +17,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/genericstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/dsadapter"
-	"github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
 // ReceiptStore stores UCAN invocation receipts.
@@ -55,7 +52,7 @@ var _ ReceiptStore = (*Store)(nil)
 // New creates a ReceiptStore with the given backend,  key encoder, and ran link index.
 func New(backend objectstore.ListableStore, encoder KeyEncoder, ranLinkIndex RanLinkIndex) *Store {
 	return &Store{
-		store:        genericstore.New[ucan.Receipt](backend, Codec{}),
+		store:        genericstore.New(objectstore.TracedListable("receipts", backend), Codec{}),
 		ranLinkIndex: ranLinkIndex,
 		encoder:      encoder,
 	}
@@ -109,47 +106,11 @@ func (Codec) Decode(data []byte) (ucan.Receipt, error) {
 	return out, nil
 }
 
-// S3KeyEncoder encodes keys for S3/MinIO backends.
-type S3KeyEncoder struct{}
-
-func (S3KeyEncoder) EncodeKey(link cid.Cid) string {
-	return link.String()
-}
-
 // DatastoreKeyEncoder encodes keys for LevelDB/datastore backends.
 type DatastoreKeyEncoder struct{}
 
 func (DatastoreKeyEncoder) EncodeKey(link cid.Cid) string {
 	return link.String()
-}
-
-// S3RanLinkIndex implements RanLinkIndex using S3/MinIO storage.
-type S3RanLinkIndex struct {
-	store  *minio.Store
-	prefix string
-}
-
-func (idx *S3RanLinkIndex) Put(ctx context.Context, ran cid.Cid, lnk cid.Cid) error {
-	key := idx.prefix + ran.String() + ".ref"
-	cidStr := lnk.String()
-	return idx.store.Put(ctx, key, uint64(len(cidStr)), strings.NewReader(cidStr))
-}
-
-func (idx *S3RanLinkIndex) Get(ctx context.Context, ran cid.Cid) (cid.Cid, error) {
-	key := idx.prefix + ran.String() + ".ref"
-	obj, err := idx.store.Get(ctx, key)
-	if err != nil {
-		if errors.Is(err, objectstore.ErrNotExist) {
-			return cid.Undef, store.ErrNotFound
-		}
-		return cid.Undef, err
-	}
-	defer obj.Body().Close()
-	data, err := io.ReadAll(obj.Body())
-	if err != nil {
-		return cid.Undef, err
-	}
-	return cid.Parse(string(data))
 }
 
 // DatastoreRanLinkIndex implements RanLinkIndex using datastore.
@@ -163,20 +124,13 @@ func (idx *DatastoreRanLinkIndex) Put(ctx context.Context, ran cid.Cid, lnk cid.
 
 func (idx *DatastoreRanLinkIndex) Get(ctx context.Context, ran cid.Cid) (cid.Cid, error) {
 	data, err := idx.ds.Get(ctx, datastore.NewKey(ran.String()))
+	if errors.Is(err, datastore.ErrNotFound) {
+		return cid.Undef, store.ErrNotFound
+	}
 	if err != nil {
 		return cid.Undef, err
 	}
 	return cid.Cast(data)
-}
-
-// NewS3Store creates a ReceiptStore for S3/MinIO backends.
-// Receipts are stored with prefix "receipts/" and ran index with "receipts-ran/".
-func NewS3Store(backend *minio.Store) *Store {
-	return New(
-		backend,
-		S3KeyEncoder{},
-		&S3RanLinkIndex{store: backend, prefix: "receipts-ran/"},
-	)
 }
 
 // NewDatastoreStore creates a ReceiptStore for LevelDB/datastore backends.

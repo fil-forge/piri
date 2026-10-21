@@ -14,16 +14,17 @@ import (
 // narrow interfaces each handler declares.
 var Module = fx.Module("ucan/blob",
 	fx.Provide(
-		ucanhandlers.ProvideRPC(NewAcceptHandler),
-		ucanhandlers.ProvideRPC(NewBlobAllocateHandler),
-		ucanhandlers.ProvideRPC(NewBlobReleaseHandler),
-		ucanhandlers.ProvideRPC(NewBlobRejectHandler),
-		ucanhandlers.ProvideRetrieval(NewBlobRetrieveHandler),
+		fx.Annotate(NewAcceptHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobAllocateHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobReleaseHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobRejectHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
+		fx.Annotate(NewBlobRetrieveHandler, fx.ResultTags(ucanhandlers.RetrievalHandlersGroupTag)),
 
 		fx.Annotate(
 			func(a allocationstore.AllocationStore) allocationstore.AllocationStore { return a },
 			fx.As(new(AllocationStore)),
 			fx.As(new(AllocationRemover)),
+			fx.As(new(PendingAllocations)),
 		),
 		fx.Annotate(
 			func(a acceptancestore.AcceptanceStore) acceptancestore.AcceptanceStore { return a },
@@ -34,6 +35,7 @@ var Module = fx.Module("ucan/blob",
 		fx.Annotate(
 			func(p pdptypes.PieceRemoverAPI) pdptypes.PieceRemoverAPI { return p },
 			fx.As(new(PieceRemover)),
+			fx.As(new(UploadDiscarder)),
 		),
 		fx.Annotate(
 			func(p pdptypes.PieceAPI) pdptypes.PieceAPI { return p },

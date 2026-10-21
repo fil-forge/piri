@@ -1,8 +1,10 @@
 package minio
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
 func TestBucketCreation(t *testing.T) {
@@ -126,4 +129,42 @@ func uniqueBucketName(testName string) string {
 	}
 
 	return bucketName
+}
+
+func TestMove(t *testing.T) {
+	ctx := t.Context()
+	store := createTestStore(t, uniqueBucketName(t.Name()))
+	get := func(key string) ([]byte, error) {
+		obj, err := store.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		defer obj.Body().Close()
+		return io.ReadAll(obj.Body())
+	}
+
+	data := []byte("staged bytes")
+	require.NoError(t, store.Put(ctx, "staged-one", uint64(len(data)), bytes.NewReader(data)))
+	require.NoError(t, store.Move(ctx, "staged-one", "blob/one.data"))
+	got, err := get("blob/one.data")
+	require.NoError(t, err)
+	require.Equal(t, data, got)
+	_, err = get("staged-one")
+	require.ErrorIs(t, err, objectstore.ErrNotExist, "the source is removed")
+
+	t.Run("a move already made succeeds", func(t *testing.T) {
+		require.NoError(t, store.Move(ctx, "staged-one", "blob/one.data"))
+	})
+
+	t.Run("a move interrupted after the copy is finished", func(t *testing.T) {
+		require.NoError(t, store.Put(ctx, "staged-two", uint64(len(data)), bytes.NewReader(data)))
+		require.NoError(t, store.Put(ctx, "blob/two.data", uint64(len(data)), bytes.NewReader(data)))
+		require.NoError(t, store.Move(ctx, "staged-two", "blob/two.data"))
+		_, err := get("staged-two")
+		require.ErrorIs(t, err, objectstore.ErrNotExist)
+	})
+
+	t.Run("moving nothing fails", func(t *testing.T) {
+		require.ErrorIs(t, store.Move(ctx, "staged-none", "blob/none.data"), objectstore.ErrNotExist)
+	})
 }

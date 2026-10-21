@@ -8,7 +8,9 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
+	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
 )
 
@@ -40,16 +42,28 @@ type DBQueue struct {
 func NewDBQueue(db *harmonydb.DB) *DBQueue { return &DBQueue{db: db} }
 
 // Enqueue records that the claim's advertisement is owed, and what to
-// advertise. A claim already queued is left as it is.
-func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) error {
+// advertise, in the caller's transaction when the context carries one. A
+// claim already queued is left as it is.
+func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) (err error) {
+	ctx, span := tracer.Start(ctx, "publisher.queue_advert")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 	encoded, err := advert.Encode(spec)
 	if err != nil {
 		return fmt.Errorf("queueing advertisement for %s: %w", claim, err)
 	}
-	_, err = q.db.Exec(ctx, `
-		INSERT INTO ipni_pending_adverts (claim, spec) VALUES ($1, $2)
-		ON CONFLICT (claim) DO NOTHING
-	`, claim.String(), encoded)
+	err = harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO ipni_pending_adverts (claim, spec) VALUES ($1, $2)
+			ON CONFLICT (claim) DO NOTHING
+		`, claim.String(), encoded)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("queueing advertisement for %s: %w", claim, err)
 	}
@@ -61,7 +75,10 @@ func (q *DBQueue) Enqueue(ctx context.Context, claim cid.Cid, spec advert.Spec) 
 // claimed is either gone before the task loads its batch or still there
 // until the batch has committed.
 func (q *DBQueue) Dequeue(ctx context.Context, claim cid.Cid) error {
-	_, err := q.db.Exec(ctx, `DELETE FROM ipni_pending_adverts WHERE claim = $1`, claim.String())
+	err := harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`DELETE FROM ipni_pending_adverts WHERE claim = $1`, claim.String())
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("dequeueing advertisement for %s: %w", claim, err)
 	}
@@ -86,15 +103,37 @@ func claimBatch(tx *harmonydb.Tx, id harmonytask.TaskID, limit int) (bool, error
 // queued before the spec was stored, or whose spec does not decode, comes
 // back with a nil Spec; the latter is logged, since it is corruption rather
 // than age.
+//
+// The rows are locked until the transaction the context carries ends, so a
+// release that dequeued one of them and has not committed holds the load
+// back, and the load then finds the row gone.
 func (q *DBQueue) Claimed(ctx context.Context, id harmonytask.TaskID) ([]QueuedAdvert, error) {
-	var rows []struct {
-		Claim string `db:"claim"`
-		Spec  []byte `db:"spec"`
+	type row struct {
+		Claim string
+		Spec  []byte
 	}
-	if err := q.db.Select(ctx, &rows, `
-		SELECT claim, spec FROM ipni_pending_adverts
-		WHERE publish_task_id = $1 ORDER BY created_at
-	`, id); err != nil {
+	var rows []row
+	err := harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		rows = rows[:0]
+		q, err := tx.Query(`
+			SELECT claim, spec FROM ipni_pending_adverts
+			WHERE publish_task_id = $1 ORDER BY created_at
+			FOR UPDATE
+		`, id)
+		if err != nil {
+			return err
+		}
+		defer q.Close()
+		for q.Next() {
+			var r row
+			if err := q.Scan(&r.Claim, &r.Spec); err != nil {
+				return err
+			}
+			rows = append(rows, r)
+		}
+		return q.Err()
+	})
+	if err != nil {
 		return nil, fmt.Errorf("loading claimed advertisements: %w", err)
 	}
 	out := make([]QueuedAdvert, len(rows))

@@ -50,9 +50,11 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 		args := req.Task().Arguments()
 		ctx := req.Context()
 
-		// No subject check — the legacy /pdp/info handler is open by
-		// design (any holder of the delegation can ask whether a blob
-		// is aggregated yet).
+		// No check on who is asking: any holder of a delegation may ask
+		// whether a blob is aggregated yet. The route still requires the
+		// invocation to be subjected to this node and issued by someone the
+		// node delegated to (see pkg/ucanhandlers), which is what the upload
+		// service is granted at registration.
 
 		// Try to resolve the blob multihash to its commp.
 		resolvedCommp, found, err := deps.Pieces.ResolveToPiece(ctx, args.Blob)
@@ -61,7 +63,11 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 			return fmt.Errorf("failed to resolve PDP API: %w", err)
 		}
 		if !found {
-			// commp not computed yet — compute on demand
+			// commp not computed yet — compute on demand. This bypasses the
+			// commP delay (pdp.aggregation.commp.delay): a caller polling
+			// here during the delay pays the commP the delay exists to
+			// avoid. No Forge service invokes /pdp/info today; one that
+			// does should check the blob's pipeline row is due first.
 			commpResp, err := deps.Pieces.CalculateCommP(ctx, args.Blob)
 			if err != nil {
 				log.Errorw("failed to compute commp", "digest", args.Blob.String(), "error", err)

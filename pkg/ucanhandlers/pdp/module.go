@@ -12,7 +12,7 @@ import (
 // interface this handler declares.
 var Module = fx.Module("ucan/pdp",
 	fx.Provide(
-		ucanhandlers.ProvideRPC(NewPDPInfoHandler),
+		fx.Annotate(NewPDPInfoHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag)),
 
 		func(p pdptypes.PieceAPI) PieceResolver { return p },
 	),

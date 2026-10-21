@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/ucanhandlers"
 	"github.com/fil-forge/piri/pkg/ucanhandlers/ucanfxtest/base"
 )
 
@@ -68,6 +69,9 @@ func (s *RPCSuite) SetupSuite() {
 				},
 			}
 		}),
+		// Registered open: the fixture exists to exercise panic recovery, and a
+		// self-signed invocation is the shortest way to reach it.
+		fx.Provide(fx.Annotate(newPanicRoute, fx.ResultTags(ucanhandlers.RPCOpenHandlersGroupTag))),
 		fx.Populate(
 			&s.Allocations,
 			&s.Acceptances,

@@ -26,7 +26,7 @@ type Store struct {
 // NewS3Store creates a Blobstore backed by an S3/MinIO object store.
 func NewS3Store(backend *minio_store.Store) *Store {
 	return &Store{
-		backend: backend,
+		backend: objectstore.Traced("blobs", backend),
 		encoder: NewBase32FlatFSKeyEncoder(),
 	}
 }
@@ -34,7 +34,7 @@ func NewS3Store(backend *minio_store.Store) *Store {
 // NewFlatfsStore creates a Blobstore backed by a flatfs object store.
 func NewFlatfsStore(backend *flatfs.Store) *Store {
 	return &Store{
-		backend: backend,
+		backend: objectstore.Traced("blobs", backend),
 		encoder: Base32KeyEncoder{},
 	}
 }
@@ -43,17 +43,23 @@ func NewFlatfsStore(backend *flatfs.Store) *Store {
 // Useful for testing with sync.MutexWrap(datastore.NewMapDatastore()).
 func NewDatastoreStore(ds datastore.Datastore) *Store {
 	return &Store{
-		backend: dsadapter.New(ds),
+		backend: objectstore.Traced("blobs", dsadapter.New(ds)),
 		encoder: PlainKeyEncoder{},
 	}
 }
 
 func (s *Store) Get(ctx context.Context, digest multihash.Multihash, opts ...GetOption) (Object, error) {
+	return getObject(ctx, s.backend, s.encoder.EncodeKey(digest), opts...)
+}
+
+// getObject gets key from backend, translating the backend's errors to the
+// blobstore's.
+func getObject(ctx context.Context, backend objectstore.Store, key string, opts ...GetOption) (Object, error) {
 	o := &GetOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
-	obj, err := s.backend.Get(ctx, s.encoder.EncodeKey(digest), objectstore.WithRange(objectstore.Range(o.ByteRange)))
+	obj, err := backend.Get(ctx, key, objectstore.WithRange(objectstore.Range(o.ByteRange)))
 	if err != nil {
 		if errors.Is(err, objectstore.ErrNotExist) {
 			return nil, store.ErrNotFound

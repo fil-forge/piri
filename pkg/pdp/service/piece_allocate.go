@@ -4,12 +4,25 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAllocation) (res *types.AllocatedPiece, retErr error) {
+	// harmonydb's queries carry no spans, so the upload row insert shows here
+	// as the time not covered by the piece lookup.
+	ctx, span := tracer.Start(ctx, "pdp.allocate_piece")
+	defer func() {
+		if retErr != nil {
+			span.RecordError(retErr)
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.End()
+	}()
 	log.Infow("allocating piece", "request", allocation)
 	defer func() {
 		if retErr != nil {
@@ -20,6 +33,25 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 	}()
 	if err := p.pieceSize.CheckRaw(uint64(allocation.Piece.Size)); err != nil {
 		return nil, types.WrapError(types.KindInvalidInput, "piece too large", err)
+	}
+
+	// Without a digest there is nothing to look up: the data is always
+	// uploaded, and hashed as it is received.
+	if len(allocation.Piece.Hash) == 0 {
+		if !allocation.Allocation.Defined() {
+			return nil, types.NewErrorf(types.KindInvalidInput, "an allocation without a digest needs its allocate task link")
+		}
+		uploadUUID := uuid.New()
+		if err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+			_, err := tx.Exec(
+				`INSERT INTO pdp_piece_uploads (id, service, notify_url, check_hash_codec, check_hash, check_size, allocation)
+				 VALUES ($1, $2, $3, $4, NULL, $5, $6)`,
+				uploadUUID.String(), "storacha", "", allocation.Piece.Name, allocation.Piece.Size, allocation.Allocation.String())
+			return err
+		}); err != nil {
+			return nil, fmt.Errorf("failed to store upload request in database: %w", err)
+		}
+		return &types.AllocatedPiece{Allocated: true, UploadID: uploadUUID}, nil
 	}
 
 	// check if we already have this piece
@@ -44,10 +76,13 @@ func (p *PDPService) AllocatePiece(ctx context.Context, allocation types.PieceAl
 		notifyURL = allocation.Notify.String()
 	}
 
-	if _, err := p.db.Exec(ctx,
-		`INSERT INTO pdp_piece_uploads (id, service, notify_url, check_hash_codec, check_hash, check_size)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		uploadUUID.String(), "storacha", notifyURL, allocation.Piece.Name, allocation.Piece.Hash, allocation.Piece.Size); err != nil {
+	if err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(
+			`INSERT INTO pdp_piece_uploads (id, service, notify_url, check_hash_codec, check_hash, check_size)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			uploadUUID.String(), "storacha", notifyURL, allocation.Piece.Name, allocation.Piece.Hash, allocation.Piece.Size)
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("failed to store upload request in database: %w", err)
 	}
 

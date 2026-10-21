@@ -11,6 +11,7 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/piece"
 	"github.com/fil-forge/piri/pkg/pdp/pipeline"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
 	"go.uber.org/fx"
@@ -19,6 +20,7 @@ import (
 	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/pdp"
 	"github.com/fil-forge/piri/pkg/pdp/service"
+	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/wallet"
 )
 
@@ -36,6 +38,15 @@ var PDPModule = fx.Module("pdp",
 			// provide as interface required by service(s)
 			fx.As(new(service.ChainClient)),
 		),
+	),
+	// Blobs received without their digest are staged until the settle task
+	// moves them to their digest's key, so the blobstore every reader gets is
+	// the staging store, reading through the staging index.
+	fx.Provide(
+		func(blobs *blobstore.Store, db *harmonydb.DB) *blobstore.StagingStore {
+			return blobstore.NewStagingStore(blobs, service.NewStagingIndex(db))
+		},
+		func(staging *blobstore.StagingStore) blobstore.Blobstore { return staging },
 	),
 	smartcontracts.Module,
 	pipeline.Module, // aggregation pipeline (commp/aggregate/add-roots) + removal sweep as harmonytasks

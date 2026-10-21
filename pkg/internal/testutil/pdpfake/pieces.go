@@ -31,12 +31,13 @@ import (
 // fetched by test HTTP servers, so they need to be real HTTP URLs when the
 // test does live transfers (e.g. the replicator).
 type Pieces struct {
-	mu       sync.Mutex
-	data     map[string][]byte
-	uploads  map[uuid.UUID]multihash.Multihash
-	removed  []multihash.Multihash
-	writeURL url.URL
-	readURL  url.URL
+	mu        sync.Mutex
+	data      map[string][]byte
+	uploads   map[uuid.UUID]multihash.Multihash
+	removed   []multihash.Multihash
+	discarded []string
+	writeURL  url.URL
+	readURL   url.URL
 }
 
 // NewPieces returns an empty in-memory Pieces fake. Default URLs use the
@@ -127,7 +128,7 @@ func (p *Pieces) Read(_ context.Context, digest multihash.Multihash, opts ...typ
 func (p *Pieces) AllocatePiece(_ context.Context, alloc types.PieceAllocation) (*types.AllocatedPiece, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if _, present := p.data[alloc.Piece.Hash.HexString()]; present {
+	if _, present := p.data[alloc.Piece.Hash.HexString()]; present && len(alloc.Piece.Hash) > 0 {
 		return &types.AllocatedPiece{
 			Allocated: false,
 			Piece:     alloc.Piece.Hash,
@@ -206,5 +207,23 @@ func (p *Pieces) Removed() []multihash.Multihash {
 }
 
 // Compile-time check that Pieces satisfies the surface handlers depend on.
+// DiscardUpload forgets an upload that has not completed and records its ID.
+func (p *Pieces) DiscardUpload(_ context.Context, uploadID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if id, err := uuid.Parse(uploadID); err == nil {
+		delete(p.uploads, id)
+	}
+	p.discarded = append(p.discarded, uploadID)
+	return nil
+}
+
+// Discarded returns the upload IDs passed to DiscardUpload, in call order.
+func (p *Pieces) Discarded() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.discarded...)
+}
+
 var _ types.PieceAPI = (*Pieces)(nil)
 var _ types.PieceRemoverAPI = (*Pieces)(nil)

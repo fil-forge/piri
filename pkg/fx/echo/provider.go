@@ -53,9 +53,26 @@ func NewEcho() *echo.Echo {
 		"piri",
 		otelecho.WithPropagators(otel.GetTextMapPropagator()),
 		otelecho.WithMeterProvider(otel.GetMeterProvider()),
+		otelecho.WithSkipper(skipHealthChecks),
 	))
 
 	return e
+}
+
+// healthCheckPaths are the routes pkg/health registers. Container
+// healthchecks poll them every few seconds, and each request would otherwise
+// start a trace of its own and bury the traces worth reading.
+var healthCheckPaths = map[string]struct{}{
+	"/healthz": {},
+	"/livez":   {},
+	"/readyz":  {},
+}
+
+// skipHealthChecks keeps health checks out of otelecho's traces and HTTP
+// server metrics.
+func skipHealthChecks(c echo.Context) bool {
+	_, ok := healthCheckPaths[c.Request().URL.Path]
+	return ok
 }
 
 // EchoServer wraps Echo with fx lifecycle management

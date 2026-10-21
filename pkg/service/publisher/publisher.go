@@ -19,6 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
@@ -30,7 +31,9 @@ import (
 
 	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
+	pstore "github.com/fil-forge/piri/pkg/store"
 )
 
 var log = logging.Logger("publisher")
@@ -50,6 +53,8 @@ type PublisherService struct {
 	// advertises is false when nothing reads the advertisement chain: no
 	// indexing service to query IPNI for it and no IPNI node told to sync it.
 	advertises bool
+	// tx holds a batch's queue rows locked from load to publish.
+	tx pstore.Transactor
 }
 
 // Publish records that the claim's IPNI advertisement is owed, together with
@@ -57,9 +62,9 @@ type PublisherService struct {
 // advertisement itself is published later by the IPNIPublish task, in a batch
 // with its neighbours, so an accept returns before it exists; the indexer is
 // told now, since that is what serves a read of the blob straight after its
-// write. Without an indexing service the claim is not cached, and when there
-// are no IPNI announce URLs either it is not queued: nothing would consume
-// the advertisement.
+// write. In a transaction (see harmonytx), the advertisement is queued in it
+// and the indexer is told once it commits, so it never learns of a claim
+// that was rolled back.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
@@ -74,7 +79,12 @@ func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation)
 		if err := pub.queue.Enqueue(ctx, claim.Link(), spec); err != nil {
 			return err
 		}
-		return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
+		// Caching the claim with the indexing service stays synchronous: it is
+		// what makes a blob readable as soon as its accept returns, and it is
+		// what lets the IPNI advertisement chain above be built async.
+		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
+			return CacheClaim(ctx, pub.id, pub.indexingService, pub.indexingServiceProofs, claim, pub.provider.Addrs)
+		})
 	default:
 		return fmt.Errorf("unknown claim: %s", ability)
 	}
@@ -109,34 +119,42 @@ func (pub *PublisherService) PublishClaimed(ctx context.Context, batch harmonyta
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 
-	queued, err := pub.queue.Claimed(ctx, batch)
-	if err != nil {
-		return 0, 0, fmt.Errorf("loading batch: %w", err)
-	}
-	specs := make([]ipnipub.AdvertSpec, 0, len(queued))
-	for _, row := range queued {
-		if row.Spec == nil {
-			log.Warnw("skipping queued advertisement without a usable spec", "claim", row.Claim)
-			continue
+	// The batch's rows stay locked until it has published, so a release
+	// that dequeued one of them and has not committed is waited for.
+	err = pub.tx.Run(ctx, func(ctx context.Context) error {
+		rows, published = 0, 0
+		queued, err := pub.queue.Claimed(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("loading batch: %w", err)
 		}
-		meta := metadata.MetadataContext.New()
-		if err := meta.UnmarshalBinary(row.Spec.Metadata); err != nil {
-			log.Errorw("skipping queued advertisement with undecodable metadata", "claim", row.Claim, "error", err)
-			continue
+		rows = len(queued)
+		specs := make([]ipnipub.AdvertSpec, 0, len(queued))
+		for _, row := range queued {
+			if row.Spec == nil {
+				log.Warnw("skipping queued advertisement without a usable spec", "claim", row.Claim)
+				continue
+			}
+			meta := metadata.MetadataContext.New()
+			if err := meta.UnmarshalBinary(row.Spec.Metadata); err != nil {
+				log.Errorw("skipping queued advertisement with undecodable metadata", "claim", row.Claim, "error", err)
+				continue
+			}
+			specs = append(specs, ipnipub.AdvertSpec{
+				ContextID: string(row.Spec.ContextID),
+				Digests:   slices.Values([]multihash.Multihash{row.Spec.Digest}),
+				Metadata:  meta,
+			})
 		}
-		specs = append(specs, ipnipub.AdvertSpec{
-			ContextID: string(row.Spec.ContextID),
-			Digests:   slices.Values([]multihash.Multihash{row.Spec.Digest}),
-			Metadata:  meta,
-		})
-	}
-	if len(specs) == 0 {
-		return len(queued), 0, nil
-	}
-	if _, err := pub.ipni.PublishBatch(ctx, pub.provider, specs); err != nil {
-		return len(queued), 0, fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
-	}
-	return len(queued), len(specs), nil
+		if len(specs) == 0 {
+			return nil
+		}
+		if _, err := pub.ipni.PublishBatch(ctx, pub.provider, specs); err != nil {
+			return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
+		}
+		published = len(specs)
+		return nil
+	})
+	return rows, published, err
 }
 
 // locationAdvertSpec is what a location commitment advertises: its content
@@ -198,7 +216,15 @@ func CacheClaim(
 	invocationProofs []ucan.Delegation,
 	clm ucan.Invocation,
 	providerAddresses []multiaddr.Multiaddr,
-) error {
+) (err error) {
+	ctx, span := tracer.Start(ctx, "claim.cache")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
 	log := log.With("claim", clm.Link())
 
 	if !indexingService.DID.Defined() {
@@ -288,6 +314,11 @@ func New(
 		return nil, fmt.Errorf("unmarshaling private key: %w", err)
 	}
 
+	var tx pstore.Transactor = pstore.NoTransaction{}
+	if o.tx != nil {
+		tx = o.tx
+	}
+
 	announceAddr := o.announceAddr
 	if announceAddr == nil {
 		announceAddr = publicAddr
@@ -339,6 +370,7 @@ func New(
 		indexingService:       o.indexingService,
 		indexingServiceProofs: o.indexingServiceProofs,
 		advertises:            advertises,
+		tx:                    tx,
 	}, nil
 }
 

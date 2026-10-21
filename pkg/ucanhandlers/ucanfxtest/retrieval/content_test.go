@@ -38,10 +38,11 @@ func (s *RetrievalSuite) TestContentRetrieve_Basic() {
 	require.NoError(t, err)
 
 	require.NoError(t, s.Allocations.Put(t.Context(), allocation.Allocation{
-		Space:   space.DID(),
-		Blob:    blob.Blob{Digest: digest, Size: uint64(len(data))},
-		Expires: ucan.UnixTimestamp(time.Now().Add(time.Hour).Unix()),
-		Cause:   testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+		Space:      space.DID(),
+		Blob:       blob.Blob{Digest: digest, Size: uint64(len(data))},
+		Expires:    ucan.UnixTimestamp(time.Now().Add(time.Hour).Unix()),
+		Cause:      testutil.RandomCID(t),
 	}))
 	s.Pieces.Put(digest, data)
 

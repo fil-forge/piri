@@ -12,39 +12,68 @@ import (
 	"github.com/filecoin-project/curio/harmony/taskhelp"
 	"github.com/multiformats/go-multihash"
 
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/promise"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 const CommPTaskName = "PDPCommP"
 
+// boredClaimLimit caps the due rows one IAmBored call claims. With a delay
+// set, IAmBored is how every row reaches its commP task, so it claims as many
+// as are due rather than one; the cap bounds a single call when a backlog has
+// built up. Tasks past the handler's Max sit unowned in harmony_task for the
+// poller, on this node or another.
+const boredClaimLimit = 256
+
 // CommPTask computes a blob's commP and parks the piece, then hands the
 // pipeline row to the aggregation stage. One task per pdp_blob_pipeline row,
 // claimed via commp_task_id. Every step is idempotent — CalculateCommP
 // dedups its mapping, parking is skipped when the piece already has refs,
 // and the aggregation handoff dedups on agg_task_id — so a crashed task
-// re-runs safely. A row deleted mid-run (removal-sweep cancel) makes the
-// task complete as a noop.
+// re-runs safely. A row whose blob is staged reaches this stage only once
+// the settle task has moved the blob to its digest's key. The removal sweep
+// cancels a row only while no live task holds it, so a task never records commp for a removed blob; a row cancelled
+// before the task starts makes it complete as a noop.
+//
+// A row is due once the policy's delay has passed since it was created, and
+// only a due row is claimed: by the spawn at acceptance when there is no
+// delay, otherwise by IAmBored on the engine's poll. A row released before it
+// is due is cancelled by the removal sweep and never costs a commP. A release
+// queues the removal for the sweep rather than cancelling the row itself, so
+// a row whose blob has a removal pending is not claimed either: the sweep
+// decides whether to cancel the row or, if a racing accept revived the blob,
+// to drop the removal and leave the row to be claimed.
 type CommPTask struct {
-	db  *harmonydb.DB
-	api types.PieceAPI
-	agg *AggregateTask
+	db     *harmonydb.DB
+	api    types.PieceAPI
+	agg    *AggregateTask
+	policy commp.Policy
 
 	add promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewCommPTask(db *harmonydb.DB, api types.PieceAPI, agg *AggregateTask) *CommPTask {
-	return &CommPTask{db: db, api: api, agg: agg}
+func NewCommPTask(db *harmonydb.DB, api types.PieceAPI, agg *AggregateTask, policy commp.Policy) *CommPTask {
+	return &CommPTask{db: db, api: api, agg: agg, policy: policy}
 }
 
-// spawn creates a PDPCommP task claiming the blob's pipeline row. Best-effort
-// (AddTask swallows errors); IAmBored scavenges unclaimed rows.
+// delaySeconds is the current delay as the seconds argument of the claim
+// queries' make_interval.
+func (t *CommPTask) delaySeconds() float64 {
+	return t.policy.Delay().Seconds()
+}
+
+// spawn creates a PDPCommP task claiming the blob's pipeline row, if the row
+// is claimable. Best-effort (AddTask swallows errors); IAmBored claims rows
+// whose spawn was lost or that were not claimable yet.
 func (t *CommPTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_blob_pipeline SET commp_task_id = $1
-			WHERE digest = $2 AND commp_task_id IS NULL
-		`, id, []byte(blob))
+			WHERE digest = $2 AND commp_task_id IS NULL AND NOT staged
+			  AND created_at <= now() - make_interval(secs => $3::double precision)
+			  AND NOT EXISTS (SELECT 1 FROM pdp_pending_piece_removals r WHERE r.digest = pdp_blob_pipeline.digest)
+		`, id, []byte(blob), t.delaySeconds())
 		return n > 0, err
 	})
 }
@@ -124,20 +153,32 @@ func (t *CommPTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 50,
 		RetryWait:   taskhelp.RetryWaitLinear(5*time.Second, 5*time.Second),
-		// Scavenge rows whose task spawn was lost (AddTask swallows errors,
-		// or the process died between the Enqueue commit and the spawn).
+		// Claim due rows that have no task: rows held back by the delay, and
+		// rows whose spawn was lost (AddTask swallows errors, or the process
+		// died between the Enqueue commit and the spawn). The engine calls
+		// this on each poll in which it found no other work and this handler
+		// has capacity, so a row is claimed within a poll of coming due.
 		IAmBored: func(add harmonytask.AddTaskFunc) error {
-			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-				n, err := tx.Exec(`
-					UPDATE pdp_blob_pipeline SET commp_task_id = $1
-					WHERE digest = (
-						SELECT digest FROM pdp_blob_pipeline
-						WHERE commp_task_id IS NULL AND aggregate_root IS NULL
-						ORDER BY created_at LIMIT 1
-					)
-				`, id)
-				return n > 0, err
-			})
+			for range boredClaimLimit {
+				claimed := false
+				add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
+					n, err := tx.Exec(`
+						UPDATE pdp_blob_pipeline SET commp_task_id = $1
+						WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged AND digest = (
+							SELECT digest FROM pdp_blob_pipeline
+							WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged
+							  AND created_at <= now() - make_interval(secs => $2::double precision)
+							  AND NOT EXISTS (SELECT 1 FROM pdp_pending_piece_removals r WHERE r.digest = pdp_blob_pipeline.digest)
+							ORDER BY created_at LIMIT 1
+						)
+					`, id, t.delaySeconds())
+					claimed = n > 0
+					return claimed, err
+				})
+				if !claimed {
+					break
+				}
+			}
 			return nil
 		},
 	}

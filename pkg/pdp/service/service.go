@@ -13,6 +13,7 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	filtypes "github.com/filecoin-project/lotus/chain/types"
 	logging "github.com/ipfs/go-log/v2"
+	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/singleflight"
 
 	// curio infra
@@ -21,6 +22,7 @@ import (
 	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/tasks/message"
 
+	"github.com/fil-forge/libforge/syncutil"
 	appconfig "github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
@@ -49,11 +51,13 @@ type EthClient interface {
 }
 
 type PDPService struct {
-	cfg             appconfig.PDPServiceConfig
-	id              ucan.Issuer
-	endpoint        url.URL
-	address         common.Address
-	blobstore       blobstore.Blobstore
+	cfg      appconfig.PDPServiceConfig
+	id       ucan.Issuer
+	endpoint url.URL
+	address  common.Address
+	// blobstore is the staging store: blobs that arrived without their digest
+	// are staged and settled in it, and read through it.
+	blobstore       *blobstore.StagingStore
 	acceptanceStore acceptancestore.AcceptanceStore
 	allocationStore allocationstore.AllocationStore
 	receiptStore    receiptstore.ReceiptStore
@@ -67,6 +71,10 @@ type PDPService struct {
 	// PDP table (pipeline + piece/commP mapping + parked pieces).
 	db *harmonydb.DB
 
+	// cancels counts the pipeline rows the removal sweep cancels; nil records
+	// nothing.
+	cancels *pipelineCancelMetrics
+
 	name string
 
 	pieceResolver types.PieceResolverAPI
@@ -79,6 +87,10 @@ type PDPService struct {
 	signingService signer.SigningService
 
 	commPGroup singleflight.Group
+
+	// uploadLocks serializes the PUTs of one upload, so a retry that overlaps
+	// the PUT it retries waits for it instead of racing it.
+	uploadLocks syncutil.KeyedMutex
 
 	edc              *eip712.ExtraDataEncoder
 	verifierContract smartcontracts.Verifier
@@ -98,7 +110,7 @@ func New(
 	id ucan.Issuer,
 	endpoint url.URL,
 	db *harmonydb.DB, // curio harmonydb — single DB surface
-	bs blobstore.Blobstore,
+	bs *blobstore.StagingStore,
 	acceptanceStore acceptancestore.AcceptanceStore,
 	allocationStore allocationstore.AllocationStore,
 	receiptStore receiptstore.ReceiptStore,
@@ -115,12 +127,17 @@ func New(
 	registryContract smartcontracts.Registry,
 	pieceSize piecesize.Policy,
 ) (*PDPService, error) {
+	cancels, err := newPipelineCancelMetrics(otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/service"))
+	if err != nil {
+		return nil, err
+	}
 	return &PDPService{
 		cfg:              cfg,
 		id:               id,
 		endpoint:         endpoint,
 		address:          cfg.OwnerAddress,
 		db:               db,
+		cancels:          cancels,
 		name:             "storacha",
 		pieceResolver:    resolver,
 		pieceReader:      reader,

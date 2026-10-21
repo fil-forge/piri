@@ -29,7 +29,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 var log = logging.Logger("storage/handlers/blob")
@@ -45,14 +44,20 @@ type AllocateDeps struct {
 	ID          app.IdentityConfig
 	Allocations AllocationStore
 	Pieces      PieceAllocator
+	// Pending records allocations made without a digest.
+	Pending PendingAllocations
 	// PieceSize bounds how large a blob this node will accept. Its zero
 	// value reports the defaults, so tests may leave it unset.
 	PieceSize piecesize.Policy
+	// Tx runs the upload record and the allocation as one transaction.
+	Tx store.Transactor
 }
 
 // AllocationStore is the slice of allocationstore.AllocationStore the
 // allocation handler depends on.
 type AllocationStore interface {
+	LockBlob(ctx context.Context, digest multihash.Multihash) error
+	Lock(ctx context.Context, digest multihash.Multihash, space did.DID) error
 	Get(ctx context.Context, digest multihash.Multihash, space did.DID) (allocation.Allocation, error)
 	Exists(ctx context.Context, digest multihash.Multihash) (bool, error)
 	Put(ctx context.Context, alloc allocation.Allocation) error
@@ -77,19 +82,28 @@ func NewBlobAllocateHandler(deps AllocateDeps) server.Route {
 	return blob.Allocate.Route(func(req *binding.Request[*blob.AllocateArguments], rsp *binding.Response[*blob.AllocateOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider; the space being
-		// allocated into travels in the arguments. Authorization that the upload
-		// service may invoke /blob/allocate is enforced by the validator's proof
-		// chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.Issuer.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The space being allocated into travels in the arguments. That the
+		// invocation is subjected to this provider, and issued by someone it
+		// delegated to, is enforced by the route's middleware (see pkg/ucanhandlers).
 
-		resp, err := Allocate(req.Context(), deps, &AllocateRequest{
-			Space: args.Space,
-			Blob:  args.Blob,
-			Cause: args.Cause,
-		})
+		var resp *AllocateResponse
+		var err error
+		if digest, ok := args.Blob.Digest(); ok {
+			resp, err = Allocate(req.Context(), deps, &AllocateRequest{
+				Space:      args.Space,
+				Blob:       blob.Blob{Digest: digest, Size: args.Blob.Size()},
+				Cause:      args.Cause,
+				Allocation: req.Invocation().Task().Link(),
+			})
+		} else {
+			resp, err = AllocateUnhashed(req.Context(), deps, &AllocateUnhashedRequest{
+				Space:      args.Space,
+				DigestCode: args.Blob.DigestCode(),
+				Size:       args.Blob.Size(),
+				Cause:      args.Cause,
+				Allocation: req.Invocation().Task().Link(),
+			})
+		}
 		if err != nil {
 			// A named error is a decision about the request, not a server
 			// fault: report it as a receipt failure the caller can act on.
@@ -119,6 +133,9 @@ type AllocateRequest struct {
 	Space did.DID
 	Blob  blob.Blob
 	Cause cid.Cid
+	// Allocation is the link to the allocating task, which a `/blob/reject`
+	// names the allocation by.
+	Allocation cid.Cid
 }
 
 type AllocateResponse struct {
@@ -157,120 +174,268 @@ func Allocate(ctx context.Context, deps AllocateDeps, req *AllocateRequest) (res
 		)
 	}
 
-	// check if we already have an allocation for the blob in this space
-	_, err = deps.Allocations.Get(ctx, req.Blob.Digest, req.Space)
-	allocated := err == nil
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		log.Errorw("getting allocation", "error", err)
-		return nil, fmt.Errorf("getting allocation: %w", err)
-	}
-
-	// check if any allocation exists for the blob (skip if we already found one above)
-	anyAllocation := allocated
-	if !allocated {
-		anyAllocation, err = deps.Allocations.Exists(ctx, req.Blob.Digest)
-		if err != nil {
-			log.Errorw("checking allocation exists", "error", err)
-			return nil, fmt.Errorf("checking allocation exists: %w", err)
-		}
-	}
-
-	received := false
-	// check if we received the blob. Bytes can also be present with NO
-	// allocation — a released digest awaiting the removal sweep — but that
-	// case is caught below: AllocatePiece finds the piece and reports
-	// nothing to upload.
-	if anyAllocation {
-		has, err := deps.Pieces.Has(ctx, req.Blob.Digest)
-		if err != nil {
-			return nil, fmt.Errorf("getting blob: %w", err)
-		}
-		received = has
-	}
-
-	// the size reported in the receipt is the number of bytes allocated
-	// in the space - if a previous allocation already exists, this has
-	// already been done, so the allocation size is 0
-	size := req.Blob.Size
-	if allocated {
-		log.Info("blob allocation already exists")
-		size = 0
-	}
-
-	// nothing to do
-	if allocated && received {
-		log.Info("blob already received")
-		return &AllocateResponse{
-			Size: size,
-			// NB: blob already received, therefor no address is needed for upload.
-			Address: nil,
-		}, nil
-	}
-
 	expiresIn := ucan.UnixTimestamp(60 * 60 * 24) // 1 day
 	expiresAt := ucan.Now() + expiresIn
 
-	var address *blob.BlobAddress
-	// if not received yet, we need to generate an upload URL via PDP and
-	// include it in the receipt.
-	if !received {
-		dmh, err := multihash.Decode(req.Blob.Digest)
+	// What the space and the node hold is read, and the upload record and the
+	// allocation written, under the blob's lock and then the space's, so a
+	// concurrent allocate, release or removal of the bytes cannot change what
+	// this one decided before it commits.
+	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		resp = nil
+		if err := deps.Allocations.LockBlob(ctx, req.Blob.Digest); err != nil {
+			log.Errorw("locking blob", "error", err)
+			return fmt.Errorf("locking blob: %w", err)
+		}
+		if err := deps.Allocations.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
+			log.Errorw("locking allocation", "error", err)
+			return fmt.Errorf("locking allocation: %w", err)
+		}
+
+		// check if we already have an allocation for the blob in this space
+		_, err := deps.Allocations.Get(ctx, req.Blob.Digest, req.Space)
+		allocated := err == nil
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			log.Errorw("getting allocation", "error", err)
+			return fmt.Errorf("getting allocation: %w", err)
+		}
+
+		// check if any allocation exists for the blob (skip if we already
+		// found one above)
+		anyAllocation := allocated
+		if !allocated {
+			anyAllocation, err = deps.Allocations.Exists(ctx, req.Blob.Digest)
+			if err != nil {
+				log.Errorw("checking allocation exists", "error", err)
+				return fmt.Errorf("checking allocation exists: %w", err)
+			}
+		}
+
+		received := false
+		// check if we received the blob. Bytes can also be present with NO
+		// allocation — a released digest awaiting the removal sweep — but
+		// that case is caught below: AllocatePiece finds the piece and
+		// reports nothing to upload.
+		if anyAllocation {
+			has, err := deps.Pieces.Has(ctx, req.Blob.Digest)
+			if err != nil {
+				return fmt.Errorf("getting blob: %w", err)
+			}
+			received = has
+		}
+
+		// the size reported in the receipt is the number of bytes allocated
+		// in the space - if a previous allocation already exists, this has
+		// already been done, so the allocation size is 0
+		size := req.Blob.Size
+		if allocated {
+			log.Info("blob allocation already exists")
+			size = 0
+		}
+
+		// nothing to do
+		if allocated && received {
+			log.Info("blob already received")
+			// NB: blob already received, therefor no address is needed for
+			// upload.
+			resp = &AllocateResponse{Size: size}
+			return nil
+		}
+
+		var address *blob.BlobAddress
+		// if not received yet, we need to generate an upload URL via PDP and
+		// include it in the receipt.
+		if !received {
+			dmh, err := multihash.Decode(req.Blob.Digest)
+			if err != nil {
+				log.Errorw("decoding digest", "error", err)
+				return fmt.Errorf("decoding digest: %w", err)
+			}
+			if _, ok := presets.HasherRegistry[dmh.Name]; !ok {
+				return fmt.Errorf("unsupported hash: %s", dmh.Name)
+			}
+			// TODO we need to provide backpressure to the upload service here
+			// based on the number of roots we are currently allocating.
+			alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
+				Piece: types.Piece{
+					Name: dmh.Name,
+					Hash: req.Blob.Digest,
+					Size: int64(req.Blob.Size),
+				},
+			})
+			if err != nil {
+				log.Errorw("adding to pdp service", "error", err)
+				return fmt.Errorf("adding to pdp service: %w", err)
+			}
+			// The piece store can hold the bytes even when no allocation said
+			// so: a re-add of a digest whose last claim was just released,
+			// racing the pending-removal sweep. Then AllocatePiece reports
+			// Allocated=false with no upload ID, and there is nothing to
+			// upload — return no address (the caller proceeds straight to
+			// accept), never an address wrapping an empty URL. The sweep
+			// takes the blob's lock before it deletes, so the allocation row
+			// written below is in place by then, and the sweep cancels the
+			// queued removal instead of deleting the revived bytes.
+			if alloc.Allocated {
+				uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
+				if err != nil {
+					log.Errorw("getting piece write URL", "error", err)
+					return fmt.Errorf("getting piece write URL: %w", err)
+				}
+				address = &blob.BlobAddress{
+					URL:     commands.CborURL(uploadURL),
+					Expires: int64(expiresAt),
+				}
+			}
+		}
+
+		// even if a previous allocation was made in this space, we create
+		// another for the new invocation.
+		if err := deps.Allocations.Put(ctx, allocation.Allocation{
+			Space:      req.Space,
+			Blob:       req.Blob,
+			Expires:    expiresAt,
+			Cause:      req.Cause,
+			Allocation: req.Allocation,
+		}); err != nil {
+			log.Errorw("putting allocation", "error", err)
+			return fmt.Errorf("putting allocation: %w", err)
+		}
+		resp = &AllocateResponse{Size: size, Address: address}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+type AllocateUnhashedRequest struct {
+	Space did.DID
+	// DigestCode is the multihash function the blob's digest is computed
+	// with; Size is its length.
+	DigestCode uint64
+	Size       uint64
+	// Cause is the `/blob/add` task link.
+	Cause cid.Cid
+	// Allocation is the `/blob/allocate` task link. It keys the pending
+	// allocation, and the `/http/put` destination resolves to it.
+	Allocation cid.Cid
+}
+
+// AllocateUnhashed allocates space for a blob whose digest is not yet known:
+// the request names only the hash function. There is nothing to deduplicate
+// against, so the data is always uploaded. The node hashes it as it is
+// received and records the digest on the pending allocation, where
+// `/blob/accept` checks it against the one the `/http/put` receipt reports.
+func AllocateUnhashed(ctx context.Context, deps AllocateDeps, req *AllocateUnhashedRequest) (resp *AllocateResponse, err error) {
+	ctx, span := tracer.Start(ctx, "blob.allocate")
+	defer func() {
 		if err != nil {
-			log.Errorw("decoding digest", "error", err)
-			return nil, fmt.Errorf("decoding digest: %w", err)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 		}
-		if _, ok := presets.HasherRegistry[dmh.Name]; !ok {
-			return nil, fmt.Errorf("unsupported hash: %s", dmh.Name)
+		span.End()
+	}()
+
+	log := log.With("allocation", req.Allocation)
+	log.Infof("%s space: %s", blob.Allocate.Command, req.Space)
+	span.SetAttributes(
+		attribute.Stringer("space.did", req.Space),
+		attribute.Int64("blob.digest_code", int64(req.DigestCode)),
+		attribute.Int64("blob.size", int64(req.Size)),
+	)
+
+	name, ok := multihash.Codes[req.DigestCode]
+	if _, supported := presets.HasherRegistry[name]; !ok || !supported {
+		return nil, errors.New(blob.UnsupportedDigestCodeErrorName,
+			"digest code 0x%x is not supported", req.DigestCode)
+	}
+	if limitErr := deps.PieceSize.CheckRaw(req.Size); limitErr != nil {
+		log.Warnw("rejecting oversized blob allocation",
+			"size", req.Size, "max", deps.PieceSize.MaxRaw())
+		return nil, errors.New(
+			BlobSizeLimitExceededErrorName,
+			"blob size %d exceeds maximum %d", req.Size, deps.PieceSize.MaxRaw(),
+		)
+	}
+
+	// The upload record and the pending allocation commit together, so
+	// neither is left without the other. The allocate task link is locked
+	// before the pending allocation is looked up, so a retry of the same
+	// `/blob/allocate` that arrives meanwhile waits, then gets the upload this
+	// attempt made: one task link never has two uploads to record a digest
+	// from.
+	err = deps.Tx.Run(ctx, func(ctx context.Context) error {
+		resp = nil
+		if err := deps.Pending.LockPending(ctx, req.Allocation); err != nil {
+			log.Errorw("locking pending allocation", "error", err)
+			return fmt.Errorf("locking pending allocation: %w", err)
 		}
-		// TODO we need to provide backpressure to the upload service here
-		// based on the number of roots we are currently allocating.
+		if p, err := deps.Pending.GetPending(ctx, req.Allocation); err == nil {
+			id, err := uuid.Parse(p.UploadID)
+			if err != nil {
+				return fmt.Errorf("parsing upload ID of pending allocation: %w", err)
+			}
+			uploadURL, err := deps.Pieces.WritePieceURL(id)
+			if err != nil {
+				log.Errorw("getting piece write URL", "error", err)
+				return fmt.Errorf("getting piece write URL: %w", err)
+			}
+			log.Info("blob allocation already exists")
+			resp = &AllocateResponse{
+				Size: p.Size,
+				Address: &blob.BlobAddress{
+					URL:     commands.CborURL(uploadURL),
+					Expires: int64(p.Expires),
+				},
+			}
+			return nil
+		} else if !errors.Is(err, store.ErrNotFound) {
+			log.Errorw("getting pending allocation", "error", err)
+			return fmt.Errorf("getting pending allocation: %w", err)
+		}
+
+		expiresAt := ucan.Now() + ucan.UnixTimestamp(60*60*24) // 1 day
 		alloc, err := deps.Pieces.AllocatePiece(ctx, types.PieceAllocation{
 			Piece: types.Piece{
-				Name: dmh.Name,
-				Hash: req.Blob.Digest,
-				Size: int64(req.Blob.Size),
+				Name: name,
+				Size: int64(req.Size),
 			},
+			Allocation: req.Allocation,
 		})
 		if err != nil {
 			log.Errorw("adding to pdp service", "error", err)
-			return nil, fmt.Errorf("adding to pdp service: %w", err)
+			return fmt.Errorf("adding to pdp service: %w", err)
 		}
-		// The piece store can hold the bytes even when no allocation said so:
-		// a re-add of a digest whose last claim was just released, racing the
-		// pending-removal sweep. Then AllocatePiece reports Allocated=false
-		// with no upload ID, and there is nothing to upload — return no
-		// address (the caller proceeds straight to accept), never an address
-		// wrapping an empty URL. The allocation row written below is a claim,
-		// so the sweep cancels the queued removal instead of deleting the
-		// revived bytes.
-		if alloc.Allocated {
-			uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
-			if err != nil {
-				log.Errorw("getting piece write URL", "error", err)
-				return nil, fmt.Errorf("getting piece write URL: %w", err)
-			}
-			address = &blob.BlobAddress{
+		uploadURL, err := deps.Pieces.WritePieceURL(alloc.UploadID)
+		if err != nil {
+			log.Errorw("getting piece write URL", "error", err)
+			return fmt.Errorf("getting piece write URL: %w", err)
+		}
+		if err := deps.Pending.PutPending(ctx, allocation.Pending{
+			Allocation: req.Allocation,
+			Space:      req.Space,
+			Size:       req.Size,
+			DigestCode: req.DigestCode,
+			Cause:      req.Cause,
+			Expires:    expiresAt,
+			UploadID:   alloc.UploadID.String(),
+		}); err != nil {
+			log.Errorw("putting pending allocation", "error", err)
+			return fmt.Errorf("putting pending allocation: %w", err)
+		}
+		resp = &AllocateResponse{
+			Size: req.Size,
+			Address: &blob.BlobAddress{
 				URL:     commands.CborURL(uploadURL),
 				Expires: int64(expiresAt),
-			}
+			},
 		}
-	}
-
-	// even if a previous allocation was made in this space, we create
-	// another for the new invocation.
-	err = deps.Allocations.Put(ctx, allocation.Allocation{
-		Space:   req.Space,
-		Blob:    req.Blob,
-		Expires: expiresAt,
-		Cause:   req.Cause,
+		return nil
 	})
 	if err != nil {
-		log.Errorw("putting allocation", "error", err)
-		return nil, fmt.Errorf("putting allocation: %w", err)
+		return nil, err
 	}
-
-	return &AllocateResponse{
-		Size:    size,
-		Address: address,
-	}, nil
+	return resp, nil
 }

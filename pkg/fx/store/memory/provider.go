@@ -12,6 +12,7 @@ import (
 	"github.com/ipfs/go-datastore/sync"
 	"go.uber.org/fx"
 
+	pstore "github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
@@ -46,6 +47,7 @@ var Module = fx.Module("memory-store",
 		NewKeyStore,
 		NewConsolidationStore,
 		NewPDPStore,
+		NewTransactor,
 	),
 )
 
@@ -100,11 +102,17 @@ func NewKeyStore() (keystore.KeyStore, error) {
 	return keystore.NewKeyStore(ds)
 }
 
-func NewPDPStore() blobstore.Blobstore {
+func NewPDPStore() *blobstore.Store {
 	return blobstore.NewDatastoreStore(sync.MutexWrap(datastore.NewMapDatastore()))
 }
 
 func NewConsolidationStore() consolidationstore.Store {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
 	return consolidationstore.NewDatastoreStore(ds)
+}
+
+// NewTransactor runs writes as they come: the in-memory stores keep no
+// database to commit them to together.
+func NewTransactor() pstore.Transactor {
+	return pstore.NoTransaction{}
 }

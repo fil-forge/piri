@@ -1,0 +1,45 @@
+name: forge-perf
+
+# Comment /forge-perf on a pull request (optionally "/forge-perf pairs=2") to
+# benchmark it. The run builds the pull request's head commit for linux/arm64,
+# pushes it as ghcr.io/fil-forge/piri:pr-<number>-<sha7>, and asks forge-perf's
+# persistent box to run the current main set and then the same set with this
+# image swapped in. Progress and the result come back as a comment on the pull
+# request. Only owners, members and collaborators can trigger it, and only on
+# pull requests from branches of this repository.
+#
+# The build settings below match the image forge-perf tracks for this repo
+# (config/images.tracked in fil-forge/forge-perf), as publish-ghcr.yml builds it.
+# The jobs live in fil-forge/forge-perf's .github/workflows/pr-run.yml, pinned
+# below to a forge-perf commit, and they check forge-perf's scripts out at that
+# commit. A newer pr-run.yml reaches this repository only through a pull request
+# that moves the pin (forge-perf docs/operations.md, "Moving the pin").
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  perf:
+    # The command alone, or followed by a space, tab or line break, so a
+    # comment such as /forge-performance starts nothing.
+    if: >-
+      github.event.issue.pull_request &&
+      (github.event.comment.body == '/forge-perf' ||
+       startsWith(github.event.comment.body, '/forge-perf ') ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\t"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\r"')) ||
+       startsWith(github.event.comment.body, fromJSON('"/forge-perf\n"'))) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    uses: fil-forge/forge-perf/.github/workflows/pr-run.yml@7b373a497b969d2cf19ff6a4b1bbae9ce3a7c937 # pr-run.yml jobs hold pull-requests: write
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    with:
+      service: piri
+      dockerfile: Dockerfile

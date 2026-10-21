@@ -75,15 +75,31 @@ servers with distinct response shapes:
   `content/retrieve`.
 
 Handlers register through fx group tags. Each handler package has a
-`module.go` that wraps constructors with `ucanhandlers.ProvideRPC` /
-`ProvideRetrieval` (and `ProvideRPCOption` / `ProvideRetrievalOption` for
-server options). The group-tag strings live in `pkg/ucanhandlers/handler.go`
-and appear in both the struct tags and helpers — keep them in sync.
+`module.go` that annotates its constructors into a group:
+`fx.Annotate(NewFooHandler, fx.ResultTags(ucanhandlers.RPCHandlersGroupTag))`.
+The tag constants live in `pkg/ucanhandlers/handler.go` and appear in both the
+struct tags and the constants — keep them in sync.
+
+Which group a handler joins decides the authorization it is served behind
+(applied in `NewRPC` / `NewRetrieval`, from ucantone's `server/middleware`):
+
+- `RPCHandlersGroupTag` — `NotSelfSigned()` + `OnlySubject(nodeDID)`. A
+  self-signed invocation needs no proofs and carries the subject's whole
+  authority, so a capability this node serves for others requires one subjected
+  to the node and issued by someone the node delegated to.
+  `blob/{allocate,accept,release,reject}` and `pdp/info`.
+- `RPCOpenHandlersGroupTag` — no checks. Only `access/grant`, the bootstrap step
+  of the access flow: the issuer has no prior delegation and invokes it
+  self-signed.
+- `RetrievalHandlersGroupTag` — `OnlySubject(nodeDID)`. `blob/retrieve`.
+- `RetrievalSpaceHandlersGroupTag` — no checks: `content/retrieve` is subjected
+  to the space, whose key holder may invoke over it directly.
 
 To add a capability handler: define/import the command from libforge, write
 the handler in the appropriate `pkg/ucanhandlers/<domain>/` package, register
-it in that package's `module.go`, and add coverage via the `ucanfxtest`
-harnesses.
+it in that package's `module.go` under `RPCHandlersGroupTag` unless it has one
+of the shapes above, and add coverage via the `ucanfxtest` harnesses. Put the
+subject check in the registration, not in the handler.
 
 ## Dependency graph validation
 
@@ -96,6 +112,16 @@ new branch to `store.StorageModule`, gating a provider on a config value, or
 introducing a config-driven module — update `pkg/fx/app/full_test.go` so the
 new wiring is exercised. Add or adjust the storage/config variants in the test
 to cover the new graph shape.
+
+## Observability
+
+When a change adds or alters behavior an operator depends on, decide how they
+would see it working and see it fail, and add what is useful in the same PR:
+OpenTelemetry metrics or traces, entries in
+`docs/content/concepts/telemetry.md` and
+`docs/content/operator-guide/monitoring.md`, and an alert or dashboard panel in
+fil-forge/infra-central. Skip it for changes nothing operational depends on.
+"Adding a signal" in `docs/observability.md` says how to do each.
 
 ## Conventions
 

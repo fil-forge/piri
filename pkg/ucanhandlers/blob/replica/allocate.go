@@ -1,6 +1,11 @@
 package replica
 
 // TODO(forrest)[ucan1]: not doing
+//
+// If this is revived: delete the ucanhandlers.RequireSubject call in the block
+// below, because that helper no longer exists. Register the handler into
+// ucanhandlers.RPCHandlersGroupTag instead and the route's middleware applies
+// the subject check.
 
 /*
 import (
@@ -95,7 +100,8 @@ func NewReplicaAllocateHandler(deps ReplicaAllocateDeps) server.Route {
 			resp, err := blobhandler.Allocate(req.Context(), deps.AllocateDeps, &blobhandler.AllocateRequest{
 				Space: space,
 				Blob:  blob.Blob{Digest: args.Blob.Digest, Size: args.Blob.Size},
-				Cause: req.Invocation().Link(),
+				Cause:      req.Invocation().Link(),
+				Allocation: req.Invocation().Task().Link(),
 			})
 			if err != nil {
 				// Mirrors blob/allocate: a named error (e.g. the piece size

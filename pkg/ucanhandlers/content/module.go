@@ -7,9 +7,11 @@ import (
 )
 
 // Module wires the space/content/retrieve capability into the byte-streaming
-// retrieval server.
+// retrieval server. Its subject is the space, not this node, and a space's own
+// key holder may retrieve its content directly, so neither subject check
+// applies.
 var Module = fx.Module("ucan/content",
 	fx.Provide(
-		ucanhandlers.ProvideRetrieval(NewRetrieveHandler),
+		fx.Annotate(NewRetrieveHandler, fx.ResultTags(ucanhandlers.RetrievalSpaceHandlersGroupTag)),
 	),
 )

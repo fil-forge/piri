@@ -7,60 +7,27 @@ import (
 	"github.com/fil-forge/libforge/ucan/retrieval"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/server"
+	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 )
 
-// Group tag strings used by per-capability fx.Provide registrations and
-// by the params structs below. Kept paired so handlers register on the
-// same server they're collected for. Struct tags can't reference a
-// constant value at compile time, so the literal strings appear in both
-// the tag and the helper below — keep them in sync.
+// Group tag strings used by per-capability fx.Provide registrations and by the
+// params structs below. Kept paired so handlers register on the same server
+// they're collected for. A capability registers with fx.ResultTags and one of
+// these, and which one it picks decides the authorization its route is served
+// behind (see NewRPC and NewRetrieval). Struct tags can't reference a constant
+// value at compile time, so the literal strings appear in both the tag and the
+// constant — keep them in sync.
 const (
-	RPCHandlersGroupTag       = `group:"ucan_rpc_handlers"`
-	RetrievalHandlersGroupTag = `group:"ucan_retrieval_handlers"`
-	RPCOptionsGroupTag        = `group:"ucan_rpc_options"`
-	RetrievalOptionsGroupTag  = `group:"ucan_retrieval_options"`
+	RPCHandlersGroupTag            = `group:"ucan_rpc_handlers"`
+	RPCOpenHandlersGroupTag        = `group:"ucan_rpc_open_handlers"`
+	RetrievalHandlersGroupTag      = `group:"ucan_retrieval_handlers"`
+	RetrievalSpaceHandlersGroupTag = `group:"ucan_retrieval_space_handlers"`
+	RPCOptionsGroupTag             = `group:"ucan_rpc_options"`
+	RetrievalOptionsGroupTag       = `group:"ucan_retrieval_options"`
 )
-
-// ProvideRPC annotates a per-capability handler constructor so that fx
-// collects it into the body-CAR RPC server's handler group. Per-capability
-// fx.Module declarations use this rather than spelling out fx.Annotate +
-// fx.ResultTags, both to compress boilerplate and to keep the group tag
-// in a single place.
-func ProvideRPC(ctor any) any {
-	return fx.Annotate(ctor, fx.ResultTags(RPCHandlersGroupTag))
-}
-
-// ProvideRetrieval is the byte-streaming counterpart to [ProvideRPC].
-func ProvideRetrieval(ctor any) any {
-	return fx.Annotate(ctor, fx.ResultTags(RetrievalHandlersGroupTag))
-}
-
-// ProvideRPCOption annotates a constructor whose result is a single
-// server.HTTPOption so fx collects it into the RPC server's options
-// group. The constructor may be parameterless (returns a constant
-// option) or may depend on other fx-managed values:
-//
-//	ucanhandlers.ProvideRPCOption(func() server.HTTPOption {
-//	    return server.WithReceiptTimestamps(true)
-//	})
-//
-//	ucanhandlers.ProvideRPCOption(func(l EventListener) server.HTTPOption {
-//	    return server.WithEventListener(l)
-//	})
-//
-// Each provider contributes exactly one option; call ProvideRPCOption
-// multiple times to register multiple options.
-func ProvideRPCOption(ctor any) any {
-	return fx.Annotate(ctor, fx.ResultTags(RPCOptionsGroupTag))
-}
-
-// ProvideRetrievalOption is the byte-streaming counterpart to [ProvideRPCOption].
-func ProvideRetrievalOption(ctor any) any {
-	return fx.Annotate(ctor, fx.ResultTags(RetrievalOptionsGroupTag))
-}
 
 // RPCParams collects the handlers registered on the body-CAR UCAN server
 // (server.NewHTTP). These handle invocations whose response is itself a
@@ -68,9 +35,14 @@ func ProvideRetrievalOption(ctor any) any {
 type RPCParams struct {
 	fx.In
 
-	ID       identity.Identity
-	Handlers []server.Route      `group:"ucan_rpc_handlers"`
-	Options  []server.HTTPOption `group:"ucan_rpc_options"`
+	ID identity.Identity
+	// Handlers are served behind the subject checks: subjected to this node and
+	// issued by someone holding a delegation from it.
+	Handlers []server.Route `group:"ucan_rpc_handlers"`
+	// OpenHandlers are served as they are: a capability invoked self-signed, or
+	// over a subject other than this node.
+	OpenHandlers []server.Route      `group:"ucan_rpc_open_handlers"`
+	Options      []server.HTTPOption `group:"ucan_rpc_options"`
 }
 
 // RetrievalParams collects the handlers registered on the header-container
@@ -79,14 +51,24 @@ type RPCParams struct {
 type RetrievalParams struct {
 	fx.In
 
-	ID       identity.Identity
-	Handlers []server.Route      `group:"ucan_retrieval_handlers"`
-	Options  []server.HTTPOption `group:"ucan_retrieval_options"`
+	ID identity.Identity
+	// Handlers are subjected to this node.
+	Handlers []server.Route `group:"ucan_retrieval_handlers"`
+	// SpaceHandlers are subjected to a space rather than to this node.
+	SpaceHandlers []server.Route      `group:"ucan_retrieval_space_handlers"`
+	Options       []server.HTTPOption `group:"ucan_retrieval_options"`
 }
 
 func NewRPC(p RPCParams) (*RPCHandler, error) {
 	svr := server.NewHTTP(p.ID, p.Options...)
-	if err := register(svr, p.Handlers); err != nil {
+	// A self-signed invocation carries the subject's whole authority with no
+	// proofs, so a capability this node serves for others requires one subjected
+	// to the node and issued by someone it delegated to.
+	guarded := middleware.Apply(p.Handlers,
+		middleware.NotSelfSigned(),
+		middleware.OnlySubject(p.ID.DID()),
+	)
+	if err := register(svr, append(guarded, p.OpenHandlers...)); err != nil {
 		return nil, err
 	}
 	return &RPCHandler{svr: svr}, nil
@@ -94,7 +76,11 @@ func NewRPC(p RPCParams) (*RPCHandler, error) {
 
 func NewRetrieval(p RetrievalParams) (*RetrievalHandler, error) {
 	svr := retrieval.NewServer(p.ID, p.Options...)
-	if err := register(svr, p.Handlers); err != nil {
+	// Retrieval from the node's own authority is pinned to the node; a space's
+	// own retrieval is not, since the space is the subject there and its key
+	// holder may invoke over it directly.
+	guarded := middleware.Apply(p.Handlers, middleware.OnlySubject(p.ID.DID()))
+	if err := register(svr, append(guarded, p.SpaceHandlers...)); err != nil {
 		return nil, err
 	}
 	return &RetrievalHandler{svr: svr}, nil

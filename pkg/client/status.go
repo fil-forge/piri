@@ -12,13 +12,15 @@ import (
 
 // NodeStatus represents the current state of a piri node
 type NodeStatus struct {
-	Healthy           bool       `json:"healthy"`
-	IsProving         bool       `json:"is_proving"`
-	InChallengeWindow bool       `json:"in_challenge_window"`
-	HasProven         bool       `json:"has_proven"`
-	InFaultState      bool       `json:"in_fault_state"`
-	UpgradeSafe       bool       `json:"upgrade_safe"`
-	NextChallenge     *time.Time `json:"next_challenge,omitempty"`
+	Healthy           bool `json:"healthy"`
+	IsProving         bool `json:"is_proving"`
+	InChallengeWindow bool `json:"in_challenge_window"`
+	HasProven         bool `json:"has_proven"`
+	InFaultState      bool `json:"in_fault_state"`
+	UpgradeSafe       bool `json:"upgrade_safe"`
+	// UnsafeReason explains why an upgrade is not safe. Empty when UpgradeSafe is true.
+	UnsafeReason  string     `json:"unsafe_reason,omitempty"`
+	NextChallenge *time.Time `json:"next_challenge,omitempty"`
 }
 
 // GetNodeStatus connects to a running piri node and checks its status
@@ -41,7 +43,7 @@ func GetNodeStatus(ctx context.Context) (*NodeStatus, error) {
 	}
 
 	// Calculate if it's safe to upgrade
-	upgradeSafe := calculateUpgradeSafety(psState)
+	unsafeReason := calculateUpgradeSafety(psState)
 
 	return &NodeStatus{
 		Healthy:           true, // If we got this far, node is responding
@@ -49,29 +51,49 @@ func GetNodeStatus(ctx context.Context) (*NodeStatus, error) {
 		InChallengeWindow: psState.InChallengeWindow,
 		HasProven:         psState.HasProven,
 		InFaultState:      psState.IsInFaultState,
-		UpgradeSafe:       upgradeSafe,
+		UpgradeSafe:       unsafeReason == "",
+		UnsafeReason:      unsafeReason,
 		// NextChallenge could be calculated from psState if needed
 	}, nil
 }
 
-// calculateUpgradeSafety determines if it's safe to update based on proof set state
-func calculateUpgradeSafety(psState *types.ProofSetState) bool {
+// calculateUpgradeSafety determines if it's safe to update based on proof set
+// state. It returns an empty string when an upgrade is safe, and otherwise a
+// human-readable reason naming the condition that blocks the upgrade. The
+// reason does not carry a "not safe" prefix; callers add their own framing.
+func calculateUpgradeSafety(psState *types.ProofSetState) string {
 	// If in fault state, we cannot update
 	// TODO/REVIEW: I don't know if we want to allow updates to nodes in fault.
 	if psState.IsInFaultState {
-		return false
+		return fmt.Sprintf(
+			"proof set %d is in a fault state: challenge window opened at epoch %d (next challenge epoch) and closed at epoch %d without a proof; current epoch is %d",
+			psState.ID,
+			psState.NextChallengeEpoch,
+			psState.NextChallengeEpoch+psState.ChallengeWindow,
+			psState.CurrentEpoch,
+		)
 	}
 
 	// Don't update while actively proving
 	if psState.IsProving {
-		return false
+		return fmt.Sprintf(
+			"node is currently generating a proof for proof set %d (current epoch %d); wait for it to finish",
+			psState.ID,
+			psState.CurrentEpoch,
+		)
 	}
 
 	// Don't update if in challenge window but haven't proven yet
 	if psState.InChallengeWindow && !psState.HasProven {
-		return false
+		return fmt.Sprintf(
+			"proof set %d is in a challenge window and has not submitted a proof yet: window opened at epoch %d (next challenge epoch) and closes at epoch %d; current epoch is %d",
+			psState.ID,
+			psState.NextChallengeEpoch,
+			psState.NextChallengeEpoch+psState.ChallengeWindow,
+			psState.CurrentEpoch,
+		)
 	}
 
 	// Otherwise it's safe
-	return true
+	return ""
 }

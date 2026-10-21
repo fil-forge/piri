@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/multiformats/go-multihash"
 	"github.com/yugabyte/pgx/v5"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store"
 )
 
@@ -18,7 +20,8 @@ import (
 // on-chain piece rows) races against the concurrently-advancing pipeline,
 // so classification is deferred to the removal machinery, which re-derives
 // everything per pass and only acts when it can prove nothing references
-// the bytes. Idempotent.
+// the bytes. Idempotent. The request joins the caller's transaction when the
+// context carries one.
 func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) (retErr error) {
 	log.Infow("queueing piece removal", "blob", blob.String())
 	defer func() {
@@ -27,10 +30,13 @@ func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) 
 		}
 	}()
 
-	if _, err := p.db.Exec(ctx, `
-		INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)
-		ON CONFLICT (digest) DO NOTHING
-	`, []byte(blob)); err != nil {
+	if err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`
+			INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)
+			ON CONFLICT (digest) DO NOTHING
+		`, []byte(blob))
+		return err
+	}); err != nil {
 		return fmt.Errorf("recording pending piece removal: %w", err)
 	}
 	return nil
@@ -43,7 +49,9 @@ func (p *PDPService) RemovePiece(ctx context.Context, blob multihash.Multihash) 
 //     the removal — a racing accept or a re-upload revived the blob.
 //  2. Cancels the blob's pipeline row if it hasn't been folded into an
 //     aggregate (transactional delete, serialized against the fold's row
-//     locks; an in-flight commp task no-ops on the missing row).
+//     locks) and no settle or commp task is working on it. A commp task that is still
+//     live is waited for: it records the mapping and parks the piece, which
+//     finalization then cleans up.
 //  3. Resolves the commp mapping. A blob with no mapping and no pipeline
 //     row was never aggregated and never will be — its bytes are released.
 //     Staged-but-unconfirmed piece adds park the removal until the chain
@@ -255,9 +263,10 @@ func (p *PDPService) blobHasClaims(ctx context.Context, blob multihash.Multihash
 
 // cancelPendingRemoval drops the removal request, keeping the bytes.
 func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Multihash) error {
-	if _, err := p.db.Exec(ctx, `
-		DELETE FROM pdp_pending_piece_removals WHERE digest = $1
-	`, []byte(blob)); err != nil {
+	if err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`DELETE FROM pdp_pending_piece_removals WHERE digest = $1`, []byte(blob))
+		return err
+	}); err != nil {
 		return fmt.Errorf("cancelling pending removal of %s: %w", blob.String(), err)
 	}
 	log.Infow("cancelled piece removal; blob has live claims", "blob", blob.String())
@@ -268,13 +277,46 @@ func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Mu
 // been folded into an aggregate, and reports whether a row remains
 // afterwards. The aggregation fold locks its candidate rows (FOR UPDATE), so
 // this delete serializes against it: a row is either cancelled or folded —
-// never both. An in-flight commp task whose row disappears completes as a
-// noop.
+// never both.
+//
+// A row whose commp is not yet recorded is left while its commp task is live,
+// that is while the task's harmony_task row exists, between retries included.
+// Such a task records the blob's mapping and parks its piece whether or not
+// the row is still there, so cancelling it would let finalization run first
+// and leave those rows behind. A task that gave up is gone from harmony_task,
+// and its row is cancelled. A row cancelled before its task starts makes the
+// task a noop.
+//
+// A staged row is left the same way while its settle task is live. The
+// staging store serializes a settle against the blob's deletion within one
+// process; waiting for the task keeps that true however the tasks are
+// placed.
+//
+// A cancelled row is counted as hashed when its commp is recorded or the
+// blob has a commp mapping: the commp task records the mapping before it
+// parks the piece and stamps the row, so a task that gave up between the two
+// still ran the hash, as did an on-demand calculation.
 func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Multihash) (active bool, err error) {
-	if _, err := p.db.Exec(ctx, `
-		DELETE FROM pdp_blob_pipeline WHERE digest = $1 AND aggregate_root IS NULL
+	var cancelled []struct {
+		CreatedAt time.Time `db:"created_at"`
+		Hashed    bool      `db:"hashed"`
+	}
+	if err := p.db.Select(ctx, &cancelled, `
+		DELETE FROM pdp_blob_pipeline
+		WHERE digest = $1 AND aggregate_root IS NULL
+		  AND (commp IS NOT NULL OR commp_task_id IS NULL
+		       OR NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.commp_task_id))
+		  AND NOT (staged AND settle_task_id IS NOT NULL
+		       AND EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.settle_task_id))
+		RETURNING created_at,
+		          (commp IS NOT NULL OR EXISTS (
+		              SELECT 1 FROM pdp_piece_mh_to_commp m WHERE m.mhash = pdp_blob_pipeline.digest
+		          )) AS hashed
 	`, []byte(blob)); err != nil {
 		return false, fmt.Errorf("cancelling pipeline row for %s: %w", blob.String(), err)
+	}
+	for _, c := range cancelled {
+		p.cancels.record(ctx, time.Since(c.CreatedAt), c.Hashed)
 	}
 	var remaining int
 	if err := p.db.QueryRow(ctx, `
@@ -288,32 +330,44 @@ func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Mul
 // finalizeRemoval deletes the blob's bytes and every bookkeeping row tied to
 // its piece: confirmed-removed data-set piece rows, the pdp_piecerefs /
 // parked_piece_refs / parked_pieces chain, the mhash→commp mapping, and the
-// pending-removal row itself. Claims are re-checked at the last instant: if
-// the blob was revived after this sweep pass classified it, the removal is
-// cancelled instead. commp is the v2 piece CID string, empty when the blob
-// never had a mapping; the v1 form the pdpv0 tables key on is derived here.
+// pending-removal row itself. It holds the blob's lock from the claim check
+// to the commit: an accept or an allocate takes the same lock before it
+// checks for the bytes and claims them, so a blob revived after this sweep
+// pass classified it has its claim committed by the time the check runs, and
+// the removal is cancelled instead. commp is the v2 piece CID string, empty
+// when the blob never had a mapping; the v1 form the pdpv0 tables key on is
+// derived here.
 func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multihash, commp string) error {
-	revived, err := p.blobHasClaims(ctx, blob)
-	if err != nil {
-		return err
-	}
-	if revived {
-		return p.cancelPendingRemoval(ctx, blob)
-	}
+	var cancelled bool
+	err := harmonytx.Run(ctx, p.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		cancelled = false
+		if err := p.allocationStore.LockBlob(ctx, blob); err != nil {
+			return err
+		}
+		revived, err := p.blobHasClaims(ctx, blob)
+		if err != nil {
+			return err
+		}
+		if revived {
+			cancelled = true
+			return p.cancelPendingRemoval(ctx, blob)
+		}
 
-	if err := p.blobstore.Delete(ctx, blob); err != nil && !errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("deleting blob bytes: %w", err)
-	}
-	if _, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+		// The bytes go while the lock is held. Should the rows below fail to
+		// commit, the next pass finds them again and deletes bytes already
+		// gone, which is not an error.
+		if err := p.blobstore.Delete(ctx, blob); err != nil && !errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("deleting blob bytes: %w", err)
+		}
 		if commp != "" {
 			commpV1, err := pieceCIDv1String(commp)
 			if err != nil {
-				return false, err
+				return err
 			}
 			if _, err := tx.Exec(`
 				DELETE FROM pdp_data_set_pieces WHERE sub_piece = $1 AND removed = TRUE
 			`, commpV1); err != nil {
-				return false, fmt.Errorf("deleting removed piece rows: %w", err)
+				return fmt.Errorf("deleting removed piece rows: %w", err)
 			}
 			var refs []struct {
 				RefID   int64 `db:"piece_ref"`
@@ -325,18 +379,18 @@ func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multiha
 				JOIN parked_piece_refs ppr ON ppr.ref_id = pr.piece_ref
 				WHERE pr.piece_cid = $1
 			`, commp); err != nil {
-				return false, fmt.Errorf("finding piece refs: %w", err)
+				return fmt.Errorf("finding piece refs: %w", err)
 			}
 			if _, err := tx.Exec(`
 				DELETE FROM pdp_piecerefs WHERE piece_cid = $1
 			`, commp); err != nil {
-				return false, fmt.Errorf("deleting pdp piece refs: %w", err)
+				return fmt.Errorf("deleting pdp piece refs: %w", err)
 			}
 			for _, ref := range refs {
 				if _, err := tx.Exec(`
 					DELETE FROM parked_piece_refs WHERE ref_id = $1
 				`, ref.RefID); err != nil {
-					return false, fmt.Errorf("deleting parked piece ref: %w", err)
+					return fmt.Errorf("deleting parked piece ref: %w", err)
 				}
 				// Release the parked piece only once no other refs share it.
 				if _, err := tx.Exec(`
@@ -345,24 +399,27 @@ func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multiha
 						SELECT 1 FROM parked_piece_refs WHERE piece_id = $1
 					)
 				`, ref.PieceID); err != nil {
-					return false, fmt.Errorf("deleting parked piece: %w", err)
+					return fmt.Errorf("deleting parked piece: %w", err)
 				}
 			}
 		}
 		if _, err := tx.Exec(`
 			DELETE FROM pdp_piece_mh_to_commp WHERE mhash = $1
 		`, []byte(blob)); err != nil {
-			return false, fmt.Errorf("deleting mhash to commp mapping: %w", err)
+			return fmt.Errorf("deleting mhash to commp mapping: %w", err)
 		}
 		if _, err := tx.Exec(`
 			DELETE FROM pdp_pending_piece_removals WHERE digest = $1
 		`, []byte(blob)); err != nil {
-			return false, fmt.Errorf("deleting pending removal row: %w", err)
+			return fmt.Errorf("deleting pending removal row: %w", err)
 		}
-		return true, nil
-	}, harmonydb.OptionRetry()); err != nil {
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("finalizing removal of blob %s: %w", blob.String(), err)
 	}
-	log.Infow("finalized piece removal", "blob", blob.String())
+	if !cancelled {
+		log.Infow("finalized piece removal", "blob", blob.String())
+	}
 	return nil
 }

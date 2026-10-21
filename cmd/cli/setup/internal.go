@@ -64,13 +64,7 @@ func doUpdateInternal(cmd *cobra.Command, _ []string) error {
 	}
 
 	if !status.UpgradeSafe {
-		if status.IsProving {
-			cmd.Println("Node is actively proving, abort update")
-		} else if status.InChallengeWindow && !status.HasProven {
-			cmd.Println("Node is in an unproven challenge window, abort update")
-		} else {
-			cmd.Println("Node is busy, abort update")
-		}
+		cmd.Printf("Not safe to update: %s; abort update\n", status.UnsafeReason)
 		return nil
 	}
 

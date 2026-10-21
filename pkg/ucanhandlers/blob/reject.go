@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -20,7 +21,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore/acceptance"
-	"github.com/fil-forge/piri/pkg/ucanhandlers"
 )
 
 // RejectDeps is the dependency set populated by fx for the Reject handler.
@@ -30,6 +30,10 @@ type RejectDeps struct {
 	Allocations AllocationRemover
 	Acceptances AcceptanceChecker
 	Pieces      PieceRemover
+	Pending     PendingAllocations
+	Uploads     UploadDiscarder
+	// Tx runs the reject's writes as one transaction.
+	Tx store.Transactor
 }
 
 // AcceptanceChecker is the slice of acceptancestore.AcceptanceStore the
@@ -45,18 +49,10 @@ func NewBlobRejectHandler(deps RejectDeps) server.Route {
 	return blob.Reject.Route(func(req *binding.Request[*blob.RejectArguments], rsp *binding.Response[*blob.RejectOK]) error {
 		args := req.Task().Arguments()
 
-		// The invocation subject must be this storage provider; the space
-		// abandoning its upload travels in the arguments. Authorization that
-		// the upload service may invoke /blob/reject is enforced by the
-		// validator's proof chain (rooted at the provider).
-		if err := ucanhandlers.RequireSubject(req, deps.ID.DID()); err != nil {
-			return rsp.SetFailure(err)
-		}
+		// The route's middleware has already required an invocation subjected to
+		// this provider and issued by someone it delegated to (pkg/ucanhandlers).
 
-		if err := Reject(req.Context(), deps, &RejectRequest{
-			Space:  args.Space,
-			Digest: args.Digest,
-		}); err != nil {
+		if err := RejectAllocation(req.Context(), deps, args.Allocation); err != nil {
 			var named errors.Named
 			if errors.As(err, &named) {
 				return rsp.SetFailure(named)
@@ -71,6 +67,9 @@ func NewBlobRejectHandler(deps RejectDeps) server.Route {
 type RejectRequest struct {
 	Space  did.DID
 	Digest multihash.Multihash
+	// Allocation links the `/blob/allocate` task whose allocation is
+	// rejected. A later allocation that replaced it is left in place.
+	Allocation cid.Cid
 }
 
 // Reject retires a parked blob — the "don't accept" exit of the
@@ -100,36 +99,169 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 		attribute.Stringer("blob.digest", req.Digest),
 	)
 
-	// Reject operates strictly on parked blobs. An acceptance by THE
-	// INVOKING SPACE means its bytes carry claims (and may be aggregated) —
-	// that space must release its claim via /blob/remove instead. Another
-	// space's acceptance is irrelevant: each space exits its own lifecycle
-	// independently, and shared bytes are protected by the claim count
-	// below, not by this guard.
-	_, err = deps.Acceptances.Get(ctx, req.Digest, req.Space)
-	if err == nil {
-		return errors.New(blob.BlobAcceptedErrorName,
-			"blob %s has been accepted by %s; release the claim via %s",
-			digestutil.Format(req.Digest), req.Space, blob.Remove.Command)
-	} else if !errors.Is(err, store.ErrNotFound) {
-		log.Errorw("checking acceptance", "error", err)
-		return fmt.Errorf("checking acceptance: %w", err)
-	}
+	// The reject commits as a unit. The space's allocation of the blob is
+	// locked before its acceptance is read, as an accept locks it before
+	// writing the acceptance, so the guard below sees an accept that came
+	// first and an accept that comes later finds the allocation gone.
+	return deps.Tx.Run(ctx, func(ctx context.Context) error {
+		if err := deps.Allocations.Lock(ctx, req.Digest, req.Space); err != nil {
+			log.Errorw("locking allocation", "error", err)
+			return fmt.Errorf("locking allocation: %w", err)
+		}
+		// Reject operates strictly on parked blobs. An acceptance by THE
+		// INVOKING SPACE means its bytes carry claims (and may be
+		// aggregated) — that space must release its claim via /blob/remove
+		// instead. Another space's acceptance is irrelevant: each space
+		// exits its own lifecycle independently, and shared bytes are
+		// protected by the claim count below, not by this guard.
+		_, err := deps.Acceptances.Get(ctx, req.Digest, req.Space)
+		if err == nil {
+			return errors.New(blob.BlobAcceptedErrorName,
+				"blob %s has been accepted by %s; release the claim via %s",
+				digestutil.Format(req.Digest), req.Space, blob.Remove.Command)
+		} else if !errors.Is(err, store.ErrNotFound) {
+			log.Errorw("checking acceptance", "error", err)
+			return fmt.Errorf("checking acceptance: %w", err)
+		}
 
-	if err := deps.Allocations.Delete(ctx, req.Digest, req.Space); err != nil {
-		log.Errorw("deleting allocation", "error", err)
-		return fmt.Errorf("deleting allocation: %w", err)
-	}
+		// Another received upload of the same content in the space takes
+		// over the claim, if there is one, so its data is not removed under
+		// it.
+		released, err := deps.Allocations.ReleaseByTask(ctx, req.Allocation)
+		if err != nil {
+			log.Errorw("releasing allocation", "error", err)
+			return fmt.Errorf("releasing allocation: %w", err)
+		}
+		if !released {
+			log.Infof("%s (allocation replaced)", blob.Reject.Command)
+			return nil
+		}
+		return removeIfUnclaimed(ctx, deps, req.Digest)
+	})
+}
+
+// RejectAllocation retires the allocation the `/blob/allocate` task link
+// made, which carries the space and blob it is for. An allocation made
+// without a digest drops its upload, any staged data and its pending record;
+// once its data was received, the upload also released its claim on
+// (digest, space). An allocation made with a digest is rejected as [Reject]
+// rejects the blob, while it is still the space's allocation for it. Either
+// way the bytes are queued for release when nothing else claims them. An
+// allocation whose blob the space has accepted is refused with BlobAccepted.
+// Idempotent: rejecting an unknown, replaced or already-rejected allocation
+// succeeds.
+func RejectAllocation(ctx context.Context, deps RejectDeps, link cid.Cid) (err error) {
+	ctx, span := tracer.Start(ctx, "blob.reject")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
+	log := log.With("allocation", link)
+	span.SetAttributes(attribute.Stringer("blob.allocation", link))
+
+	// The reject commits as a unit, and the bytes of a discarded upload are
+	// dropped once it has. An allocation made without a digest is locked
+	// first, then the space's claim on a received blob, then its acceptance
+	// is read, the order allocationstore.AllocationStore.Lock describes.
+	return deps.Tx.Run(ctx, func(ctx context.Context) error {
+		log := log
+		if err := deps.Pending.LockPending(ctx, link); err != nil {
+			log.Errorw("locking pending allocation", "error", err)
+			return fmt.Errorf("locking pending allocation: %w", err)
+		}
+		p, err := deps.Pending.GetPending(ctx, link)
+		if errors.Is(err, store.ErrNotFound) {
+			alloc, err := deps.Allocations.GetByTask(ctx, link)
+			if errors.Is(err, store.ErrNotFound) {
+				log.Infof("%s (unknown allocation)", blob.Reject.Command)
+				return nil
+			} else if err != nil {
+				log.Errorw("getting allocation", "error", err)
+				return fmt.Errorf("getting allocation: %w", err)
+			}
+			// The space's acceptance of the blob refuses the reject only if it
+			// accepted this allocation; one accepted through another allocation
+			// of the same content holds the claim, and this reject drops nothing.
+			// An acceptance that does not say which allocation it accepted
+			// refuses, as any acceptance once did.
+			if err := deps.Allocations.Lock(ctx, alloc.Blob.Digest, alloc.Space); err != nil {
+				log.Errorw("locking allocation", "error", err)
+				return fmt.Errorf("locking allocation: %w", err)
+			}
+			acc, err := deps.Acceptances.Get(ctx, alloc.Blob.Digest, alloc.Space)
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+			case err != nil:
+				log.Errorw("getting acceptance", "error", err)
+				return fmt.Errorf("getting acceptance: %w", err)
+			case acc.Allocation != nil && *acc.Allocation != link:
+				log.Infof("%s (another allocation of the blob was accepted)", blob.Reject.Command)
+				return nil
+			}
+			return Reject(ctx, deps, &RejectRequest{Space: alloc.Space, Digest: alloc.Blob.Digest, Allocation: link})
+		} else if err != nil {
+			log.Errorw("getting pending allocation", "error", err)
+			return fmt.Errorf("getting pending allocation: %w", err)
+		}
+		span.SetAttributes(attribute.Stringer("space.did", p.Space))
+		// Once the data was received its digest is known, and is what the blob is
+		// logged by everywhere else.
+		if len(p.Digest) > 0 {
+			log = log.With("blob", digestutil.Format(p.Digest))
+		}
+		log.Infof("%s space: %s", blob.Reject.Command, p.Space)
+		if len(p.Digest) > 0 {
+			if err := deps.Allocations.Lock(ctx, p.Digest, p.Space); err != nil {
+				log.Errorw("locking allocation", "error", err)
+				return fmt.Errorf("locking allocation: %w", err)
+			}
+		}
+		// Only an acceptance of this allocation refuses. An accept of an
+		// allocation made without a digest always records it, so an
+		// acceptance that names no allocation accepted another one, and this
+		// upload can still be rejected; its bytes stay while that acceptance
+		// claims them.
+		accepted, err := acceptancestore.AcceptedAllocation(ctx, deps.Acceptances, p.Digest, p.Space, p.Allocation)
+		if err != nil {
+			log.Errorw("checking acceptance", "error", err)
+			return err
+		}
+		if accepted {
+			return errors.New(blob.BlobAcceptedErrorName,
+				"allocation %s has been accepted by %s; release the claim via %s",
+				link, p.Space, blob.Remove.Command)
+		}
+
+		digest, err := releasePending(ctx, deps.Pending, deps.Uploads, p)
+		if err != nil {
+			log.Errorw("releasing pending allocation", "error", err)
+			return err
+		}
+		if digest == nil {
+			return nil
+		}
+		return removeIfUnclaimed(ctx, deps, digest)
+	})
+}
+
+// removeIfUnclaimed queues the bytes of digest for release when no space holds
+// an allocation or an acceptance of them.
+func removeIfUnclaimed(ctx context.Context, deps RejectDeps, digest multihash.Multihash) error {
+	log := log.With("blob", digestutil.Format(digest))
 
 	// Bytes are released only when no space holds an allocation or an
 	// acceptance — another space's in-flight upload or accepted copy of the
 	// same content shares them.
-	allocSpaces, err := deps.Allocations.ListSpaces(ctx, req.Digest)
+	allocSpaces, err := deps.Allocations.ListSpaces(ctx, digest)
 	if err != nil {
 		log.Errorw("listing allocation spaces", "error", err)
 		return fmt.Errorf("listing allocation spaces: %w", err)
 	}
-	acceptSpaces, err := deps.Acceptances.ListSpaces(ctx, req.Digest)
+	acceptSpaces, err := deps.Acceptances.ListSpaces(ctx, digest)
 	if err != nil {
 		log.Errorw("listing acceptance spaces", "error", err)
 		return fmt.Errorf("listing acceptance spaces: %w", err)
@@ -142,7 +274,7 @@ func Reject(ctx context.Context, deps RejectDeps, req *RejectRequest) (err error
 
 	// Queue the byte release; the removal machinery re-verifies claims (and
 	// pipeline state) before deleting, staying safe against a racing accept.
-	if err := deps.Pieces.RemovePiece(ctx, req.Digest); err != nil {
+	if err := deps.Pieces.RemovePiece(ctx, digest); err != nil {
 		log.Errorw("removing parked piece", "error", err)
 		return fmt.Errorf("removing parked piece: %w", err)
 	}

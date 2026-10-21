@@ -34,6 +34,7 @@ Most settings require a restart. The following can be changed at runtime via the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| [`pdp.aggregation.commp.delay`](pdp/aggregation/commp.md#delay) | duration | `1h` | How long an accepted blob waits before CommP and aggregation; `0s` disables |
 | [`pdp.aggregation.manager.poll_interval`](pdp/aggregation/manager.md#poll_interval) | duration | `30s` | How often the aggregation manager polls for new work |
 | [`pdp.aggregation.manager.batch_size`](pdp/aggregation/manager.md#batch_size) | duration | `10` | Maximum number of items to process in a single batch |
 | [`pdp.gas.max_fee.prove`](pdp/gas.md#max_feeprove) | uint (wei) | `0` | Max gas fee for proof submission |

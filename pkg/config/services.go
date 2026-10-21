@@ -13,6 +13,7 @@ import (
 	"github.com/ipni/go-libipni/maurl"
 
 	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/lib/telemetry"
 	"github.com/fil-forge/piri/pkg/config/app"
 )
 
@@ -179,7 +180,7 @@ func (s *IndexingServiceConfig) ToAppConfig() (app.IndexingServiceConfig, error)
 	if err != nil {
 		return app.IndexingServiceConfig{}, fmt.Errorf("parsing indexing service URL: %w", err)
 	}
-	c, err := client.NewHTTP(surl)
+	c, err := client.NewHTTP(surl, client.WithHTTPClient(telemetry.NewHTTPClient()))
 	if err != nil {
 		return app.IndexingServiceConfig{}, fmt.Errorf("creating indexing service connection: %w", err)
 	}
@@ -251,7 +252,7 @@ func (c *EgressTrackerServiceConfig) ToAppConfig() (app.EgressTrackerServiceConf
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("parsing egress tracker service URL: %w", err)
 	}
 
-	clnt, err := client.NewHTTP(surl)
+	clnt, err := client.NewHTTP(surl, client.WithHTTPClient(telemetry.NewHTTPClient()))
 	if err != nil {
 		return app.EgressTrackerServiceConfig{}, fmt.Errorf("creating egress tracker service connection: %w", err)
 	}
@@ -304,7 +305,7 @@ func (s *UploadServiceConfig) ToAppConfig() (app.UploadServiceConfig, error) {
 	if err != nil {
 		return app.UploadServiceConfig{}, fmt.Errorf("parsing upload service URL: %w", err)
 	}
-	clnt, err := client.NewHTTP(surl)
+	clnt, err := client.NewHTTP(surl, client.WithHTTPClient(telemetry.NewHTTPClient()))
 	if err != nil {
 		return app.UploadServiceConfig{}, fmt.Errorf("creating upload service connection: %w", err)
 	}

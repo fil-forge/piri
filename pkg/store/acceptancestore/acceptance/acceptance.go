@@ -25,6 +25,11 @@ type Acceptance struct {
 	// the digest→claim index `/blob/release` uses to delete the location
 	// claim when this space's acceptance is removed.
 	Site cid.Cid `cborgen:"site"`
+	// Allocation links the `/blob/allocate` task whose allocation was
+	// accepted, when the accept identified it: an accept of a blob allocated
+	// without a digest always does. A reject of that allocation refuses with
+	// BlobAccepted on the strength of this record.
+	Allocation *cid.Cid `cborgen:"allocation,omitempty"`
 }
 
 // Blob captures the bytes the acceptance attests to.
