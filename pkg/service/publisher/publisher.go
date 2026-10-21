@@ -3,8 +3,8 @@ package publisher
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
 	"fmt"
+	"net/url"
 	"slices"
 	"sync"
 
@@ -15,11 +15,16 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/ipld/go-ipld-prime"
+	cidlink "github.com/ipld/go-ipld-prime/linking/cid"
+	"github.com/ipni/go-libipni/announce"
+	"github.com/ipni/go-libipni/announce/httpsender"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/fil-forge/go-ipni-tools/pkg/advertisement"
 	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
@@ -52,6 +57,10 @@ type PublisherService struct {
 	indexingServiceProofs []ucan.Delegation
 	// tx holds a batch's queue rows locked from load to publish.
 	tx pstore.Transactor
+	// announcer tells indexers about a new head once the batch that moved it
+	// has committed; nil when no announce URLs are configured.
+	announcer     announce.Sender
+	announceAddrs []multiaddr.Multiaddr
 }
 
 // Publish records that the claim's IPNI advertisement is owed, together with
@@ -142,13 +151,42 @@ func (pub *PublisherService) PublishClaimed(ctx context.Context, batch harmonyta
 		if len(specs) == 0 {
 			return nil
 		}
-		if _, err := pub.ipni.PublishBatch(ctx, pub.provider, specs); err != nil {
+		head, err := pub.publishBatch(ctx, specs)
+		if err != nil {
 			return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
 		}
 		published = len(specs)
-		return nil
+		// Announced only once committed, so an indexer never fetches a head
+		// that a rollback discarded.
+		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
+			pub.announce(ctx, head)
+			return nil
+		})
 	})
 	return rows, published, err
+}
+
+func (pub *PublisherService) publishBatch(ctx context.Context, specs []ipnipub.AdvertSpec) (_ ipld.Link, err error) {
+	ctx, span := tracer.Start(ctx, "ipni.publish_batch", trace.WithAttributes(attribute.Int("ipni.batch_size", len(specs))))
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+	return pub.ipni.PublishBatch(ctx, pub.provider, specs)
+}
+
+// announce tells the configured indexers about the head. A failed announce
+// is only logged: indexers also find the head when they next poll.
+func (pub *PublisherService) announce(ctx context.Context, head ipld.Link) {
+	if pub.announcer == nil || head == nil {
+		return
+	}
+	if err := announce.Send(ctx, head.(cidlink.Link).Cid, pub.announceAddrs, pub.announcer); err != nil {
+		log.Warnw("Failed to announce advertisement", "head", head, "err", err)
+	}
 }
 
 // locationAdvertSpec is what a location commitment advertises: its content
@@ -301,11 +339,9 @@ func New(
 			return nil, err
 		}
 	}
-	// ucantone's ed25519 Signer.Raw() returns the 32-byte seed; libp2p
-	// expects the 64-byte Go private-key form (seed || pub). Expand here.
-	priv, err := crypto.UnmarshalEd25519PrivateKey(ed25519.NewKeyFromSeed(id.Raw()))
+	priv, err := lib.Libp2pKey(id)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshaling private key: %w", err)
+		return nil, err
 	}
 
 	var tx pstore.Transactor = pstore.NoTransaction{}
@@ -318,10 +354,12 @@ func New(
 		announceAddr = publicAddr
 	}
 
-	ipnipubOpts := []ipnipub.Option{ipnipub.WithAnnounceAddrs(announceAddr.String())}
-	for _, u := range o.announceURLs {
-		log.Infof("Announcing new IPNI adverts to: %s", u.String())
-		ipnipubOpts = append(ipnipubOpts, ipnipub.WithDirectAnnounce(u.String()))
+	// The publisher announces nothing itself: PublishClaimed announces once
+	// the batch has committed.
+	var ipnipubOpts []ipnipub.Option
+	if _, ok := tx.(pstore.NoTransaction); !ok {
+		// The store's writes roll back with the batch's transaction.
+		ipnipubOpts = append(ipnipubOpts, ipnipub.WithTransactionalStore())
 	}
 	ipniPublisher, err := ipnipub.New(priv, publisherStore, ipnipubOpts...)
 	if err != nil {
@@ -352,6 +390,18 @@ func New(
 		log.Errorf("Indexing service is not configured - claims will not be cached")
 	}
 
+	var announcer announce.Sender
+	if len(o.announceURLs) > 0 {
+		urls := make([]*url.URL, len(o.announceURLs))
+		for i, u := range o.announceURLs {
+			log.Infof("Announcing new IPNI adverts to: %s", u.String())
+			urls[i] = &u
+		}
+		if announcer, err = httpsender.New(urls, peerid); err != nil {
+			return nil, fmt.Errorf("creating IPNI announce sender: %w", err)
+		}
+	}
+
 	return &PublisherService{
 		id:                    id,
 		ipni:                  ipniPublisher,
@@ -360,6 +410,8 @@ func New(
 		indexingService:       o.indexingService,
 		indexingServiceProofs: o.indexingServiceProofs,
 		tx:                    tx,
+		announcer:             announcer,
+		announceAddrs:         []multiaddr.Multiaddr{announceAddr},
 	}, nil
 }
 

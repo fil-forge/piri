@@ -173,7 +173,7 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
 		Publisher: app.PublisherStorageConfig{
-			Dir: filepath.Join(r.DataDir, "publisher"),
+			Dir: filepath.Join(r.DataDir, "ipni"),
 		},
 		EgressTracker: app.EgressTrackerStorageConfig{
 			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),

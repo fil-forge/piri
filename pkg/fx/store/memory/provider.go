@@ -72,7 +72,7 @@ func NewClaimStore() invocationstore.InvocationStore {
 
 func NewPublisherStore() store.FullStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext))
+	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries())
 }
 
 func NewReceiptStore() receiptstore.ReceiptStore {
