@@ -75,8 +75,8 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `queued_jobs` | Jobs waiting in queue |
 | `failed_jobs` | Permanently failed jobs (investigate these) |
 | `job_duration` | How long jobs take |
-| `ipni_pending_adverts` | IPNI advertisements queued and not yet published |
-| `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement |
+| `ipni_pending_adverts` | IPNI advertisements queued and not yet published. With IPNI advertising off, nothing publishes them, so this holds steady |
+| `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement. With IPNI advertising off, this grows while any are queued |
 | `piri_pdp_commp_held_blobs` | Accepted blobs waiting out the CommP delay |
 | `piri_pdp_commp_due_blobs` | Blobs past the delay that no CommP task has picked up (should stay near zero) |
 | `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |

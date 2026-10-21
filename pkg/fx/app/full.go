@@ -4,6 +4,7 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/fx/store"
 	"github.com/fil-forge/piri/pkg/health"
 	"github.com/fil-forge/piri/pkg/service/publisher"
 )
@@ -43,5 +44,22 @@ func FullServerModule(cfg app.AppConfig) fx.Option {
 		// PDP module's harmonydb, so it belongs to neither half and only to
 		// their composition. `piri register` runs the PDP half alone.
 		publisher.QueueModule,
+		ipniAdvertisingModules(cfg),
+	)
+}
+
+// ipniAdvertisingModules returns what IPNI advertising adds to the server:
+// the advertisement chain store, the route serving it and the task
+// publishing the queue into it. With no announce URLs configured it returns
+// none of them, so nothing is written under the publisher data dir; the
+// publisher service then caches claims with the indexer and queues nothing.
+func ipniAdvertisingModules(cfg app.AppConfig) fx.Option {
+	if !cfg.UCANService.Services.Publisher.IPNIEnabled() {
+		return fx.Options()
+	}
+	return fx.Options(
+		store.PublisherStoreModule(cfg.Storage),
+		publisher.ServerModule,
+		publisher.PublishTaskModule,
 	)
 }

@@ -37,10 +37,9 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
 		store.WithMetadataContext(metadata.MetadataContext))
 	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
-	// Publish queues an advertisement only while an indexing service is
-	// configured, so the task is fed through an in-process one.
-	_, indexerOpts := newTestIndexer(t)
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, indexerOpts...)
+	// Publish queues an advertisement only while IPNI announce URLs are
+	// configured, so the service announces to a stand-in IPNI node.
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, newTestAnnouncer(t))
 	require.NoError(t, err)
 	task := NewPublishTask(queue, svc)
 

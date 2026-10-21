@@ -31,14 +31,6 @@ var Module = fx.Module("memory-store",
 			// safely provide as is.
 			fx.ResultTags(`name:"aggregator_datastore"`),
 		),
-		fx.Annotate(
-			NewPublisherStore,
-			// provide as FullStore (self)
-			fx.As(fx.Self()),
-			// provide sub-interfaces of Full Store
-			fx.As(new(store.PublisherStore)),
-			fx.As(new(store.EncodeableStore)),
-		),
 		NewAllocationStore,
 		NewAcceptanceStore,
 		NewClaimStore,
@@ -48,6 +40,21 @@ var Module = fx.Module("memory-store",
 		NewConsolidationStore,
 		NewPDPStore,
 		NewTransactor,
+	),
+)
+
+// PublisherStoreModule provides an in-memory IPNI advertisement chain store.
+// Compose it beside Module only while IPNI advertising is on.
+var PublisherStoreModule = fx.Module("memory-publisher-store",
+	fx.Provide(
+		fx.Annotate(
+			NewPublisherStore,
+			// provide as FullStore (self)
+			fx.As(fx.Self()),
+			// provide sub-interfaces of Full Store
+			fx.As(new(store.PublisherStore)),
+			fx.As(new(store.EncodeableStore)),
+		),
 	),
 )
 

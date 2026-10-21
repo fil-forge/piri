@@ -22,6 +22,14 @@ var Module = fx.Module("publisher",
 			fx.As(new(Publisher)),
 			fx.As(new(Withdrawer)),
 		),
+	),
+)
+
+// ServerModule serves the IPNI advertisement chain at /ipni/v1/ad/:ad, for
+// IPNI nodes syncing it after an announce. It needs the publisher store, so
+// compose it only while IPNI advertising is on.
+var ServerModule = fx.Module("publisher/server",
+	fx.Provide(
 		fx.Annotate(
 			NewServer,
 			fx.As(new(echofx.RouteRegistrar)),
@@ -34,10 +42,12 @@ var Module = fx.Module("publisher",
 // runs; it must match the group consumed in pkg/curiopdp/module.go.
 const taskGroup = `group:"curio_harmonytasks"`
 
-// QueueModule wires the harmonydb advertisement queue and the task that
-// drains it. It is composed into the full server beside Module rather than
-// inside it: the task needs the PDP modules' harmonydb, and a composition
-// without one (the ucanfxtest suites) supplies an in-memory AdvertQueue.
+// QueueModule wires the harmonydb advertisement queue and its metrics. It is
+// composed into the full server beside Module rather than inside it: the
+// queue needs the PDP modules' harmonydb, and a composition without one (the
+// ucanfxtest suites) supplies an in-memory AdvertQueue. The metrics stay
+// while IPNI advertising is off, so rows left from when it was on remain
+// visible.
 var QueueModule = fx.Module("publisher/queue",
 	fx.Provide(
 		fx.Annotate(
@@ -45,10 +55,19 @@ var QueueModule = fx.Module("publisher/queue",
 			fx.As(fx.Self()),
 			fx.As(new(AdvertQueue)),
 		),
+	),
+	fx.Invoke(registerQueueMetrics),
+)
+
+// PublishTaskModule wires the IPNIPublish task that drains the queue, and
+// its flush ticker. Compose it beside QueueModule only while IPNI
+// advertising is on.
+var PublishTaskModule = fx.Module("publisher/task",
+	fx.Provide(
 		NewPublishTask,
 		fx.Annotate(asTask[*PublishTask], fx.ResultTags(taskGroup)),
 	),
-	fx.Invoke(registerQueueMetrics, startPublishTicker),
+	fx.Invoke(startPublishTicker),
 )
 
 // startPublishTicker runs the publish task's flush ticker for the life of
@@ -69,29 +88,35 @@ func startPublishTicker(lc fx.Lifecycle, task *PublishTask) {
 
 func asTask[T harmonytask.TaskInterface](t T) harmonytask.TaskInterface { return t }
 
+// FxParams are the publisher service's dependencies. The publisher store is
+// in the graph only while IPNI advertising is on.
+type FxParams struct {
+	fx.In
+
+	PubCfg         app.PublisherServiceConfig
+	IdxCfg         app.IndexingServiceConfig
+	ID             identity.Identity
+	PublisherStore store.PublisherStore `optional:"true"`
+	Queue          AdvertQueue
+	Tx             pstore.Transactor
+}
+
 // NewFx wires the publisher service from its narrow configs.
-func NewFx(
-	pubCfg app.PublisherServiceConfig,
-	idxCfg app.IndexingServiceConfig,
-	id identity.Identity,
-	publisherStore store.PublisherStore,
-	queue AdvertQueue,
-	tx pstore.Transactor,
-) (*PublisherService, error) {
-	if pubCfg.PublicMaddr.String() == "" {
+func NewFx(p FxParams) (*PublisherService, error) {
+	if p.PubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
 	}
 
 	return New(
-		id,
-		publisherStore,
-		pubCfg.PublicMaddr,
-		queue,
-		WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		WithIndexingService(idxCfg),
-		WithIndexingServiceProof(idxCfg.Proofs),
-		WithAnnounceAddress(pubCfg.AnnounceMaddr),
-		WithBlobAddress(pubCfg.BlobMaddr),
-		WithTransactor(tx),
+		p.ID,
+		p.PublisherStore,
+		p.PubCfg.PublicMaddr,
+		p.Queue,
+		WithDirectAnnounce(p.PubCfg.AnnounceURLs...),
+		WithIndexingService(p.IdxCfg),
+		WithIndexingServiceProof(p.IdxCfg.Proofs),
+		WithAnnounceAddress(p.PubCfg.AnnounceMaddr),
+		WithBlobAddress(p.PubCfg.BlobMaddr),
+		WithTransactor(p.Tx),
 	)
 }

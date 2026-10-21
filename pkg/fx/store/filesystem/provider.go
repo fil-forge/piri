@@ -31,6 +31,18 @@ var Module = fx.Module("filesystem-store",
 			// safely provide as is.
 			fx.ResultTags(`name:"aggregator_datastore"`),
 		),
+		NewRetrievalJournal,
+		NewKeyStore,
+		NewPDPStore,
+	),
+)
+
+// PublisherStoreModule provides the IPNI advertisement chain store, a
+// LevelDB under the publisher data dir. Compose it beside Module or
+// LocalOnlyModule only while IPNI advertising is on: opening the store
+// creates the directory.
+var PublisherStoreModule = fx.Module("filesystem-publisher-store",
+	fx.Provide(
 		fx.Annotate(
 			NewPublisherStore,
 			// provide as FullStore (self)
@@ -39,9 +51,6 @@ var Module = fx.Module("filesystem-store",
 			fx.As(new(store.PublisherStore)),
 			fx.As(new(store.EncodeableStore)),
 		),
-		NewRetrievalJournal,
-		NewKeyStore,
-		NewPDPStore,
 	),
 )
 
@@ -54,23 +63,17 @@ var KeyStoreModule = fx.Module("filesystem-keystore",
 // LocalOnlyModule provides stores that must always be local (filesystem-based).
 // These stores cannot be backed by S3 due to their usage patterns:
 // - AggregatorDatastore: high-frequency state for PDP aggregation
-// - PublisherStore: IPNI advertisement chain state
 // - RetrievalJournal: periodic filesystem-based journal with GC
 // - KeyStore: private keys must never leave disk
 //
-// Use this module alongside s3.Module when S3 is configured.
+// Use this module alongside s3.Module when S3 is configured. The IPNI
+// advertisement chain store is local too; PublisherStoreModule provides it.
 var LocalOnlyModule = fx.Module("local-only-store",
 	fx.Provide(
 		ProvideLocalOnlyConfigs,
 		fx.Annotate(
 			NewAggregatorDatastore,
 			fx.ResultTags(`name:"aggregator_datastore"`),
-		),
-		fx.Annotate(
-			NewPublisherStore,
-			fx.As(fx.Self()),
-			fx.As(new(store.PublisherStore)),
-			fx.As(new(store.EncodeableStore)),
 		),
 		NewRetrievalJournal,
 		NewKeyStore,

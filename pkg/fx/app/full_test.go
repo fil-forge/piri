@@ -1,8 +1,11 @@
 package app_test
 
 import (
+	"fmt"
+	"net/url"
 	"testing"
 
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -33,21 +36,63 @@ var storageVariants = map[string]testutil.TestConfigOption{
 	},
 }
 
+// ipniVariants exercises both shapes of the IPNI advertising graph: with
+// announce URLs the full server adds the advertisement chain store, its
+// route and the publish task, and without them it leaves all three out.
+var ipniVariants = map[string]testutil.TestConfigOption{
+	"IPNI advertising on": func(_ *testing.T, cfg *app.AppConfig) {
+		cfg.UCANService.Services.Publisher.AnnounceURLs = []url.URL{
+			{Scheme: "https", Host: "ipni.example", Path: "/announce"},
+		}
+	},
+	"IPNI advertising off": func(_ *testing.T, cfg *app.AppConfig) {
+		cfg.UCANService.Services.Publisher.AnnounceURLs = nil
+	},
+}
+
 // TestFullServerModule_ValidateApp ensures the full piri server's dependency
 // graph is complete and wireable. fx.ValidateApp validates the graph without
 // running any constructors, so no network endpoints are dialed.
 func TestFullServerModule_ValidateApp(t *testing.T) {
-	for name, withStorage := range storageVariants {
-		t.Run(name, func(t *testing.T) {
-			cfg := testutil.NewTestConfig(t, withStorage)
+	for storageName, withStorage := range storageVariants {
+		for ipniName, withIPNI := range ipniVariants {
+			t.Run(fmt.Sprintf("%s, %s", storageName, ipniName), func(t *testing.T) {
+				cfg := testutil.NewTestConfig(t, withStorage, withIPNI)
 
-			err := fx.ValidateApp(
-				fx.NopLogger,
-				fxapp.FullServerModule(cfg),
-			)
+				err := fx.ValidateApp(
+					fx.NopLogger,
+					fxapp.FullServerModule(cfg),
+				)
 
-			require.NoError(t, err)
-		})
+				require.NoError(t, err)
+			})
+		}
+	}
+}
+
+// TestFullServerModule_PublisherStoreOnlyWithIPNI ensures the advertisement
+// chain store, a LevelDB under the publisher data dir, is in the graph only
+// while IPNI advertising is on. Out of the graph, nothing can open it, so
+// nothing is written under the publisher data dir.
+func TestFullServerModule_PublisherStoreOnlyWithIPNI(t *testing.T) {
+	for storageName, withStorage := range storageVariants {
+		for ipniName, withIPNI := range ipniVariants {
+			t.Run(fmt.Sprintf("%s, %s", storageName, ipniName), func(t *testing.T) {
+				cfg := testutil.NewTestConfig(t, withStorage, withIPNI)
+
+				err := fx.ValidateApp(
+					fx.NopLogger,
+					fxapp.FullServerModule(cfg),
+					fx.Invoke(func(store.PublisherStore) {}),
+				)
+
+				if cfg.UCANService.Services.Publisher.IPNIEnabled() {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, "missing type: store.PublisherStore")
+				}
+			})
+		}
 	}
 }
 
@@ -56,16 +101,18 @@ func TestFullServerModule_ValidateApp(t *testing.T) {
 // placed in the PDP module that depends on a UCAN-side type passes the full
 // server's validation and still fails the node at registration.
 func TestInitModule_ValidateApp(t *testing.T) {
-	for name, withStorage := range storageVariants {
-		t.Run(name, func(t *testing.T) {
-			cfg := testutil.NewTestConfig(t, withStorage)
+	for storageName, withStorage := range storageVariants {
+		for ipniName, withIPNI := range ipniVariants {
+			t.Run(fmt.Sprintf("%s, %s", storageName, ipniName), func(t *testing.T) {
+				cfg := testutil.NewTestConfig(t, withStorage, withIPNI)
 
-			err := fx.ValidateApp(
-				fx.NopLogger,
-				fxapp.InitModule(cfg),
-			)
+				err := fx.ValidateApp(
+					fx.NopLogger,
+					fxapp.InitModule(cfg),
+				)
 
-			require.NoError(t, err)
-		})
+				require.NoError(t, err)
+			})
+		}
 	}
 }

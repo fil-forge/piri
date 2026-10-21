@@ -37,7 +37,7 @@ func TestPublishClaimed_WaitsForRelease(t *testing.T) {
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
 		store.WithMetadataContext(metadata.MetadataContext))
 	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, WithTransactor(tx))
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, WithTransactor(tx), newTestAnnouncer(t))
 	require.NoError(t, err)
 
 	queueClaim := func() cid.Cid {
@@ -119,7 +119,7 @@ func TestPublishClaimed_HoldsRowsWhilePublishing(t *testing.T) {
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
 		store.WithMetadataContext(metadata.MetadataContext))
 	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, WithTransactor(harmonytx.New(db)))
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, WithTransactor(harmonytx.New(db)), newTestAnnouncer(t))
 	require.NoError(t, err)
 	blocking := &blockingBatchPublisher{BatchPublisher: svc.ipni, publishing: make(chan struct{}), release: make(chan struct{})}
 	svc.ipni = blocking

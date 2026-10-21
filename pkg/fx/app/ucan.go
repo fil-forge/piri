@@ -12,7 +12,7 @@ import (
 var UCANModule = fx.Module("ucan",
 	root.Module,      // Provides root http handler
 	claims.Module,    // Provides claims service and handler
-	publisher.Module, // Provides publisher service and handler
+	publisher.Module, // Provides publisher service
 	ucanhandlersfx.Module,
 	//egresstracker.Module,     // Provides egress tracker service — re-enable: see #14
 	//replicator.Module,        // Provides replicator service — re-enable: see #15

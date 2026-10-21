@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"sync"
@@ -135,19 +136,35 @@ func newTestIndexer(t *testing.T) (*testIndexer, []Option) {
 // newTestService's default indexer options, so the last one wins.
 var indexerDisabled = WithIndexingService(app.IndexingServiceConfig{})
 
-// ipniAnnounce points the service at an IPNI node to announce to. The test
-// never commits a batch, so nothing is sent.
-var ipniAnnounce = WithDirectAnnounce(url.URL{Scheme: "http", Host: "ipni.example", Path: "/announce"})
+// ipniDisabled clears the announce URLs, which turns IPNI advertising off;
+// it is applied after newTestService's default announce option.
+var ipniDisabled Option = func(o *options) error {
+	o.announceURLs = nil
+	return nil
+}
+
+// newTestAnnouncer starts a stand-in IPNI node that accepts every announce,
+// and returns the option pointing a service at it, which turns IPNI
+// advertising on.
+func newTestAnnouncer(t *testing.T) Option {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	announceURL := testutil.Must(url.Parse(srv.URL + "/announce"))(t)
+	return WithDirectAnnounce(*announceURL)
+}
 
 // newTestService builds a service over a fresh in-memory queue, pointed at an
-// in-process indexer since Publish only queues advertisements while one is
-// configured, and returns the queue beside it. Caller options are applied
-// last.
+// in-process indexer and at a stand-in IPNI node, and returns the queue
+// beside it. Caller options are applied last.
 func newTestService(t *testing.T, publisherStore store.PublisherStore, addr multiaddr.Multiaddr, opts ...Option) (*PublisherService, *memQueue) {
 	t.Helper()
 	_, indexerOpts := newTestIndexer(t)
+	defaults := append(indexerOpts, newTestAnnouncer(t))
 	queue := &memQueue{}
-	svc, err := New(testutil.Alice, publisherStore, addr, queue, append(indexerOpts, opts...)...)
+	svc, err := New(testutil.Alice, publisherStore, addr, queue, append(defaults, opts...)...)
 	require.NoError(t, err)
 	return svc, queue
 }
@@ -323,56 +340,65 @@ func TestPublisherService(t *testing.T) {
 			"handler received the location-claim CID as args.Claim")
 	})
 
-	queuedByIndexerState := map[string]struct {
-		opts   []Option
+	type publishOutcome struct {
+		cached bool
 		queued int
-	}{
-		"indexer is configured":                         {opts: nil, queued: 1},
-		"indexer is disabled but IPNI is announced to":  {opts: []Option{indexerDisabled, ipniAnnounce}, queued: 1},
-		"indexer is disabled and IPNI is not announced": {opts: []Option{indexerDisabled}, queued: 0},
 	}
-	for desc, tc := range queuedByIndexerState {
-		t.Run(fmt.Sprintf("queues an advertisement only while the %s", desc), func(t *testing.T) {
-			dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-			publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-			svc, queue := newTestService(t, publisherStore, addr, tc.opts...)
+	publishOutcomes := []struct {
+		desc string
+		opts []Option
+		want publishOutcome
+	}{
+		{"with announce URLs and an indexer", nil, publishOutcome{cached: true, queued: 1}},
+		{"with announce URLs and no indexer", []Option{indexerDisabled}, publishOutcome{cached: false, queued: 1}},
+		{"with an indexer and no announce URLs", []Option{ipniDisabled}, publishOutcome{cached: true, queued: 0}},
+		{"with neither announce URLs nor an indexer", []Option{indexerDisabled, ipniDisabled}, publishOutcome{cached: false, queued: 0}},
+	}
+	for _, tc := range publishOutcomes {
+		t.Run(fmt.Sprintf("publishing %s: cached=%v, queued=%d", tc.desc, tc.want.cached, tc.want.queued), func(t *testing.T) {
+			indexer, indexerOpts := newTestIndexer(t)
+			queue := &memQueue{}
+			opts := append(append(indexerOpts, newTestAnnouncer(t)), tc.opts...)
+			svc, err := New(testutil.Alice, newTestPublisherStore(), addr, queue, opts...)
+			require.NoError(t, err)
 
 			require.NoError(t, svc.Publish(ctx, mintTestLocationClaim(t)))
-			require.Len(t, queue.links(), tc.queued)
+			cached, _ := indexer.called()
+			require.Equal(t, tc.want, publishOutcome{cached: cached, queued: len(queue.links())})
 		})
 	}
 
-	t.Run("does not ask a disabled indexer to cache", func(t *testing.T) {
-		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-		indexer, indexerOpts := newTestIndexer(t)
-		// Announcing to IPNI keeps the advertisement; the indexer stays out of it.
-		svc, _ := newTestService(t, publisherStore, addr, append(indexerOpts, indexerDisabled, ipniAnnounce)...)
+	t.Run("withdraw is a no-op while IPNI advertising is disabled", func(t *testing.T) {
+		svc, queue := newTestService(t, newTestPublisherStore(), addr, ipniDisabled)
 
-		require.NoError(t, svc.Publish(ctx, mintTestLocationClaim(t)))
-		handlerCalled, _ := indexer.called()
-		require.False(t, handlerCalled, "indexing-service /claim/cache handler was not invoked")
-	})
-
-	t.Run("withdraws a queued advertisement while the indexer is disabled", func(t *testing.T) {
-		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-		svc, queue := newTestService(t, publisherStore, addr, indexerDisabled)
-
-		// Queued while the indexer was still configured, released after it
-		// was turned off: the row must still go, or the task publishes a
-		// location for a released blob.
+		// Queued while advertising was on: the row stays until a backfill
+		// reconciles the queue with the accepted blobs.
 		claimInv := mintTestLocationClaim(t)
 		queue.rows = append(queue.rows, QueuedAdvert{Claim: claimInv.Link()})
 
 		require.NoError(t, svc.Withdraw(ctx, claimInv.Link()))
-		require.Empty(t, queue.links())
+		require.Equal(t, []cid.Cid{claimInv.Link()}, queue.links())
 	})
 
-	t.Run("rejects an unknown claim while the indexer is disabled", func(t *testing.T) {
-		dstore := dssync.MutexWrap(datastore.NewMapDatastore())
-		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
-		svc, _ := newTestService(t, publisherStore, addr, indexerDisabled)
+	t.Run("refuses to publish a batch while IPNI advertising is disabled", func(t *testing.T) {
+		svc, _ := newTestService(t, nil, addr, ipniDisabled)
+
+		_, _, err := svc.PublishClaimed(ctx, 1)
+		require.ErrorContains(t, err, "IPNI advertising is disabled")
+	})
+
+	t.Run("needs no publisher store while IPNI advertising is disabled", func(t *testing.T) {
+		_, err := New(testutil.Alice, nil, addr, &memQueue{}, ipniDisabled)
+		require.NoError(t, err)
+	})
+
+	t.Run("requires a publisher store while IPNI advertising is enabled", func(t *testing.T) {
+		_, err := New(testutil.Alice, nil, addr, &memQueue{}, newTestAnnouncer(t))
+		require.ErrorContains(t, err, "no publisher store")
+	})
+
+	t.Run("rejects an unknown claim while IPNI advertising and the indexer are disabled", func(t *testing.T) {
+		svc, _ := newTestService(t, nil, addr, indexerDisabled, ipniDisabled)
 
 		unknown := testutil.Must(claim.Cache.Invoke(
 			testutil.Alice,
@@ -382,6 +408,11 @@ func TestPublisherService(t *testing.T) {
 
 		require.ErrorContains(t, svc.Publish(ctx, unknown), "unknown claim")
 	})
+}
+
+func newTestPublisherStore() store.FullStore {
+	dstore := dssync.MutexWrap(datastore.NewMapDatastore())
+	return store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
 }
 
 // mintTestLocationClaim mints a location claim for a random space and shard,

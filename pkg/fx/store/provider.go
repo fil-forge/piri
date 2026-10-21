@@ -15,9 +15,9 @@ import (
 // records about them go to Postgres either way. With no data dir, every store
 // is in memory.
 func StorageModule(cfg app.StorageConfig) fx.Option {
-	if cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != "" {
+	if s3Configured(cfg) {
 		// LocalOnlyModule keeps the stores that must remain on the local
-		// filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal, KeyStore)
+		// filesystem (AggregatorDatastore, RetrievalJournal, KeyStore)
 		return fx.Options(
 			s3.Module,
 			filesystem.LocalOnlyModule,
@@ -30,4 +30,19 @@ func StorageModule(cfg app.StorageConfig) fx.Option {
 		filesystem.Module,
 		postgres.Module,
 	)
+}
+
+// PublisherStoreModule returns the module providing the IPNI advertisement
+// chain store, which stays on the local filesystem even when blobs go to S3.
+// With no data dir it is in memory. Compose it only while IPNI advertising
+// is on.
+func PublisherStoreModule(cfg app.StorageConfig) fx.Option {
+	if !s3Configured(cfg) && cfg.DataDir == "" {
+		return memory.PublisherStoreModule
+	}
+	return filesystem.PublisherStoreModule
+}
+
+func s3Configured(cfg app.StorageConfig) bool {
+	return cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != ""
 }

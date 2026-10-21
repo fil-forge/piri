@@ -50,8 +50,9 @@ type PublisherService struct {
 	provider              peer.AddrInfo
 	indexingService       app.IndexingServiceConfig
 	indexingServiceProofs []ucan.Delegation
-	// advertises is false when nothing reads the advertisement chain: no
-	// indexing service to query IPNI for it and no IPNI node told to sync it.
+	// advertises is false when no IPNI announce URLs are configured: no IPNI
+	// node would learn of the advertisement chain, so none is built and ipni
+	// is nil.
 	advertises bool
 	// tx holds a batch's queue rows locked from load to publish.
 	tx pstore.Transactor
@@ -64,20 +65,23 @@ type PublisherService struct {
 // told now, since that is what serves a read of the blob straight after its
 // write. In a transaction (see harmonytx), the advertisement is queued in it
 // and the indexer is told once it commits, so it never learns of a claim
-// that was rolled back.
+// that was rolled back. Without IPNI announce URLs nothing is queued, and
+// without an indexing service nothing is cached.
 func (pub *PublisherService) Publish(ctx context.Context, claim ucan.Invocation) error {
 	ability := claim.Command()
 	switch ability {
 	case assert.Location.Command:
-		if !pub.advertises {
+		if pub.advertises {
+			spec, err := locationAdvertSpec(pub.provider, claim)
+			if err != nil {
+				return fmt.Errorf("deriving advertisement for claim %s: %w", claim.Link(), err)
+			}
+			if err := pub.queue.Enqueue(ctx, claim.Link(), spec); err != nil {
+				return err
+			}
+		}
+		if !pub.indexingService.DID.Defined() {
 			return nil
-		}
-		spec, err := locationAdvertSpec(pub.provider, claim)
-		if err != nil {
-			return fmt.Errorf("deriving advertisement for claim %s: %w", claim.Link(), err)
-		}
-		if err := pub.queue.Enqueue(ctx, claim.Link(), spec); err != nil {
-			return err
 		}
 		// Caching the claim with the indexing service stays synchronous: it is
 		// what makes a blob readable as soon as its accept returns, and it is
@@ -99,8 +103,14 @@ type Withdrawer interface {
 	Withdraw(ctx context.Context, claim cid.Cid) error
 }
 
-// Withdraw implements Withdrawer.
+// Withdraw implements Withdrawer. It does nothing while IPNI advertising is
+// off: no task publishes the queue then. Rows left from when it was on can
+// name released blobs, so turning it back on needs a backfill that first
+// drops queued claims no longer accepted.
 func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error {
+	if !pub.advertises {
+		return nil
+	}
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 	return pub.queue.Dequeue(ctx, claim)
@@ -116,6 +126,9 @@ func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error 
 // advertisement chain yet, so the gap is harmless for now; once such rows
 // have drained, skipping should become a failure.
 func (pub *PublisherService) PublishClaimed(ctx context.Context, batch harmonytask.TaskID) (rows, published int, err error) {
+	if !pub.advertises {
+		return 0, 0, fmt.Errorf("IPNI advertising is disabled: no announce URLs are configured")
+	}
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 
@@ -287,6 +300,10 @@ var _ Publisher = (*PublisherService)(nil)
 // New creates a [Publisher] that publishes content claims/commitments to IPNI
 // and caches them with the indexing service.
 //
+// IPNI advertising is on when at least one announce URL is configured (see
+// [WithDirectAnnounce]); publisherStore is then required. With it off,
+// publisherStore may be nil and is not used.
+//
 // The publicAddr parameter is the base public address where adverts and claims
 // can be read from. When publishing, the address is suffixed with a
 // /http-path/<path> multiaddr, where "path" is the URI encoded version of the
@@ -324,14 +341,21 @@ func New(
 		announceAddr = publicAddr
 	}
 
-	ipnipubOpts := []ipnipub.Option{ipnipub.WithAnnounceAddrs(announceAddr.String())}
-	for _, u := range o.announceURLs {
-		log.Infof("Announcing new IPNI adverts to: %s", u.String())
-		ipnipubOpts = append(ipnipubOpts, ipnipub.WithDirectAnnounce(u.String()))
-	}
-	ipniPublisher, err := ipnipub.New(priv, publisherStore, ipnipubOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
+	advertises := len(o.announceURLs) > 0
+	var ipniPublisher ipnipub.BatchPublisher
+	if advertises {
+		if publisherStore == nil {
+			return nil, fmt.Errorf("IPNI announce URLs are configured but no publisher store was provided")
+		}
+		ipnipubOpts := []ipnipub.Option{ipnipub.WithAnnounceAddrs(announceAddr.String())}
+		for _, u := range o.announceURLs {
+			log.Infof("Announcing new IPNI adverts to: %s", u.String())
+			ipnipubOpts = append(ipnipubOpts, ipnipub.WithDirectAnnounce(u.String()))
+		}
+		ipniPublisher, err = ipnipub.New(priv, publisherStore, ipnipubOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
+		}
 	}
 
 	found := false
@@ -354,12 +378,15 @@ func New(
 		return nil, fmt.Errorf("building provider info: %w", err)
 	}
 
-	advertises := o.indexingService.DID.Defined() || len(o.announceURLs) > 0
-	switch {
-	case !advertises:
-		log.Warn("no indexing service and no IPNI announce URLs configured; claims will be neither cached nor advertised")
-	case !o.indexingService.DID.Defined():
-		log.Warn("indexing service not configured; claims will be advertised to IPNI but not cached")
+	indexerDefined := o.indexingService.DID.Defined()
+	if !advertises {
+		log.Info("IPNI advertising is disabled: no IPNI announce URLs are configured")
+		if indexerDefined {
+			log.Warn("indexing service configured without IPNI announce URLs; it caches each claim for about an hour, after which nothing in IPNI resolves it")
+		}
+	}
+	if !indexerDefined {
+		log.Info("indexing service not configured; claims will not be cached")
 	}
 
 	return &PublisherService{

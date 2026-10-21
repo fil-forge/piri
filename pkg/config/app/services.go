@@ -53,3 +53,11 @@ type PublisherServiceConfig struct {
 	// Indexer URLs to send direct HTTP announcements to
 	AnnounceURLs []url.URL
 }
+
+// IPNIEnabled reports whether the node advertises to IPNI. An IPNI node
+// learns of the advertisement chain only through an announce, so without
+// announce URLs nothing would read it, and the node neither builds nor
+// stores one.
+func (c PublisherServiceConfig) IPNIEnabled() bool {
+	return len(c.AnnounceURLs) > 0
+}

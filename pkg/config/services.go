@@ -316,8 +316,8 @@ func (s *UploadServiceConfig) ToAppConfig() (app.UploadServiceConfig, error) {
 }
 
 type PublisherServiceConfig struct {
-	// AnnounceURLs may be empty: adverts are still built and served locally,
-	// but no IPNI node is notified of them.
+	// AnnounceURLs may be empty, which turns IPNI advertising off: no
+	// advertisements are built, stored or served.
 	AnnounceURLs []string `mapstructure:"ipni_announce_urls" validate:"omitempty,dive,url" flag:"ipni-announce-urls" toml:"ipni_announce_urls,omitempty"`
 }
 
