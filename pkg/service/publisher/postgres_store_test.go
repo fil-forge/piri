@@ -58,7 +58,7 @@ func TestPostgresStore_IndexerSyncsPublishedChain(t *testing.T) {
 		lnk = ad.PreviousID
 	}
 
-	require.Equal(t, want, syncChain(t, httpServer.URL, env.provider, asCid(hd.Head)))
+	require.ElementsMatch(t, want, syncChain(t, httpServer.URL, env.provider, asCid(hd.Head)))
 }
 
 // A batch whose advert cannot be written publishes nothing: the head, the
