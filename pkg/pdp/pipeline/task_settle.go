@@ -91,9 +91,14 @@ func (t *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done
 		return false, fmt.Errorf("recording settle: %w", err)
 	}
 
-	// Handoff: spawn the commP task for this blob. Dedup on commp_task_id; a
-	// lost spawn is scavenged by the commP task's IAmBored.
-	t.commp.spawn(ctx, blob)
+	// Handoff: spawn the commP task for this blob, as Entry.Enqueue does for
+	// a blob that was not staged: only when there is no commP delay, since
+	// the row is not due before the delay has passed. Dedup on
+	// commp_task_id; a lost spawn, or a row held by the delay, is claimed by
+	// the commP task's IAmBored once due.
+	if t.commp.policy.Delay() == 0 {
+		t.commp.spawn(ctx, blob)
+	}
 	return true, nil
 }
 
