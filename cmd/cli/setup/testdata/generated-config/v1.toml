@@ -45,6 +45,7 @@ network = "fixture"
     usdfc_token = "0x6789012345678901234567890123456789012345"
   [pdp.aggregation]
     [pdp.aggregation.commp]
+      delay = "1h0m0s"
       [pdp.aggregation.commp.job_queue]
         workers = 4
         retries = 50

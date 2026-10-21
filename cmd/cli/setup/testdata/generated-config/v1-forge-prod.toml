@@ -45,6 +45,7 @@ network = "forge-prod"
     usdfc_token = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
   [pdp.aggregation]
     [pdp.aggregation.commp]
+      delay = "1h0m0s"
       [pdp.aggregation.commp.job_queue]
         workers = 4
         retries = 50

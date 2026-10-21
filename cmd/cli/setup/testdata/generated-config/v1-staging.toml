@@ -42,6 +42,7 @@ network = "staging"
     usdfc_token = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
   [pdp.aggregation]
     [pdp.aggregation.commp]
+      delay = "1h0m0s"
       [pdp.aggregation.commp.job_queue]
         workers = 4
         retries = 50
