@@ -141,3 +141,29 @@ func TestDo_CancelledHeldRowIsNoop(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, done)
 }
+
+// TestClaims_SkipPendingRemoval: a blob whose release has queued a removal
+// is not claimed, by the bored claim or a direct spawn, however due its row
+// is: the sweep decides whether the row is cancelled or, after a racing
+// accept revived the blob, left for a later claim.
+func TestClaims_SkipPendingRemoval(t *testing.T) {
+	p := newTestPipeline(t)
+	*p.delay = time.Hour
+	ctx := t.Context()
+	blob, _, _ := testBlobAndPiece(t, "blob-removal-pending")
+	require.NoError(t, p.entry.Enqueue(ctx, blob))
+	p.backdate(t, blob, 2*time.Hour)
+	_, err := p.db.Exec(ctx, `INSERT INTO pdp_pending_piece_removals (digest) VALUES ($1)`, []byte(blob))
+	require.NoError(t, err)
+
+	p.bored(t)
+	require.Nil(t, p.row(t, blob).CommPTaskID, "the bored claim leaves a blob with a removal pending")
+	p.commp.spawn(ctx, blob)
+	require.Nil(t, p.row(t, blob).CommPTaskID, "so does a direct spawn")
+
+	// The sweep dropped the removal (a racing accept revived the blob).
+	_, err = p.db.Exec(ctx, `DELETE FROM pdp_pending_piece_removals WHERE digest = $1`, []byte(blob))
+	require.NoError(t, err)
+	p.bored(t)
+	require.NotNil(t, p.row(t, blob).CommPTaskID, "claimed once the removal is gone")
+}

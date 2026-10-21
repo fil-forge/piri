@@ -39,7 +39,11 @@ const boredClaimLimit = 256
 // A row is due once the policy's delay has passed since it was created, and
 // only a due row is claimed: by the spawn at acceptance when there is no
 // delay, otherwise by IAmBored on the engine's poll. A row released before it
-// is due is cancelled by the removal sweep and never costs a commP.
+// is due is cancelled by the removal sweep and never costs a commP. A release
+// queues the removal for the sweep rather than cancelling the row itself, so
+// a row whose blob has a removal pending is not claimed either: the sweep
+// decides whether to cancel the row or, if a racing accept revived the blob,
+// to drop the removal and leave the row to be claimed.
 type CommPTask struct {
 	db     *harmonydb.DB
 	api    types.PieceAPI
@@ -60,14 +64,15 @@ func (t *CommPTask) delaySeconds() float64 {
 }
 
 // spawn creates a PDPCommP task claiming the blob's pipeline row, if the row
-// is due. Best-effort (AddTask swallows errors); IAmBored claims rows whose
-// spawn was lost or that were not due yet.
+// is claimable. Best-effort (AddTask swallows errors); IAmBored claims rows
+// whose spawn was lost or that were not claimable yet.
 func (t *CommPTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
 			UPDATE pdp_blob_pipeline SET commp_task_id = $1
 			WHERE digest = $2 AND commp_task_id IS NULL AND NOT staged
 			  AND created_at <= now() - make_interval(secs => $3::double precision)
+			  AND NOT EXISTS (SELECT 1 FROM pdp_pending_piece_removals r WHERE r.digest = pdp_blob_pipeline.digest)
 		`, id, []byte(blob), t.delaySeconds())
 		return n > 0, err
 	})
@@ -163,6 +168,7 @@ func (t *CommPTask) TypeDetails() harmonytask.TaskTypeDetails {
 							SELECT digest FROM pdp_blob_pipeline
 							WHERE commp_task_id IS NULL AND aggregate_root IS NULL AND NOT staged
 							  AND created_at <= now() - make_interval(secs => $2::double precision)
+							  AND NOT EXISTS (SELECT 1 FROM pdp_pending_piece_removals r WHERE r.digest = pdp_blob_pipeline.digest)
 							ORDER BY created_at LIMIT 1
 						)
 					`, id, t.delaySeconds())

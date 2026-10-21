@@ -667,3 +667,45 @@ func TestSweep_HeldRowCancelledUnhashed(t *testing.T) {
 	require.True(t, sawCount, "cancellation counted")
 	require.True(t, sawAge, "cancellation age recorded")
 }
+
+// TestSweep_CancelledRowWithMappingCountsAsHashed: the commp task records the
+// blob's mapping before it parks the piece and stamps the row, so a row
+// cancelled with its commp unset but a mapping present (the task gave up
+// between the two) still ran the hash, and is counted as after_commp.
+func TestSweep_CancelledRowWithMappingCountsAsHashed(t *testing.T) {
+	w := setupRemovalTest(t)
+	ctx := t.Context()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	cancels, err := newPipelineCancelMetrics(provider.Meter("test"))
+	require.NoError(t, err)
+	w.svc.cancels = cancels
+
+	blob := mustMultihash(t, "blob-mapped-unstamped")
+	commpV2, commpV1 := testPiece(t, "piece-mapped-unstamped")
+	require.NoError(t, w.bs.Put(ctx, blob, 4, bytes.NewReader([]byte("data"))))
+	w.seedPipeline(t, blob, "", "") // commp_task_id 42 with no harmony_task row: the task gave up
+	w.seedMapping(t, blob, commpV2, commpV1)
+	require.NoError(t, w.svc.RemovePiece(ctx, blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	var saw bool
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "piri_pdp_pipeline_cancelled" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Len(t, sum.DataPoints, 1)
+			stage, _ := sum.DataPoints[0].Attributes.Value("stage")
+			require.Equal(t, stageAfterCommP, stage.AsString(), "a mapping means the hash ran")
+			saw = true
+		}
+	}
+	require.True(t, saw)
+}

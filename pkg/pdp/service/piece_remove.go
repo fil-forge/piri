@@ -291,6 +291,11 @@ func (p *PDPService) cancelPendingRemoval(ctx context.Context, blob multihash.Mu
 // staging store serializes a settle against the blob's deletion within one
 // process; waiting for the task keeps that true however the tasks are
 // placed.
+//
+// A cancelled row is counted as hashed when its commp is recorded or the
+// blob has a commp mapping: the commp task records the mapping before it
+// parks the piece and stamps the row, so a task that gave up between the two
+// still ran the hash, as did an on-demand calculation.
 func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Multihash) (active bool, err error) {
 	var cancelled []struct {
 		CreatedAt time.Time `db:"created_at"`
@@ -303,7 +308,10 @@ func (p *PDPService) cancelPipelineEntry(ctx context.Context, blob multihash.Mul
 		       OR NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.commp_task_id))
 		  AND NOT (staged AND settle_task_id IS NOT NULL
 		       AND EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_blob_pipeline.settle_task_id))
-		RETURNING created_at, commp IS NOT NULL AS hashed
+		RETURNING created_at,
+		          (commp IS NOT NULL OR EXISTS (
+		              SELECT 1 FROM pdp_piece_mh_to_commp m WHERE m.mhash = pdp_blob_pipeline.digest
+		          )) AS hashed
 	`, []byte(blob)); err != nil {
 		return false, fmt.Errorf("cancelling pipeline row for %s: %w", blob.String(), err)
 	}
