@@ -55,6 +55,12 @@ All four logical databases share one PostgreSQL database, isolated by schema:
 - `aggregator` schema
 - `egress_tracker` schema
 
+### PDP Aggregates
+
+The aggregation pipeline keeps each PDP aggregate on the `pdp_blob_pipeline` rows of its pieces: `aggregate_root` names the aggregate, `agg_position` is the piece's position in it, and `inclusion_proof` holds the piece's inclusion proof. The columns are set in the transaction that folds the pieces, and the rows are deleted once the aggregate's pieces are added on-chain.
+
+Earlier versions stored aggregates in a LevelDB store under `{data_dir}/aggregator`. On upgrade, every aggregate that is not yet retired is folded again from its pipeline rows. An aggregate whose AddRoots transaction landed before the upgrade but whose rows were not yet retired is added on-chain a second time.
+
 ### Characteristics
 
 - **Connection Pooling**: Configurable max connections and idle pool size
