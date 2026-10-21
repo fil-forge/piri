@@ -17,7 +17,7 @@ import (
 func StorageModule(cfg app.StorageConfig) fx.Option {
 	if cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != "" {
 		// LocalOnlyModule keeps the stores that must remain on the local
-		// filesystem (AggregatorDatastore, PublisherStore, RetrievalJournal, KeyStore)
+		// filesystem (PublisherStore, RetrievalJournal, KeyStore)
 		return fx.Options(
 			s3.Module,
 			filesystem.LocalOnlyModule,
