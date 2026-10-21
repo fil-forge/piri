@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
@@ -13,6 +14,8 @@ import (
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	blobcmd "github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
@@ -608,4 +611,101 @@ func TestSweep_OrphanedPieceRefsFinalize(t *testing.T) {
 	_, err := w.bs.Get(t.Context(), blob)
 	require.ErrorIs(t, err, store.ErrNotFound, "orphaned refs don't block finalization")
 	require.Zero(t, w.count(t, "pdp_piecerefs"), "orphaned piece refs cleaned up")
+}
+
+// TestSweep_HeldRowCancelledUnhashed: a blob released while its pipeline row
+// is still waiting out the commP delay (no task, no commP) is cancelled, its
+// bytes released, and the cancellation counted as one the delay saved the
+// commP for, with the row's age.
+func TestSweep_HeldRowCancelledUnhashed(t *testing.T) {
+	w := setupRemovalTest(t)
+	ctx := t.Context()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	cancels, err := newPipelineCancelMetrics(provider.Meter("test"))
+	require.NoError(t, err)
+	w.svc.cancels = cancels
+
+	blob := mustMultihash(t, "blob-held")
+	require.NoError(t, w.bs.Put(ctx, blob, 4, bytes.NewReader([]byte("data"))))
+	_, err = w.db.Exec(ctx, `
+		INSERT INTO pdp_blob_pipeline (digest, created_at) VALUES ($1, now() - interval '10 minutes')
+	`, []byte(blob))
+	require.NoError(t, err)
+	require.NoError(t, w.svc.RemovePiece(ctx, blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"), "the held row is cancelled")
+	_, err = w.bs.Get(ctx, blob)
+	require.ErrorIs(t, err, store.ErrNotFound, "bytes released without a commP")
+	require.Zero(t, w.count(t, "pdp_pending_piece_removals"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	var sawCount, sawAge bool
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch m.Name {
+			case "piri_pdp_pipeline_cancelled":
+				sum := m.Data.(metricdata.Sum[int64])
+				require.Len(t, sum.DataPoints, 1)
+				stage, _ := sum.DataPoints[0].Attributes.Value("stage")
+				require.Equal(t, stageBeforeCommP, stage.AsString())
+				require.EqualValues(t, 1, sum.DataPoints[0].Value)
+				sawCount = true
+			case "piri_pdp_pipeline_cancelled_age_seconds":
+				h := m.Data.(metricdata.Histogram[float64])
+				require.Len(t, h.DataPoints, 1)
+				require.EqualValues(t, 1, h.DataPoints[0].Count)
+				require.InDelta(t, (10 * time.Minute).Seconds(), h.DataPoints[0].Sum, 30)
+				sawAge = true
+			}
+		}
+	}
+	require.True(t, sawCount, "cancellation counted")
+	require.True(t, sawAge, "cancellation age recorded")
+}
+
+// TestSweep_CancelledRowWithMappingCountsAsHashed: the commp task records the
+// blob's mapping before it parks the piece and stamps the row, so a row
+// cancelled with its commp unset but a mapping present (the task gave up
+// between the two) still ran the hash, and is counted as after_commp.
+func TestSweep_CancelledRowWithMappingCountsAsHashed(t *testing.T) {
+	w := setupRemovalTest(t)
+	ctx := t.Context()
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	cancels, err := newPipelineCancelMetrics(provider.Meter("test"))
+	require.NoError(t, err)
+	w.svc.cancels = cancels
+
+	blob := mustMultihash(t, "blob-mapped-unstamped")
+	commpV2, commpV1 := testPiece(t, "piece-mapped-unstamped")
+	require.NoError(t, w.bs.Put(ctx, blob, 4, bytes.NewReader([]byte("data"))))
+	w.seedPipeline(t, blob, "", "") // commp_task_id 42 with no harmony_task row: the task gave up
+	w.seedMapping(t, blob, commpV2, commpV1)
+	require.NoError(t, w.svc.RemovePiece(ctx, blob))
+
+	require.NoError(t, w.svc.processPendingRemovals(ctx, noopRemoveRoot))
+	require.Zero(t, w.count(t, "pdp_blob_pipeline"))
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(ctx, &rm))
+	var saw bool
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "piri_pdp_pipeline_cancelled" {
+				continue
+			}
+			sum := m.Data.(metricdata.Sum[int64])
+			require.Len(t, sum.DataPoints, 1)
+			stage, _ := sum.DataPoints[0].Attributes.Value("stage")
+			require.Equal(t, stageAfterCommP, stage.AsString(), "a mapping means the hash ran")
+			saw = true
+		}
+	}
+	require.True(t, saw)
 }

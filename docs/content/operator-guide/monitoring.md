@@ -77,6 +77,10 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `job_duration` | How long jobs take |
 | `ipni_pending_adverts` | IPNI advertisements queued and not yet published |
 | `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement |
+| `piri_pdp_commp_held_blobs` | Accepted blobs waiting out the CommP delay |
+| `piri_pdp_commp_due_blobs` | Blobs past the delay that no CommP task has picked up (should stay near zero) |
+| `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |
+| `piri_pdp_pipeline_cancelled` | Blobs removed before aggregation, by whether their CommP had been computed |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
@@ -221,6 +225,33 @@ then failed on chain, and a prove task that woke after its challenge window
 had closed (Curio only logs this). Both are recorded as successful task runs
 and leave the failure count unchanged. The last alert is also per node: with
 several proof sets, proving one keeps it quiet.
+
+### Aggregation Pipeline Health
+
+An accepted blob waits out
+[`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
+before a CommP task claims it. `piri_pdp_commp_held_blobs` is that queue
+working as configured: it tracks the ingest rate times the delay. Once a blob
+is past the delay the task engine claims it within a poll, so
+`piri_pdp_commp_due_blobs` sits near zero and
+`piri_pdp_commp_due_blobs_oldest_seconds` near the poll interval. A due count
+that keeps growing, or an oldest age of minutes, means claims have stopped:
+the task engine is down, or every poll finds other work first.
+
+| Metric | Unit | Labels | What It Tells You |
+|--------|------|--------|-------------------|
+| `piri_pdp_commp_held_blobs` | count | | Accepted blobs still inside the CommP delay |
+| `piri_pdp_commp_due_blobs` | count | | Accepted blobs past the delay with no CommP task yet |
+| `piri_pdp_commp_due_blobs_oldest_seconds` | seconds | | How long the oldest of those has been past the delay |
+| `piri_pdp_pipeline_cancelled` | count | `stage` | Blobs released before aggregation. `before_commp` ones cost no CommP and no on-chain root; `after_commp` ones had their CommP computed and piece parked, and finalization cleans that up |
+| `piri_pdp_pipeline_cancelled_age_seconds` | seconds | `stage` | Age of each cancelled blob since acceptance. The share of `before_commp` cancellations under the delay is what the delay is saving; the histogram's shape says whether a shorter or longer delay would save more |
+
+```promql
+# CommP claims stalled: a blob has been past the delay for 10 minutes without a
+# CommP task claiming it. The engine claims due blobs on each poll (seconds),
+# so this is the task engine down or saturated, not a slow CommP.
+max by (node) (piri_pdp_commp_due_blobs_oldest_seconds{job="forge/piri"}) > 600
+```
 
 ## Logs
 
