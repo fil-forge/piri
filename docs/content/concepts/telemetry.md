@@ -156,7 +156,8 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`blob.reject`</nobr>     | Rejecting an allocation                         |
 | <nobr>`blob.release`</nobr>    | Releasing a previously accepted blob            |
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
-| <nobr>`ipni.publish_batch`</nobr> | Building and committing a batch of IPNI advertisements; `objectstore.put` spans with `objectstore.name=ipni` under it write the adverts |
+| <nobr>`ipni.publish_batch`</nobr> | Building and committing a batch of IPNI advertisements |
+| <nobr>`ipni.put_blocks`</nobr> | Writing a batch's adverts to the blob store, as `objectstore.put` spans with `objectstore.name=ipni` |
 
 HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
 matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,

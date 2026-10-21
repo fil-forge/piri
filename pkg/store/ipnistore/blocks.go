@@ -10,10 +10,17 @@ import (
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/yugabyte/pgx/v5"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
+
+var tracer = otel.Tracer("github.com/fil-forge/piri/pkg/store/ipnistore")
 
 // headKey is the key go-ipni-tools reads and replaces the signed head under.
 // Every other key is the CID of a block.
@@ -26,7 +33,10 @@ type blockStore struct {
 	objects objectstore.Store
 }
 
-var _ store.Store = (*blockStore)(nil)
+var _ store.BatchStore = (*blockStore)(nil)
+
+// putManyConcurrency bounds how many adverts a batch writes at once.
+const putManyConcurrency = 16
 
 func (s *blockStore) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if key == headKey {
@@ -50,6 +60,31 @@ func (s *blockStore) Put(ctx context.Context, key string, size uint64, data io.R
 		return fmt.Errorf("putting IPNI block %s: %w", key, err)
 	}
 	return nil
+}
+
+// PutMany writes a batch's blocks in parallel. On a failure it returns the
+// error once the writes in flight have finished; blocks already written stay,
+// unreferenced until a head links to them.
+func (s *blockStore) PutMany(ctx context.Context, blocks []store.Block) (err error) {
+	ctx, span := tracer.Start(ctx, "ipni.put_blocks", trace.WithAttributes(attribute.Int("ipni.block_count", len(blocks))))
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+	group, ctx := errgroup.WithContext(ctx)
+	group.SetLimit(putManyConcurrency)
+	for _, b := range blocks {
+		if b.Key == headKey {
+			return errors.New("the IPNI head is written with Replace, not PutMany")
+		}
+		group.Go(func() error {
+			return s.Put(ctx, b.Key, uint64(len(b.Data)), bytes.NewReader(b.Data))
+		})
+	}
+	return group.Wait()
 }
 
 // Replace moves the head from old to new, and fails with
