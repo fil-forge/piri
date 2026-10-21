@@ -36,8 +36,6 @@ url = ""
 // explicit empty list, as docs/content/configuration/ucan.md says. This pins
 // that viper takes the empty list over the preset default.
 func TestEmptyAnnounceURLsOverridePreset(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
 	viper.Set("network", string(presets.ForgeProd))
 	require.NoError(t, loadPresets())
 	viper.SetConfigType("toml")
