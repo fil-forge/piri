@@ -110,9 +110,10 @@ func (pub *PublisherService) Withdraw(ctx context.Context, claim cid.Cid) error 
 }
 
 // PublishClaimed publishes the advertisements of the rows a task has claimed,
-// under one commit, and reports how many rows the batch held and how many of
-// them were published. It holds the publishing lock from loading the rows to
-// committing, so a Withdraw either precedes the load or waits for the commit.
+// under one commit, retires the rows in the same transaction, and reports how
+// many rows the batch held and how many of them were published. It holds the
+// publishing lock from loading the rows to committing, so a Withdraw either
+// precedes the load or waits for the commit.
 //
 // A row without a spec was queued before the spec was stored with it; it is
 // skipped with a warning and retired with the batch. Nothing consumes the
@@ -147,6 +148,11 @@ func (pub *PublisherService) PublishClaimed(ctx context.Context, batch harmonyta
 				Digests:   slices.Values([]multihash.Multihash{row.Spec.Digest}),
 				Metadata:  meta,
 			})
+		}
+		if rows > 0 {
+			if err := pub.queue.Retire(ctx, batch); err != nil {
+				return err
+			}
 		}
 		if len(specs) == 0 {
 			return nil

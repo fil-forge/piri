@@ -69,6 +69,13 @@ func (q *memQueue) Claimed(ctx context.Context, _ harmonytask.TaskID) ([]QueuedA
 	return append([]QueuedAdvert(nil), q.rows...), nil
 }
 
+func (q *memQueue) Retire(context.Context, harmonytask.TaskID) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.rows = nil
+	return nil
+}
+
 func (q *memQueue) links() []cid.Cid {
 	q.mu.Lock()
 	defer q.mu.Unlock()
