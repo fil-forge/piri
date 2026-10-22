@@ -1,7 +1,7 @@
 // Package ipnistore keeps the node's IPNI advertisement chain in Postgres and
 // the blob store. The signed head and the per-context maps are rows, so they
 // commit in the transaction that publishes a batch; the adverts are objects
-// keyed by CID. Entries chunks are inlined into identity CIDs and not stored.
+// keyed by CID. Small entries chunks are inlined into identity CIDs and not stored.
 package ipnistore
 
 import (
@@ -13,6 +13,10 @@ import (
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 )
 
+// MaxIdentityEntries is the most multihashes an advert's entries may hold to
+// be inlined into an identity CID instead of stored as a chunk.
+const MaxIdentityEntries = 10
+
 // New returns the publisher store for the node with the given peer ID, with
 // its head and maps in db and its adverts in objects. Every SQL statement
 // joins the harmonytx transaction its context carries.
@@ -22,6 +26,6 @@ func New(db *harmonydb.DB, objects objectstore.Store, provider peer.ID) store.Fu
 		&contextTable{db: db, provider: provider, column: chunkLinkColumn},
 		&contextTable{db: db, provider: provider, column: metadataColumn},
 		store.WithMetadataContext(metadata.MetadataContext),
-		store.WithIdentityEntries(),
+		store.WithIdentityEntries(MaxIdentityEntries),
 	)
 }

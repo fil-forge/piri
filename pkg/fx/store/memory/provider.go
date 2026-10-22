@@ -18,6 +18,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/store/ipnistore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
@@ -72,7 +73,7 @@ func NewClaimStore() invocationstore.InvocationStore {
 
 func NewPublisherStore() store.FullStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries())
+	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries(ipnistore.MaxIdentityEntries))
 }
 
 func NewReceiptStore() receiptstore.ReceiptStore {

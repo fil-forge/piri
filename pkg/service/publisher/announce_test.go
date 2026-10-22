@@ -18,6 +18,8 @@ import (
 	"github.com/ipni/go-libipni/announce/message"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/store/ipnistore"
 )
 
 func TestPublishClaimedAnnouncesTheNewHead(t *testing.T) {
@@ -37,7 +39,7 @@ func TestPublishClaimedAnnouncesTheNewHead(t *testing.T) {
 
 	addr := testutil.Must(multiaddr.NewMultiaddr("/dns4/localhost/tcp/3000/http"))(t)
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
-		store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries())
+		store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries(ipnistore.MaxIdentityEntries))
 	svc, _ := newTestService(t, publisherStore, addr, WithDirectAnnounce(*indexerURL))
 
 	shard := testutil.RandomMultihash(t)
