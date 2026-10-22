@@ -66,6 +66,7 @@ Earlier versions stored aggregates in a LevelDB store under `{data_dir}/aggregat
 - **Connection Pooling**: Configurable max connections and idle pool size
 - **Concurrent Writers**: Supports multiple simultaneous writers
 - **External Management**: Database runs separately from Piri
+- **One Instance per Database**: Each Piri instance needs its own PostgreSQL database. Two Piri processes must never run against the same database, including during an upgrade.
 
 ### Configuration
 
@@ -77,14 +78,13 @@ See [Database Configuration](../configuration/repo/database.md) for PostgreSQL s
 |---------------|--------|------------|
 | Setup complexity | None | Requires external database |
 | Concurrent writers | Single | Multiple |
-| Scaling | Single node | Multiple Piri instances |
 | Operational overhead | Low | Higher |
 | Backup strategy | File copy | Database dumps |
 
 **Recommended:**
 
 - **SQLite**: Development, testing, single-node deployments
-- **PostgreSQL**: Production environments, high availability requirements, multiple Piri instances sharing state
+- **PostgreSQL**: Production environments, high availability requirements
 
 ## Backend Switching
 
