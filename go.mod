@@ -332,3 +332,5 @@ require (
 )
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240617180043-68d350f18fd4
+
+replace github.com/curiostorage/harmonyquery => github.com/alanshaw/harmonyquery v0.0.0-20261022143112-4075371481e5
