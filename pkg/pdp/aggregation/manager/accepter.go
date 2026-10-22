@@ -31,7 +31,6 @@ func NewPieceAccepter(issuer ucan.Issuer, receiptStore receiptstore.ReceiptStore
 // AcceptPieces issues and stores a /pdp/accept receipt for every piece of
 // the aggregates.
 func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregates []types.Aggregate) error {
-	// TODO we can run this in parallel since receipt generation requires resolving pdp pieces in links to blobs
 	receipts, err := GenerateReceiptsForAggregates(ctx, pa.issuer, aggregates, pa.resolver)
 	if err != nil {
 		return fmt.Errorf("generating receipts: %w", err)
@@ -86,6 +85,7 @@ func GenerateReceiptsForAggregates(ctx context.Context, issuer ucan.Issuer, aggr
 		size += len(aggregate.Pieces)
 	}
 	receipts := make([]*receipt.Receipt, 0, size)
+	// TODO we can run this in parallel since receipt generation requires resolving pdp pieces in links to blobs
 	for _, aggregate := range aggregates {
 		aggregateReceipts, err := GenerateReceipts(ctx, issuer, aggregate, resolver)
 		if err != nil {
