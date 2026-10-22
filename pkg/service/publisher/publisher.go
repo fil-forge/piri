@@ -362,12 +362,7 @@ func New(
 
 	// The publisher announces nothing itself: PublishClaimed announces once
 	// the batch has committed.
-	var ipnipubOpts []ipnipub.Option
-	if _, ok := tx.(pstore.NoTransaction); !ok {
-		// The store's writes roll back with the batch's transaction.
-		ipnipubOpts = append(ipnipubOpts, ipnipub.WithTransactionalStore())
-	}
-	ipniPublisher, err := ipnipub.New(priv, publisherStore, ipnipubOpts...)
+	ipniPublisher, err := ipnipub.New(priv, publisherStore)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
 	}
