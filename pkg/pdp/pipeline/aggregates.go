@@ -15,6 +15,11 @@ import (
 // names it, agg_position is the piece's index in Aggregate.Pieces, and
 // inclusion_proof is the piece's CBOR-encoded proof. The rows, and the
 // aggregate with them, are deleted when AddRoots retires the batch.
+//
+// Blobs that share pieces can fold into the same aggregate more than once,
+// for example two blobs whose piece is large enough to be an aggregate on
+// its own. Every occurrence stores the same pieces, positions and proofs
+// under the same root, and AddRoots submits the root once.
 
 // storeAggregate folds the rows of digests into a. digests[i] is the blob
 // whose piece is a.Pieces[i]; the row is matched by digest because two
@@ -43,7 +48,8 @@ func storeAggregate(tx *harmonydb.Tx, a aggtypes.Aggregate, digests [][]byte) er
 	return nil
 }
 
-// loadAggregate rebuilds the aggregate root from its pipeline rows.
+// loadAggregate rebuilds the aggregate root from its pipeline rows,
+// collapsing repeated occurrences of the aggregate into one.
 func loadAggregate(ctx context.Context, db *harmonydb.DB, root cid.Cid) (aggtypes.Aggregate, error) {
 	var rows []struct {
 		Commp          string `db:"commp"`
@@ -51,7 +57,7 @@ func loadAggregate(ctx context.Context, db *harmonydb.DB, root cid.Cid) (aggtype
 		InclusionProof []byte `db:"inclusion_proof"`
 	}
 	if err := db.Select(ctx, &rows, `
-		SELECT commp, agg_position, inclusion_proof FROM pdp_blob_pipeline
+		SELECT DISTINCT commp, agg_position, inclusion_proof FROM pdp_blob_pipeline
 		WHERE aggregate_root = $1
 		ORDER BY agg_position
 	`, root.String()); err != nil {
@@ -63,6 +69,9 @@ func loadAggregate(ctx context.Context, db *harmonydb.DB, root cid.Cid) (aggtype
 
 	a := aggtypes.Aggregate{Root: root, Pieces: make([]aggtypes.AggregatePiece, len(rows))}
 	for i, r := range rows {
+		if i > 0 && r.AggPosition != nil && *r.AggPosition == i-1 {
+			return aggtypes.Aggregate{}, fmt.Errorf("aggregate %s: pieces %s and %s are both stored at position %d", root, rows[i-1].Commp, r.Commp, i-1)
+		}
 		if r.AggPosition == nil || *r.AggPosition != i || r.InclusionProof == nil {
 			return aggtypes.Aggregate{}, fmt.Errorf("aggregate %s: piece %s is not stored at position %d", root, r.Commp, i)
 		}

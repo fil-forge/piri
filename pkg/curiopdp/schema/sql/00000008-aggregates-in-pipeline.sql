@@ -6,6 +6,11 @@
 -- them with the row.
 ALTER TABLE pdp_blob_pipeline ADD COLUMN agg_position integer;
 ALTER TABLE pdp_blob_pipeline ADD COLUMN inclusion_proof bytea;
+-- NB(piri): AddRoots loads each aggregate by root in agg_position order,
+-- retires a batch by root, and heals submission rows from the distinct
+-- roots.
+CREATE INDEX pdp_blob_pipeline_aggregate_idx
+    ON pdp_blob_pipeline (aggregate_root, agg_position) WHERE aggregate_root IS NOT NULL;
 
 -- NB(piri): aggregates folded before this migration live in the local
 -- aggregate datastore, not in these columns. Unfold them so the aggregation
