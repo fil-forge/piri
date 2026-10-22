@@ -1787,6 +1787,7 @@ go.opentelemetry.io/otel v1.23.0/go.mod h1:YCycw9ZeKhcJFrb34iVSkyT0iczq/zYDtZYFu
 go.opentelemetry.io/otel v1.24.0/go.mod h1:W7b9Ozg4nkF5tWI5zsXkaKKDjdVjpD4oAt9Qi/MArHo=
 go.opentelemetry.io/otel v1.47.0 h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=
 go.opentelemetry.io/otel v1.47.0/go.mod h1:8wS9O2qfXrYrzp6hIF/HOYJJf/wIhFPhR2xLuP+iXQU=
+go.opentelemetry.io/otel/bridge/opencensus v1.46.0/go.mod h1:wIiJflHDkX7KnMjll08G0lE8H5poJwyRljK/2jY9a9M=
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0 h1:7kszRN4Ze5GeAkUnBjBSUIunVBMA+mZIG04auueqguM=
 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0/go.mod h1:CLzakYy8jOdkBfcveCWYkeKJxujcF4xPhh2Z7IfE98U=
 go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.47.0 h1:julhjPeUH/q/7hinbSdDdqt5h7Zw9YWmRlWRhI0jd54=

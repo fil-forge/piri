@@ -84,7 +84,7 @@ func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 type PostgresConfig struct {
 	// URL is the PostgreSQL connection string (only used when type is "postgres")
 	// Format: postgres://user:password@host:port/dbname?sslmode=disable
-	// pgx pool parameters on the query string (pool_max_conns, pool_min_conns,
+	// pgx pool parameters on the query string (pool_max_conns,
 	// pool_max_conn_lifetime, pool_max_conn_idle_time) size the PDP pipeline's pool.
 	URL string `mapstructure:"url" flag:"db-url" toml:"url,omitempty"`
 	// MaxOpenConns is the maximum number of open connections to the database.
