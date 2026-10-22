@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      opentelemetry:
+        patterns:
+          - "go.opentelemetry.io/*"
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
