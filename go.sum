@@ -623,8 +623,8 @@ github.com/filecoin-project/go-state-types v0.1.0/go.mod h1:ezYnPf0bNkTsDibL/psS
 github.com/filecoin-project/go-state-types v0.1.6/go.mod h1:UwGVoMsULoCK+bWjEdd/xLCvLAQFBC7EDT477SKml+Q=
 github.com/filecoin-project/go-state-types v0.19.1 h1:uaRRo/fSmKLEHkECucWnAqaEoT7MtGV3Jdo7FcgzlBI=
 github.com/filecoin-project/go-state-types v0.19.1/go.mod h1:gYIAkVpg8T5wIuvjhwk0TC20bPGw+6B4TLXX3p5xEpo=
-github.com/filecoin-project/lotus v1.38.0 h1:aGQlGjFCPsPcAci2/MeFkICa8TCnRCgc1lu9IV1qKf0=
-github.com/filecoin-project/lotus v1.38.0/go.mod h1:IE/fHN5zsyClOwBFWeEe1pNueAtg0q7kiz9AYfD2bok=
+github.com/filecoin-project/lotus v1.38.1 h1:Ht8SKoLUXIh6OLCUWiRCPqsfYZOtnvYpHisrtaLEc9Q=
+github.com/filecoin-project/lotus v1.38.1/go.mod h1:IE/fHN5zsyClOwBFWeEe1pNueAtg0q7kiz9AYfD2bok=
 github.com/filecoin-project/pubsub v1.0.0 h1:ZTmT27U07e54qV1mMiQo4HDr0buo8I1LDHBYLXlsNXM=
 github.com/filecoin-project/pubsub v1.0.0/go.mod h1:GkpB33CcUtUNrLPhJgfdy4FDx4OMNR9k+46DHx/Lqrg=
 github.com/filecoin-project/specs-actors v0.9.13/go.mod h1:TS1AW/7LbG+615j4NsjMK1qlpAwaFsG9w0V2tg2gSao=
@@ -1069,8 +1069,8 @@ github.com/ipld/go-ipld-prime v0.24.0/go.mod h1:DYZxr/5caLNFbcuU6zLOgwSW7CgUEoC4
 github.com/ipld/go-ipld-prime-proto v0.0.0-20191113031812-e32bd156a1e5/go.mod h1:gcvzoEDBjwycpXt3LBE061wT9f46szXGHAmj9uoP6fU=
 github.com/ipld/go-ipld-prime/storage/bsadapter v0.0.0-20250821084354-a425e60cd714 h1:cqNk8PEwHnK0vqWln+U/YZhQc9h2NB3KjUjDPZo5Q2s=
 github.com/ipld/go-ipld-prime/storage/bsadapter v0.0.0-20250821084354-a425e60cd714/go.mod h1:ZEUdra3CoqRVRYgAX/jAJO9aZGz6SKtKEG628fHHktY=
-github.com/ipni/go-libipni v0.8.2 h1:mRJe602pD3WKcl/2WJFT6CjdI181/DcThqEdRL0usA8=
-github.com/ipni/go-libipni v0.8.2/go.mod h1:YlujVRDn3uksrYeV62ERtqKQdRVgbnjF13wPsnCCHAk=
+github.com/ipni/go-libipni v0.9.0 h1:NMSuXIjCH3IjxtGPJB4AlvT2zSzZN5xOb7B+AKjyJfE=
+github.com/ipni/go-libipni v0.9.0/go.mod h1:QzfnpT58Nz1Mt1Yitk1TzyqFcrB0br7Ypt/CildeNhk=
 github.com/ipsn/go-secp256k1 v0.0.0-20180726113642-9d62b9f0bc52/go.mod h1:fdg+/X9Gg4AsAIzWpEHwnqd+QY3b7lajxyjE1m4hkq4=
 github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6 h1:D/V0gu4zQ3cL2WKeVNVM4r2gLxGGf6McLwgXzRTo2RQ=
 github.com/jackc/pgerrcode v0.0.0-20250907135507-afb5586c32a6/go.mod h1:a/s9Lp5W7n/DD0VrVoyJ00FbP2ytTPDVOivvn2bMlds=
