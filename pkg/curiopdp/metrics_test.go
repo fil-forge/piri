@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/curiostorage/harmonyquery"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
@@ -22,6 +23,11 @@ type fakeSource struct {
 	setsErr error
 	last    map[string]time.Time
 	lastErr error
+	pool    harmonyquery.PoolStat
+}
+
+func (f *fakeSource) poolStat() harmonyquery.PoolStat {
+	return f.pool
 }
 
 func (f *fakeSource) proofSets(context.Context) ([]proofSetState, error) {
@@ -66,7 +72,8 @@ func startTestMetrics(t *testing.T, head *chainHead, src pdpMetricsSource) *sdkm
 }
 
 // gauges collects every int64 gauge as name -> attribute-set key -> value,
-// the key being the single attribute's value ("" for none).
+// the key being the single attribute's value ("" for none). Other instrument
+// kinds (the pool counters) are left out; sums reads those.
 func gauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]map[string]int64 {
 	t.Helper()
 	var rm metricdata.ResourceMetrics
@@ -75,7 +82,9 @@ func gauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]map[string]
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
 			g, ok := m.Data.(metricdata.Gauge[int64])
-			require.True(t, ok, "%s is not an int64 gauge", m.Name)
+			if !ok {
+				continue
+			}
 			for _, dp := range g.DataPoints {
 				key := ""
 				if kv := dp.Attributes.ToSlice(); len(kv) == 1 {
@@ -94,6 +103,74 @@ func gauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]map[string]
 }
 
 func ptr(v int64) *int64 { return &v }
+
+// sums collects every monotonic sum, int64 or float64, as name -> value.
+// Each pool counter has one data point and no attributes.
+func sums(t *testing.T, reader *sdkmetric.ManualReader) map[string]float64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	out := map[string]float64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch d := m.Data.(type) {
+			case metricdata.Sum[int64]:
+				require.True(t, d.IsMonotonic, "%s is not monotonic", m.Name)
+				require.Len(t, d.DataPoints, 1, "%s has more than one data point", m.Name)
+				require.Empty(t, d.DataPoints[0].Attributes.ToSlice(), "%s has attributes", m.Name)
+				out[m.Name] = float64(d.DataPoints[0].Value)
+			case metricdata.Sum[float64]:
+				require.True(t, d.IsMonotonic, "%s is not monotonic", m.Name)
+				require.Len(t, d.DataPoints, 1, "%s has more than one data point", m.Name)
+				require.Empty(t, d.DataPoints[0].Attributes.ToSlice(), "%s has attributes", m.Name)
+				out[m.Name] = d.DataPoints[0].Value
+			}
+		}
+	}
+	return out
+}
+
+func TestPoolMetrics(t *testing.T) {
+	src := &fakeSource{pool: harmonyquery.PoolStat{
+		AcquireCount:         1200,
+		AcquireDuration:      3 * time.Second,
+		EmptyAcquireCount:    40,
+		EmptyAcquireWaitTime: 2500 * time.Millisecond,
+		CanceledAcquireCount: 2,
+		AcquiredConns:        3,
+		IdleConns:            5,
+		TotalConns:           8,
+		MaxConns:             16,
+	}}
+	reader := startTestMetrics(t, &chainHead{}, src)
+
+	got := gauges(t, reader)
+	require.Equal(t, map[string]int64{"acquired": 3, "idle": 5}, got["piri_pdp_db_pool_connections"])
+	require.Equal(t, map[string]int64{"": 16}, got["piri_pdp_db_pool_max_connections"])
+
+	require.Equal(t, map[string]float64{
+		"piri_pdp_db_pool_acquires":             1200,
+		"piri_pdp_db_pool_acquire_seconds":      3,
+		"piri_pdp_db_pool_acquires_waited":      40,
+		"piri_pdp_db_pool_acquire_wait_seconds": 2.5,
+		"piri_pdp_db_pool_acquires_cancelled":   2,
+	}, sums(t, reader))
+
+	// Counters follow the pool; a second collection reports the new totals.
+	src.pool.AcquireCount = 1300
+	src.pool.EmptyAcquireCount = 41
+	require.Equal(t, float64(1300), sums(t, reader)["piri_pdp_db_pool_acquires"])
+	require.Equal(t, float64(41), sums(t, reader)["piri_pdp_db_pool_acquires_waited"])
+}
+
+func TestPoolMetricsReportedWhenDatabaseReadsFail(t *testing.T) {
+	src := &fakeSource{
+		setsErr: errors.New("boom"), lastErr: errors.New("boom"),
+		pool: harmonyquery.PoolStat{MaxConns: 4},
+	}
+	reader := startTestMetrics(t, &chainHead{}, src)
+	require.Equal(t, map[string]int64{"": 4}, gauges(t, reader)["piri_pdp_db_pool_max_connections"])
+}
 
 func TestChainHeadGauges(t *testing.T) {
 	head := &chainHead{}
