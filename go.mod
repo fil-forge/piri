@@ -6,7 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/alanshaw/dag-json-gen v0.0.11
 	github.com/cenkalti/backoff/v5 v5.0.3
-	github.com/curiostorage/harmonyquery v1.0.2
+	github.com/curiostorage/harmonyquery v1.0.3-0.20261022160504-b1801867d5d3
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/ethereum/go-ethereum v1.17.8
 	github.com/exaring/otelpgx v0.13.0
@@ -332,5 +332,3 @@ require (
 )
 
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240617180043-68d350f18fd4
-
-replace github.com/curiostorage/harmonyquery => github.com/alanshaw/harmonyquery v0.0.0-20261022143112-4075371481e5
