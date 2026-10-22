@@ -37,7 +37,7 @@ require (
 	github.com/ipfs/go-log/v2 v2.9.2
 	github.com/ipld/go-car v0.6.3
 	github.com/ipld/go-ipld-prime v0.24.0
-	github.com/ipni/go-libipni v0.8.2
+	github.com/ipni/go-libipni v0.9.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/labstack/echo-jwt/v4 v4.4.0
 	github.com/labstack/echo/v4 v4.16.0
