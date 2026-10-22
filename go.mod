@@ -24,7 +24,7 @@ require (
 	github.com/filecoin-project/go-fil-commcid v0.3.1
 	github.com/filecoin-project/go-fil-commp-hashhash v0.4.0
 	github.com/filecoin-project/go-state-types v0.19.1
-	github.com/filecoin-project/lotus v1.38.0
+	github.com/filecoin-project/lotus v1.38.1
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/golang-jwt/jwt/v4 v4.5.2
