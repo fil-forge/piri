@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
 )
 
@@ -30,6 +31,8 @@ const (
 	CommPJobQueueWorkers    Key = "pdp.aggregation.commp.job_queue.workers"
 	CommPJobQueueRetries    Key = "pdp.aggregation.commp.job_queue.retries"
 	CommPJobQueueRetryDelay Key = "pdp.aggregation.commp.job_queue.retry_delay"
+	// CommPDelay is dynamic - can change at runtime.
+	CommPDelay Key = "pdp.aggregation.commp.delay"
 )
 
 // PDP Aggregation - Aggregator
@@ -71,6 +74,7 @@ var defaultValues = map[Key]any{
 	CommPJobQueueWorkers:    runtime.NumCPU(),
 	CommPJobQueueRetries:    50,
 	CommPJobQueueRetryDelay: 10 * time.Second,
+	CommPDelay:              commp.DefaultDelay,
 
 	AggregatorJobQueueWorkers:    runtime.NumCPU(),
 	AggregatorJobQueueRetries:    50,

@@ -63,7 +63,11 @@ func NewPDPInfoHandler(deps PDPInfoDeps) server.Route {
 			return fmt.Errorf("failed to resolve PDP API: %w", err)
 		}
 		if !found {
-			// commp not computed yet — compute on demand
+			// commp not computed yet — compute on demand. This bypasses the
+			// commP delay (pdp.aggregation.commp.delay): a caller polling
+			// here during the delay pays the commP the delay exists to
+			// avoid. No Forge service invokes /pdp/info today; one that
+			// does should check the blob's pipeline row is due first.
 			commpResp, err := deps.Pieces.CalculateCommP(ctx, args.Blob)
 			if err != nil {
 				log.Errorw("failed to compute commp", "digest", args.Blob.String(), "error", err)

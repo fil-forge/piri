@@ -84,6 +84,8 @@ func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 type PostgresConfig struct {
 	// URL is the PostgreSQL connection string (only used when type is "postgres")
 	// Format: postgres://user:password@host:port/dbname?sslmode=disable
+	// pgx pool parameters on the query string (pool_max_conns,
+	// pool_max_conn_lifetime, pool_max_conn_idle_time) size the PDP pipeline's pool.
 	URL string `mapstructure:"url" flag:"db-url" toml:"url,omitempty"`
 	// MaxOpenConns is the maximum number of open connections to the database.
 	// Only used for PostgreSQL. Default: 5
@@ -172,23 +174,11 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 			Dir:    filepath.Join(r.DataDir, "blobs"),
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
-		Claims: app.ClaimStorageConfig{
-			Dir: filepath.Join(r.DataDir, "claim"),
-		},
 		Publisher: app.PublisherStorageConfig{
 			Dir: filepath.Join(r.DataDir, "publisher"),
 		},
-		Receipts: app.ReceiptStorageConfig{
-			Dir: filepath.Join(r.DataDir, "receipt"),
-		},
 		EgressTracker: app.EgressTrackerStorageConfig{
 			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),
-		},
-		Allocations: app.AllocationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "allocation"),
-		},
-		Acceptance: app.AcceptanceStorageConfig{
-			Dir: filepath.Join(r.DataDir, "acceptance"),
 		},
 		Replicator: app.ReplicatorStorageConfig{},
 		KeyStore: app.KeyStoreConfig{
@@ -200,9 +190,6 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		SchedulerStorage: app.SchedulerConfig{},
 		PDPStore: app.PDPStoreConfig{
 			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
-		},
-		Consolidation: app.ConsolidationStorageConfig{
-			Dir: filepath.Join(r.DataDir, "consolidation"),
 		},
 	}
 

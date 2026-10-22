@@ -73,6 +73,30 @@ func TestSettleTask_SettlesAndHandsOff(t *testing.T) {
 	require.NotNil(t, row.CommPTaskID, "commP is spawned once the blob is settled")
 }
 
+// TestSettleTask_HeldRowWaitsForDelay: with a commP delay, a settled row is
+// left for the commP task's IAmBored rather than handed off at once, and is
+// claimed by it once due.
+func TestSettleTask_HeldRowWaitsForDelay(t *testing.T) {
+	p := newTestPipeline(t)
+	*p.delay = time.Hour
+	blob, _, _ := testBlobAndPiece(t, "blob-settle-held")
+	p.stage(t, blob)
+	require.NoError(t, p.entry.Enqueue(t.Context(), blob))
+
+	done, err := p.settle.Do(harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+	row := p.row(t, blob)
+	require.False(t, row.Staged, "the blob is settled at once")
+	require.Nil(t, row.CommPTaskID, "commP waits for the delay")
+
+	p.bored(t)
+	require.Nil(t, p.row(t, blob).CommPTaskID, "not due yet")
+	p.backdate(t, blob, 2*time.Hour)
+	p.bored(t)
+	require.NotNil(t, p.row(t, blob).CommPTaskID, "claimed once due")
+}
+
 // TestSettleTask_CancelledRowIsNoop: a row the removal sweep cancelled before
 // its settle task ran leaves the task nothing to do.
 func TestSettleTask_CancelledRowIsNoop(t *testing.T) {

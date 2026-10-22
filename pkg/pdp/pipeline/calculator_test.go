@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"testing"
+	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/internal/testutil"
+	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 )
 
 // fakeAdder wires a CommPTask's promise to a synchronous AddTask stand-in:
@@ -54,17 +56,30 @@ type testPipeline struct {
 	commp   *CommPTask
 	settle  *SettleTask
 	settler *fakeSettler
+	// delay is what the commP task's policy reads; tests set it directly.
+	delay *time.Duration
 }
 
 func newTestPipeline(t *testing.T) testPipeline {
 	t.Helper()
 	db := testutil.NewHarmonyDB(t)
-	commp := NewCommPTask(db, nil, nil)
-	commp.Adder(fakeAdder(t, db))
+	delay := new(time.Duration)
+	commpTask := NewCommPTask(db, nil, nil, commp.NewPolicy(func() time.Duration { return *delay }))
+	commpTask.Adder(fakeAdder(t, db))
 	settler := &fakeSettler{}
-	settle := NewSettleTask(db, settler, commp)
+	settle := NewSettleTask(db, settler, commpTask)
 	settle.Adder(fakeAdder(t, db))
-	return testPipeline{db: db, entry: NewEntry(db, commp, settle), commp: commp, settle: settle, settler: settler}
+	return testPipeline{db: db, entry: NewEntry(db, commpTask, settle), commp: commpTask, settle: settle, settler: settler, delay: delay}
+}
+
+// backdate moves the blob's pipeline row's creation into the past.
+func (p testPipeline) backdate(t *testing.T, blob multihash.Multihash, age time.Duration) {
+	t.Helper()
+	_, err := p.db.Exec(t.Context(), `
+		UPDATE pdp_blob_pipeline SET created_at = now() - make_interval(secs => $2::double precision)
+		WHERE digest = $1
+	`, []byte(blob), age.Seconds())
+	require.NoError(t, err)
 }
 
 func testBlobAndPiece(t *testing.T, seed string) (multihash.Multihash, string, string) {

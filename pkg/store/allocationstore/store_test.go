@@ -9,8 +9,6 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/ipfs/go-datastore"
-	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,9 +16,9 @@ import (
 	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 )
 
-func TestDatastoreAllocationStore(t *testing.T) {
+func testAllocationStore(t *testing.T, newStore func(*testing.T) AllocationStore) {
 	t.Run("roundtrip", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		alloc := allocation.Allocation{
 			Allocation: testutil.RandomCID(t),
@@ -42,7 +40,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("exists", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		alloc := allocation.Allocation{
 			Allocation: testutil.RandomCID(t),
@@ -68,7 +66,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("multiple spaces same blob", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
@@ -112,7 +110,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		digest := testutil.RandomMultihash(t)
 		space := testutil.RandomDID(t)
@@ -122,7 +120,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("get any non-expired with mixed allocations", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
@@ -161,7 +159,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("get any non-expired all expired", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		blb := blob.Blob{
 			Digest: testutil.RandomMultihash(t),
@@ -186,7 +184,7 @@ func TestDatastoreAllocationStore(t *testing.T) {
 	})
 
 	t.Run("get any non-expired not found", func(t *testing.T) {
-		s := NewDatastoreStore(datastore.NewMapDatastore())
+		s := newStore(t)
 
 		digest := testutil.RandomMultihash(t)
 		now := ucan.Now()
@@ -199,9 +197,9 @@ func TestDatastoreAllocationStore(t *testing.T) {
 // An allocation is found by its allocate task while it is the space's
 // allocation for its blob, and not once a later allocation replaces it or it
 // is deleted.
-func TestGetByTask(t *testing.T) {
+func testGetByTask(t *testing.T, newStore func(*testing.T) AllocationStore) {
 	ctx := t.Context()
-	s := NewDatastoreStore(datastore.NewMapDatastore())
+	s := newStore(t)
 	space := testutil.RandomDID(t)
 	b := blob.Blob{Digest: testutil.RandomMultihash(t), Size: 1}
 	first := allocation.Allocation{Space: space, Blob: b, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t)}
@@ -229,9 +227,9 @@ func TestGetByTask(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound)
 }
 
-func TestConditionalChanges(t *testing.T) {
+func testConditionalChanges(t *testing.T, newStore func(*testing.T) AllocationStore) {
 	ctx := t.Context()
-	s := NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	s := newStore(t)
 	space := testutil.RandomDID(t)
 	b := blob.Blob{Digest: testutil.RandomMultihash(t), Size: 1}
 	first := allocation.Allocation{Space: space, Blob: b, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t)}
@@ -274,10 +272,10 @@ func TestConditionalChanges(t *testing.T) {
 // Two received uploads of the same content in a space share one claim.
 // Releasing both at once leaves neither the claim nor either record: a release
 // sees the other's handover, never a claim handed to a record already gone.
-func TestReleasePendingConcurrently(t *testing.T) {
+func testReleasePendingConcurrently(t *testing.T, newStore func(*testing.T) AllocationStore) {
 	ctx := t.Context()
 	for range 50 {
-		s := NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+		s := newStore(t)
 		space := testutil.RandomDID(t)
 		digest := testutil.RandomMultihash(t)
 		pending := func() allocation.Pending {
@@ -321,9 +319,9 @@ func TestReleasePendingConcurrently(t *testing.T) {
 
 // Releasing an allocation hands its claim to another received upload of the
 // same content in the space, rather than deleting it under that upload.
-func TestReleaseByTaskHandsOver(t *testing.T) {
+func testReleaseByTaskHandsOver(t *testing.T, newStore func(*testing.T) AllocationStore) {
 	ctx := t.Context()
-	s := NewDatastoreStore(dssync.MutexWrap(datastore.NewMapDatastore()))
+	s := newStore(t)
 	space := testutil.RandomDID(t)
 	b := blob.Blob{Digest: testutil.RandomMultihash(t), Size: 1}
 	held := allocation.Allocation{Space: space, Blob: b, Cause: testutil.RandomCID(t), Allocation: testutil.RandomCID(t)}
@@ -352,3 +350,41 @@ func TestReleaseByTaskHandsOver(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, released, "a released allocation is not released again")
 }
+
+func TestAllocationStore(t *testing.T) { forEachImpl(t, testAllocationStore) }
+
+func TestGetByTask(t *testing.T) { forEachImpl(t, testGetByTask) }
+
+func TestConditionalChanges(t *testing.T) { forEachImpl(t, testConditionalChanges) }
+
+func TestReleasePendingConcurrently(t *testing.T) { forEachImpl(t, testReleasePendingConcurrently) }
+
+func TestReleaseByTaskHandsOver(t *testing.T) { forEachImpl(t, testReleaseByTaskHandsOver) }
+
+func testListPending(t *testing.T, newStore func(*testing.T) AllocationStore) {
+	ctx := t.Context()
+	s := newStore(t)
+	want := map[string]allocation.Pending{}
+	for range 3 {
+		p := allocation.Pending{
+			Allocation: testutil.RandomCID(t),
+			Space:      testutil.RandomDID(t),
+			Size:       1,
+			DigestCode: 0x12,
+			Cause:      testutil.RandomCID(t),
+			UploadID:   "upload",
+		}
+		require.NoError(t, s.PutPending(ctx, p))
+		want[p.Allocation.String()] = p
+	}
+	for p, err := range s.ListPending(ctx) {
+		require.NoError(t, err)
+		if w, ok := want[p.Allocation.String()]; ok {
+			require.Equal(t, w, p)
+			delete(want, p.Allocation.String())
+		}
+	}
+	require.Empty(t, want, "every pending allocation is listed")
+}
+
+func TestListPending(t *testing.T) { forEachImpl(t, testListPending) }

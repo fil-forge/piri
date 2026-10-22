@@ -24,6 +24,20 @@ PostgreSQL connection string. Required when `type` is `postgres`.
 
 Format: `postgres://user:password@host:port/dbname?sslmode=disable`
 
+The PDP pipeline's connection pool is sized by pgx's pool parameters on the
+query string. Any parameter left out takes pgx's default.
+
+| Parameter | Default | Meaning |
+|-----------|---------|---------|
+| `pool_max_conns` | `max(4, CPU cores)` | Maximum open connections |
+| `pool_max_conn_lifetime` | `1h` | Close a connection once it reaches this age |
+| `pool_max_conn_idle_time` | `30m` | Close a connection idle for this long |
+
+Connections open on first use. `pool_min_conns` is not supported and Piri
+refuses to start with it set above zero.
+
+Example: `postgres://piri:secret@localhost:5432/piri?sslmode=disable&pool_max_conns=40`
+
 ### `postgres.max_open_conns`
 
 Maximum number of open connections to the database.

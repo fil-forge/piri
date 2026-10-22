@@ -10,16 +10,20 @@ import (
 	"github.com/yugabyte/pgx/v5"
 	"go.opentelemetry.io/otel/codes"
 
+	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 )
 
 // Entry is the pipeline's ingress: it implements commp.Calculator so
 // /blob/accept (and replica transfer) can hand a blob to the pipeline.
-// Enqueue durably records the blob in pdp_blob_pipeline before returning —
-// the caller's acceptance-compensation logic relies on Enqueue reporting
-// failure — while the task spawn is best-effort (AddTask swallows errors);
-// rows that miss their spawn are scavenged by the task's IAmBored. A blob
-// that is still staged starts at the PDPSettle task, any other at PDPCommP.
+// Enqueue records the blob in pdp_blob_pipeline, in the caller's transaction
+// when the context carries one (see harmonytx), so the entry commits with the
+// acceptance that motivated it. The task spawn waits for the commit and is
+// best-effort (AddTask swallows errors); rows that miss their spawn are
+// scavenged by the task's IAmBored. A blob that is still staged starts at the
+// PDPSettle task, any other at PDPCommP. With a commP delay set, no PDPCommP
+// task is spawned here: the row is claimed by the task's IAmBored once the
+// delay has passed, and a release before then cancels it unhashed.
 type Entry struct {
 	db     *harmonydb.DB
 	commp  *CommPTask
@@ -42,9 +46,8 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 		span.End()
 	}()
 	log.Infow("enqueuing blob for aggregation", "blob", blob.String())
-	var spawn, staged bool
-	_, err = e.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		spawn, staged = false, false
+	err = harmonytx.Run(ctx, e.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		var staged bool
 		// A blob whose piece is already live on-chain (or staged to be) is a
 		// re-accept of content the pipeline has already carried through —
 		// no new entry. Pieces scheduled for removal (rm_message_hash set)
@@ -71,11 +74,11 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 					)
 				  )
 			)`, []byte(blob)).Scan(&live); err != nil {
-			return false, fmt.Errorf("checking live pieces: %w", err)
+			return fmt.Errorf("checking live pieces: %w", err)
 		}
 		if live {
 			log.Infow("blob already staged or proven, skipping pipeline entry", "blob", blob.String())
-			return false, nil
+			return nil
 		}
 		// The blob's upload has completed by now, so a blob received without
 		// its digest is staged here until its settle task moves it.
@@ -86,22 +89,26 @@ func (e *Entry) Enqueue(ctx context.Context, blob multihash.Multihash) (err erro
 			RETURNING staged
 		`, []byte(blob)).Scan(&staged)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
+			return nil
 		}
 		if err != nil {
-			return false, fmt.Errorf("inserting pipeline entry: %w", err)
+			return fmt.Errorf("inserting pipeline entry: %w", err)
 		}
-		spawn = true
-		return true, nil
-	}, harmonydb.OptionRetry())
+		// The task reads the row, so it is spawned once the row commits. A
+		// settle runs at once whatever the delay (the staging area is
+		// bounded); the commP task only when there is none, as the row is
+		// not due before then.
+		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
+			if staged {
+				e.settle.spawn(ctx, blob)
+			} else if e.commp.policy.Delay() == 0 {
+				e.commp.spawn(ctx, blob)
+			}
+			return nil
+		})
+	})
 	if err != nil {
 		return fmt.Errorf("enqueuing blob %s for aggregation: %w", blob.String(), err)
-	}
-	switch {
-	case spawn && staged:
-		e.settle.spawn(ctx, blob)
-	case spawn:
-		e.commp.spawn(ctx, blob)
 	}
 	return nil
 }

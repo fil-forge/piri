@@ -52,6 +52,7 @@ func newRemoveWorld(t *testing.T) *removeWorld {
 		ClaimStore:  w.claims,
 		Adverts:     w.adverts,
 		Pieces:      w.pieces,
+		Tx:          store.NoTransaction{},
 	}
 	return w
 }
