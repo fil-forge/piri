@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/fx"
 
+	//lint:ignore SA1019 the replacement, labstack/echo-opentelemetry, requires Echo v5
 	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 	"go.opentelemetry.io/otel"
 
