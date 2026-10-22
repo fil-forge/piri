@@ -3,12 +3,12 @@ package server
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/build"
 )
 
-func (p *PDPHandler) handlePing(c echo.Context) error {
+func (p *PDPHandler) handlePing(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{
 		"type":    "piri",
 		"version": build.Version,

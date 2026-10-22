@@ -7,11 +7,11 @@ import (
 	"net/http"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"go.uber.org/fx"
 
-	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
+	echootel "github.com/labstack/echo-otel/v5"
 	"go.opentelemetry.io/otel"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -38,8 +38,6 @@ type RouteRegistrar interface {
 // NewEcho creates a new Echo instance with default middleware
 func NewEcho() *echo.Echo {
 	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
 
 	// Set custom error handler
 	e.HTTPErrorHandler = pirimiddleware.CustomHTTPErrorHandler
@@ -49,12 +47,19 @@ func NewEcho() *echo.Echo {
 	e.Use(middleware.Recover())
 	// Custom middlewares
 	e.Use(ErrorLogger(log))
-	e.Use(otelecho.Middleware(
-		"piri",
-		otelecho.WithPropagators(otel.GetTextMapPropagator()),
-		otelecho.WithMeterProvider(otel.GetMeterProvider()),
-		otelecho.WithSkipper(skipHealthChecks),
-	))
+	e.Use(echootel.NewMiddlewareWithConfig(echootel.Config{
+		ServerName:    "piri",
+		Propagators:   otel.GetTextMapPropagator(),
+		MeterProvider: otel.GetMeterProvider(),
+		Skipper:       skipHealthChecks,
+		// Send the error response before echootel records the request, so that
+		// spans, HTTP server metrics and the request log see the status code
+		// CustomHTTPErrorHandler sends. Otherwise every error that carries no
+		// status code, like a types.Error of KindNotFound, is recorded as 500.
+		OnNextError: func(c *echo.Context, err error) {
+			c.Echo().HTTPErrorHandler(c, err)
+		},
+	}))
 
 	return e
 }
@@ -68,26 +73,32 @@ var healthCheckPaths = map[string]struct{}{
 	"/readyz":  {},
 }
 
-// skipHealthChecks keeps health checks out of otelecho's traces and HTTP
+// skipHealthChecks keeps health checks out of echootel's traces and HTTP
 // server metrics.
-func skipHealthChecks(c echo.Context) bool {
+func skipHealthChecks(c *echo.Context) bool {
 	_, ok := healthCheckPaths[c.Request().URL.Path]
 	return ok
 }
 
 // EchoServer wraps Echo with fx lifecycle management
 type EchoServer struct {
-	echo *echo.Echo
-	addr string
+	echo   *echo.Echo
+	server *http.Server
+	addr   string
 }
 
 // StartEchoServer runs a Echo server with lifecycle management
 func StartEchoServer(cfg app.ServerConfig, e *echo.Echo, lc fx.Lifecycle) (*EchoServer, error) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: e,
+	}
 	server := &EchoServer{
-		echo: e,
-		addr: addr,
+		echo:   e,
+		server: httpServer,
+		addr:   addr,
 	}
 
 	lc.Append(fx.Hook{
@@ -96,7 +107,7 @@ func StartEchoServer(cfg app.ServerConfig, e *echo.Echo, lc fx.Lifecycle) (*Echo
 
 			// Start server in a goroutine
 			go func() {
-				if err := e.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 					log.Errorf("Echo server error: %v", err)
 				}
 			}()
@@ -120,7 +131,7 @@ func StartEchoServer(cfg app.ServerConfig, e *echo.Echo, lc fx.Lifecycle) (*Echo
 			//
 			// The timeout of the context passed to this method is configured
 			// by setting fx.StopTimeout([duration]),
-			return e.Shutdown(ctx)
+			return httpServer.Shutdown(ctx)
 		},
 	})
 

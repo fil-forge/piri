@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/multiformats/go-multihash"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
@@ -18,7 +18,7 @@ import (
 // single choke point every allocation path reaches, and its KindInvalidInput
 // already maps to 400. A pre-check here would be a second copy of the limit
 // that could drift from it.
-func (p *PDPHandler) handlePreparePiece(c echo.Context) error {
+func (p *PDPHandler) handlePreparePiece(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	var req httpapi.AddPieceRequest

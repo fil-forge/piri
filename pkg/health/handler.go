@@ -3,7 +3,7 @@ package health
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 )
@@ -28,7 +28,7 @@ func (h *Handler) RegisterRoutes(e *echo.Echo) {
 }
 
 // Health handles the /healthz endpoint
-func (h *Handler) Health(c echo.Context) error {
+func (h *Handler) Health(c *echo.Context) error {
 	resp := h.checker.HealthCheck()
 	status := http.StatusOK
 	if resp.Status != StatusOK {
@@ -38,13 +38,13 @@ func (h *Handler) Health(c echo.Context) error {
 }
 
 // Liveness handles the /livez endpoint
-func (h *Handler) Liveness(c echo.Context) error {
+func (h *Handler) Liveness(c *echo.Context) error {
 	resp := h.checker.LivenessCheck()
 	return c.JSON(http.StatusOK, resp)
 }
 
 // Readiness handles the /readyz endpoint
-func (h *Handler) Readiness(c echo.Context) error {
+func (h *Handler) Readiness(c *echo.Context) error {
 	resp := h.checker.ReadinessCheck()
 	status := http.StatusOK
 	if resp.Status != StatusOK {

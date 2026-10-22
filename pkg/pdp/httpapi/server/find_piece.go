@@ -5,10 +5,10 @@ import (
 	"net/http"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 )
 
-func (p *PDPHandler) handleFindPiece(c echo.Context) error {
+func (p *PDPHandler) handleFindPiece(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	name := c.QueryParam("name")

@@ -121,6 +121,21 @@ Standard OpenTelemetry HTTP instrumentation:
 | <nobr>`http.server.request.body.size`</nobr>  | Histogram | Request body size  |
 | <nobr>`http.server.response.body.size`</nobr> | Histogram | Response body size |
 
+The [echo-otel](https://github.com/labstack/echo-otel) middleware records these under the
+instrumentation scope `github.com/labstack/echo-otel/v5`, following the OpenTelemetry HTTP
+semantic conventions.
+
+**Labels:**
+
+| Label | Description |
+|-------|-------------|
+| `http.request.method` | Request method, or `_OTHER` for a method outside the standard set |
+| `http.route` | Matched route pattern, such as `/pdp/proof-sets/:proofSetID` |
+| `http.response.status_code` | Status code sent to the client |
+| `error.type` | Set on a 5xx response: the status code, or the Go type of the error the handler returned, or `panic`. Absent on 1xx–4xx |
+| `url.scheme` | `http` or `https` |
+| `network.protocol.name`, `network.protocol.version` | Usually `http` and `1.1` |
+
 ### Server Info
 
 Build and runtime information:
@@ -157,9 +172,11 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`blob.release`</nobr>    | Releasing a previously accepted blob            |
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
 
-HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
-matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,
-`/livez` and `/readyz`) are left out of both these traces and the HTTP server metrics: container
+HTTP requests are also traced by the echo-otel middleware, which names its spans after the
+method and matched route (for example `GET /pdp/proof-sets/:proofSetID`), so those appear
+alongside the operation spans above. A request that ends in a 5xx response or a panic gets an
+error span status and the `error.type` attribute. Health checks (`/healthz`, `/livez` and
+`/readyz`) are left out of both these traces and the HTTP server metrics: container
 healthchecks poll them every few seconds.
 
 Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header

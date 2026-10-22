@@ -8,7 +8,7 @@ import (
 	"net/http"
 
 	"github.com/ipfs/go-cid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/go-ucanto/core/car"
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
@@ -33,16 +33,16 @@ func (srv *Server) RegisterRoutes(e *echo.Echo) {
 }
 
 func NewHandler(egressBatches retrievaljournal.Journal) echo.HandlerFunc {
-	return func(ctx echo.Context) error {
+	return func(ctx *echo.Context) error {
 		cid, err := cid.Parse(ctx.Param("cid"))
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("invalid batch CID: %w", err))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid batch CID: %s", err))
 		}
 
 		batch, err := egressBatches.GetBatch(ctx.Request().Context(), cid)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				return echo.NewHTTPError(http.StatusNotFound, fmt.Errorf("batch not found: %s", cid))
+				return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("batch not found: %s", cid))
 			}
 
 			return fmt.Errorf("failed to get batch from store: %w", err)

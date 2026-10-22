@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -114,7 +114,7 @@ func TestHandler_RegisterRoutes(t *testing.T) {
 
 	handler.RegisterRoutes(e)
 
-	routes := e.Routes()
+	routes := e.Router().Routes()
 	paths := make([]string, len(routes))
 	for i, r := range routes {
 		paths[i] = r.Path

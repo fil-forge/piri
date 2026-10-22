@@ -5,12 +5,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
-func (p *PDPHandler) handlePieceUpload(c echo.Context) error {
+func (p *PDPHandler) handlePieceUpload(c *echo.Context) error {
 	ctx := c.Request().Context()
 	uploadUUID := c.Param("uploadUUID")
 
