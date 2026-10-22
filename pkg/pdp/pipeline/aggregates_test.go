@@ -86,6 +86,43 @@ func TestAggregate_RoundTrip(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+// TestAggregate_RepeatedRoot: two blobs whose shared piece is an aggregate
+// on its own fold into two occurrences of the same aggregate, which load as
+// one.
+func TestAggregate_RepeatedRoot(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	pieces := insertPieceRows(t, db, []pieceRow{
+		{seed: "blob-a", pieceSeed: "piece-1"},
+		{seed: "blob-b", pieceSeed: "piece-1"},
+	})
+	policy := aggregator.NewPolicy(func() uint64 { return pieces[0].PaddedSize() - 1 })
+	want, err := aggregator.NewAggregate(pieces[:1])
+	require.NoError(t, err)
+	done, err := NewAggregateTask(db, &recordingSubmitter{}, policy).Do(1, func() bool { return true })
+	require.NoError(t, err)
+	require.True(t, done)
+
+	got, err := loadAggregate(t.Context(), db, want.Root)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+// TestAggregate_ConflictingPositions: an aggregate whose rows put two
+// different pieces at one position fails to load.
+func TestAggregate_ConflictingPositions(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	pieces := insertPieceRows(t, db, []pieceRow{
+		{seed: "blob-a", pieceSeed: "piece-1"},
+		{seed: "blob-b", pieceSeed: "piece-2"},
+	})
+	a := foldAll(t, db, pieces)
+	_, err := db.Exec(t.Context(), `UPDATE pdp_blob_pipeline SET agg_position = 0`)
+	require.NoError(t, err)
+
+	_, err = loadAggregate(t.Context(), db, a.Root)
+	require.ErrorContains(t, err, "are both stored at position 0")
+}
+
 // TestAddRoots_RetireRemovesAggregate: retiring a submitted batch deletes
 // the aggregates stored on its pipeline rows.
 func TestAddRoots_RetireRemovesAggregate(t *testing.T) {
