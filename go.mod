@@ -11,7 +11,7 @@ require (
 	github.com/exaring/otelpgx v0.13.0
 	github.com/fil-forge/delegator v0.0.0-20260814010356-6b1794dbbab9
 	github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390
-	github.com/fil-forge/go-ipni-tools v0.0.0-20261022093521-ebb4d5bb85e7
+	github.com/fil-forge/go-ipni-tools v0.0.0-20261022094934-d5fc148be481
 	github.com/fil-forge/libforge v0.0.0-20261012140631-fbc83e2e745b
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3
