@@ -2,19 +2,19 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
+	echomiddleware "github.com/labstack/echo/v5/middleware"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 // CustomHTTPErrorHandler is a centralized error handler for all Echo routes
 // Set this as Echo's HTTPErrorHandler to automatically handle all errors
-func CustomHTTPErrorHandler(err error, c echo.Context) {
+func CustomHTTPErrorHandler(c *echo.Context, err error) {
 	// Don't handle if response already started
-	if c.Response().Committed {
+	if resp, uErr := echo.UnwrapResponse(c.Response()); uErr == nil && resp.Committed {
 		return
 	}
 
@@ -37,7 +37,7 @@ var typeErrorStatusMap = map[types.Kind]int{
 
 // HandleError converts any error to an HTTP response
 // It's especially helpful for handling our custom ContextualError
-func HandleError(err error, c echo.Context) {
+func HandleError(err error, c *echo.Context) {
 	if err == nil {
 		return
 	}
@@ -48,10 +48,27 @@ func HandleError(err error, c echo.Context) {
 
 // extractErrorInfo determines the appropriate HTTP status code and message from an error
 func extractErrorInfo(err error) (int, string) {
+	// A recovered panic carries the panic value and the stack trace. Both stay
+	// out of the response: the request log records them.
+	var panicErr *echomiddleware.PanicStackError
+	if errors.As(err, &panicErr) {
+		return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
+	}
+
 	// Handle Echo's HTTPError
 	var he *echo.HTTPError
 	if errors.As(err, &he) {
-		return he.Code, fmt.Sprintf("%s", he.Message)
+		message := he.Message
+		if message == "" {
+			message = http.StatusText(he.Code)
+		}
+		return he.Code, message
+	}
+
+	// Handle Echo's predefined errors like echo.ErrNotFound, which carry only
+	// a status code
+	if code := echo.StatusCode(err); code != 0 {
+		return code, http.StatusText(code)
 	}
 
 	// Handle types.Error with mapped status codes
@@ -68,8 +85,8 @@ func extractErrorInfo(err error) (int, string) {
 }
 
 // sendErrorResponse sends a JSON error response to the client
-func sendErrorResponse(c echo.Context, code int, message string) {
+func sendErrorResponse(c *echo.Context, code int, message string) {
 	if err := c.JSON(code, ErrorResponse{Error: message}); err != nil {
-		c.Logger().Errorf("Failed to send error response: %v", err)
+		c.Logger().Error("Failed to send error response", "error", err)
 	}
 }

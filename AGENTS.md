@@ -128,7 +128,7 @@ fil-forge/infra-central. Skip it for changes nothing operational depends on.
 - Go files: snake_case. Tests: testify (`assert`/`require`).
 - Logging: `github.com/ipfs/go-log/v2` (`log.Infow`, `log.Warnw`); fx event
   logs go through zap.
-- HTTP: echo v4. Observability: OpenTelemetry (traces + metrics, otelecho
+- HTTP: echo v5. Observability: OpenTelemetry (traces + metrics, echo-otel
   middleware); per-package `telemetry.go` files add handler instrumentation.
 - Persistence: gorm with SQLite and Postgres drivers; job queues in
   `lib/jobqueue` back async processing.

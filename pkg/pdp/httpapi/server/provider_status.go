@@ -3,13 +3,13 @@ package server
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 )
 
 // handleGetProviderStatus -> GET /pdp/provider/status
-func (p *PDPHandler) handleGetProviderStatus(c echo.Context) error {
+func (p *PDPHandler) handleGetProviderStatus(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	log.Debugw("Processing GetProviderStatus request")

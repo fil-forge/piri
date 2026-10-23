@@ -39,8 +39,9 @@ require (
 	github.com/ipld/go-ipld-prime v0.24.0
 	github.com/ipni/go-libipni v0.9.0
 	github.com/jackc/pgx/v5 v5.11.0
-	github.com/labstack/echo-jwt/v4 v4.4.0
-	github.com/labstack/echo/v4 v4.16.0
+	github.com/labstack/echo-jwt/v5 v5.0.2
+	github.com/labstack/echo-otel/v5 v5.0.0
+	github.com/labstack/echo/v5 v5.4.0
 	github.com/labstack/gommon v0.5.0
 	github.com/libp2p/go-libp2p v0.50.0
 	github.com/minio/minio-go/v7 v7.4.1
@@ -63,7 +64,6 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	github.com/whyrusleeping/cbor-gen v0.3.2-0.20250409092040-76796969edea
 	github.com/yugabyte/pgx/v5 v5.7.6-yb-1
-	go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.71.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.47.0
