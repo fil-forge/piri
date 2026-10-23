@@ -6,8 +6,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 	logging "github.com/ipfs/go-log/v2"
-	echojwt "github.com/labstack/echo-jwt/v4"
-	"github.com/labstack/echo/v4"
+	echojwt "github.com/labstack/echo-jwt/v5"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/piecesize"
@@ -56,7 +56,7 @@ func NewPDPHandler(service *service.PDPService, identity app.IdentityConfig, pie
 // The limit is read per request rather than baked in at registration so that
 // retuning pdp.piece.max_padded_size takes effect without a restart.
 func (p *PDPHandler) limitUploadBody(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
+	return func(c *echo.Context) error {
 		if declared := c.Request().ContentLength; declared > 0 {
 			if err := p.pieceSize.CheckRaw(uint64(declared)); err != nil {
 				return types.WrapError(types.KindPayloadTooLarge, "upload body too large", err)

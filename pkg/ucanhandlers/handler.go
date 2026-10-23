@@ -9,7 +9,7 @@ import (
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"go.uber.org/fx"
 )
 

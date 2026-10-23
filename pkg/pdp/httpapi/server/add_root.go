@@ -6,13 +6,13 @@ import (
 	"time"
 
 	"github.com/ipfs/go-cid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
-func (p *PDPHandler) handleAddRootToProofSet(c echo.Context) error {
+func (p *PDPHandler) handleAddRootToProofSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	proofSetIDStr := c.Param("proofSetID")

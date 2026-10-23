@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 )
 
-func (p *PDPHandler) handleDeleteRootFromProofSet(c echo.Context) error {
+func (p *PDPHandler) handleDeleteRootFromProofSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 	// Step 2: Extract parameters from the URL
 	proofSetIdStr := c.Param("proofSetID")
