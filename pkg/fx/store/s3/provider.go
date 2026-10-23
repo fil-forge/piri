@@ -9,19 +9,25 @@ import (
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 	minio_store "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
 
-// Module provides the blob store backed by S3-compatible storage.
+// Module provides the blob store backed by S3-compatible storage, and the
+// IPNI adverts kept beside the blobs.
 // Use this module alongside filesystem.LocalOnlyModule which provides
 // stores that must remain on the local filesystem (AggregatorDatastore,
-// PublisherStore, RetrievalJournal, KeyStore), and postgres.Module, which
-// provides the record stores.
+// RetrievalJournal, KeyStore), and postgres.Module, which provides the
+// record stores.
 var Module = fx.Module("s3-store",
 	fx.Provide(
 		ProvideConfigs,
 		NewStores,
 		NewPDPStore,
+		fx.Annotate(
+			NewIPNIObjectStore,
+			fx.ResultTags(`name:"ipni_objectstore"`),
+		),
 	),
 )
 
@@ -74,6 +80,13 @@ func ProvideConfigs(cfg app.StorageConfig) Configs {
 		Stash: cfg.StashStore,
 		PDP:   cfg.PDPStore,
 	}
+}
+
+// NewIPNIObjectStore provides the node's IPNI adverts, one object per advert
+// under ipni/<cid> in the PDP bucket. It uses the raw bucket rather than the
+// blob store, whose key encoder would rewrite the CID keys.
+func NewIPNIObjectStore(stores *Stores) objectstore.Store {
+	return objectstore.Traced("ipni", objectstore.Prefixed("ipni/", stores.PDP))
 }
 
 // NewPDPStore provides the blob store backing PDP piece storage.

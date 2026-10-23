@@ -37,6 +37,11 @@ func (q *AdvertQueue) Claimed(context.Context, harmonytask.TaskID) ([]publisher.
 	return nil, nil
 }
 
+// Retire returns nil: the fake has no claimed rows to retire.
+func (q *AdvertQueue) Retire(context.Context, harmonytask.TaskID) error {
+	return nil
+}
+
 // Dequeue records the claim and returns nil.
 func (q *AdvertQueue) Dequeue(_ context.Context, claim cid.Cid) error {
 	q.mu.Lock()

@@ -114,7 +114,7 @@ func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (don
 		return true, nil
 	}
 	log.Infow("published advertisement batch", "rows", rows, "published", published, "skipped", rows-published)
-	return true, t.queue.retire(ctx, taskID)
+	return true, nil
 }
 
 func (t *PublishTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
