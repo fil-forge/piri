@@ -4,13 +4,12 @@ Piri uses databases to manage operational state, job queues, and task scheduling
 
 ## Logical Databases
 
-Piri maintains four logical databases, each serving a distinct purpose:
+Piri maintains three logical databases, each serving a distinct purpose:
 
 | Database | Purpose |
 |----------|---------|
 | **Scheduler** | Task engine state and PDP proof scheduling |
 | **Replicator** | Data replication job tracking |
-| **Aggregator** | CommP hash aggregation job queue |
 | **Egress Tracker** | Data egress operation tracking |
 
 ## SQLite Mode (Default)
@@ -28,9 +27,6 @@ When using SQLite, Piri creates separate database files under your configured `d
 ├── pdp/
 │   └── state/
 │       └── state.db
-├── aggregator/
-│   └── jobqueue/
-│       └── jobqueue.db
 └── egress_tracker/
     └── jobqueue/
         └── jobqueue.db
@@ -48,18 +44,17 @@ PostgreSQL mode uses a single database instance with separate schemas for each l
 
 ### Schema Layout
 
-All four logical databases share one PostgreSQL database, isolated by schema:
+All three logical databases share one PostgreSQL database, isolated by schema:
 
 - `replicator` schema
 - `scheduler` schema
-- `aggregator` schema
 - `egress_tracker` schema
 
 ### PDP Aggregates
 
 The aggregation pipeline keeps each PDP aggregate on the `pdp_blob_pipeline` rows of its pieces: `aggregate_root` names the aggregate, `agg_position` is the piece's position in it, and `inclusion_proof` holds the piece's inclusion proof. The columns are set in the transaction that folds the pieces, and the rows are deleted once the aggregate's pieces are added on-chain.
 
-Earlier versions stored aggregates in a LevelDB store under `{data_dir}/aggregator`. On upgrade, every aggregate that is not yet retired is folded again from its pipeline rows. An aggregate whose AddRoots transaction landed before the upgrade but whose rows were not yet retired is added on-chain a second time.
+Earlier versions stored aggregates in a LevelDB store under `{data_dir}/aggregator`. Piri no longer opens that directory, and operators can delete it after upgrading. On upgrade, every aggregate that is not yet retired is folded again from its pipeline rows. An aggregate whose AddRoots transaction landed before the upgrade but whose rows were not yet retired is added on-chain a second time.
 
 ### Characteristics
 

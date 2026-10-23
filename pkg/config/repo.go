@@ -167,9 +167,6 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		DataDir:  r.DataDir,
 		TempDir:  r.TempDir,
 		Database: dbCfg,
-		Aggregator: app.AggregatorStorageConfig{
-			Dir: filepath.Join(r.DataDir, "aggregator", "datastore"),
-		},
 		Blobs: app.BlobStorageConfig{
 			Dir:    filepath.Join(r.DataDir, "blobs"),
 			TmpDir: filepath.Join(r.TempDir, "storage"),

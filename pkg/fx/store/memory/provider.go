@@ -26,12 +26,6 @@ import (
 var Module = fx.Module("memory-store",
 	fx.Provide(
 		fx.Annotate(
-			NewAggregatorDatastore,
-			// tagged as aggregator_datastore since this returns a datastore.Datastore which is too generic to
-			// safely provide as is.
-			fx.ResultTags(`name:"aggregator_datastore"`),
-		),
-		fx.Annotate(
 			NewPublisherStore,
 			// provide as FullStore (self)
 			fx.As(fx.Self()),
@@ -50,10 +44,6 @@ var Module = fx.Module("memory-store",
 		NewTransactor,
 	),
 )
-
-func NewAggregatorDatastore() datastore.Datastore {
-	return sync.MutexWrap(datastore.NewMapDatastore())
-}
 
 func NewAllocationStore() allocationstore.AllocationStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())

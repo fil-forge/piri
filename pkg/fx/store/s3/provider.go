@@ -14,9 +14,9 @@ import (
 
 // Module provides the blob store backed by S3-compatible storage.
 // Use this module alongside filesystem.LocalOnlyModule which provides
-// stores that must remain on the local filesystem (AggregatorDatastore,
-// PublisherStore, RetrievalJournal, KeyStore), and postgres.Module, which
-// provides the record stores.
+// stores that must remain on the local filesystem (PublisherStore,
+// RetrievalJournal, KeyStore), and postgres.Module, which provides the
+// record stores.
 var Module = fx.Module("s3-store",
 	fx.Provide(
 		ProvideConfigs,
