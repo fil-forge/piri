@@ -34,11 +34,10 @@ var Module = fx.Module("postgres-store",
 		fx.Annotate(
 			NewIPNIStore,
 			fx.ParamTags(``, `name:"ipni_objectstore"`),
-			// provide as FullStore (self)
-			fx.As(fx.Self()),
-			// provide sub-interfaces of Full Store
+			fx.As(new(ipnitools.FullStore)),
 			fx.As(new(ipnitools.PublisherStore)),
 			fx.As(new(ipnitools.EncodeableStore)),
+			fx.As(new(ipnitools.BatchStore)),
 		),
 	),
 )
@@ -65,7 +64,7 @@ func NewConsolidationStore(db *harmonydb.DB) consolidationstore.Store {
 
 // NewIPNIStore keeps the node's IPNI advertisement chain: the head and the
 // per-context maps in db, the adverts in objects.
-func NewIPNIStore(db *harmonydb.DB, objects objectstore.Store, id identity.Identity) (ipnitools.FullStore, error) {
+func NewIPNIStore(db *harmonydb.DB, objects objectstore.Store, id identity.Identity) (*ipnistore.Store, error) {
 	key, err := lib.Libp2pKey(id)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI store: %w", err)

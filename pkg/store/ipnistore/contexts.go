@@ -37,7 +37,7 @@ type contextTable struct {
 	column   column
 }
 
-var _ store.BatchProviderContextTable = (*contextTable)(nil)
+var _ store.ProviderContextTable = (*contextTable)(nil)
 
 func (t *contextTable) Get(ctx context.Context, p peer.ID, contextID []byte) ([]byte, error) {
 	if err := t.checkProvider(p); err != nil {
@@ -105,93 +105,6 @@ func (t *contextTable) Delete(ctx context.Context, p peer.ID, contextID []byte) 
 	})
 	if err != nil {
 		return fmt.Errorf("deleting IPNI %s for context %x: %w", t.column, contextID, err)
-	}
-	return nil
-}
-
-func (t *contextTable) GetMany(ctx context.Context, p peer.ID, contextIDs [][]byte) (map[string][]byte, error) {
-	if err := t.checkProvider(p); err != nil {
-		return nil, err
-	}
-	var rows []struct {
-		ContextID []byte `db:"context_id"`
-		Data      []byte `db:"data"`
-	}
-	err := harmonytx.Run(ctx, t.db, func(ctx context.Context, tx *harmonydb.Tx) error {
-		rows = rows[:0]
-		if t.column == chunkLinkColumn {
-			return tx.Select(&rows, `
-				SELECT context_id, chunk_link AS data FROM ipni_contexts
-				WHERE context_id = ANY($1) AND chunk_link IS NOT NULL`, contextIDs)
-		}
-		return tx.Select(&rows, `
-			SELECT context_id, metadata AS data FROM ipni_contexts
-			WHERE context_id = ANY($1) AND metadata IS NOT NULL`, contextIDs)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("getting IPNI %s for %d contexts: %w", t.column, len(contextIDs), err)
-	}
-	found := make(map[string][]byte, len(rows))
-	for _, r := range rows {
-		found[string(r.ContextID)] = r.Data
-	}
-	return found, nil
-}
-
-// PutMany writes the entries with one statement. Each context ID may appear
-// once.
-func (t *contextTable) PutMany(ctx context.Context, p peer.ID, entries []store.ContextEntry) error {
-	if err := t.checkProvider(p); err != nil {
-		return err
-	}
-	contextIDs := make([][]byte, len(entries))
-	data := make([][]byte, len(entries))
-	for i, e := range entries {
-		if e.Data == nil {
-			return fmt.Errorf("putting IPNI %s for context %x: no data", t.column, e.ContextID)
-		}
-		contextIDs[i], data[i] = e.ContextID, e.Data
-	}
-	err := harmonytx.Run(ctx, t.db, func(ctx context.Context, tx *harmonydb.Tx) error {
-		var err error
-		if t.column == chunkLinkColumn {
-			_, err = tx.Exec(`
-				INSERT INTO ipni_contexts (context_id, chunk_link)
-				SELECT * FROM unnest($1::bytea[], $2::bytea[])
-				ON CONFLICT (context_id) DO UPDATE SET chunk_link = EXCLUDED.chunk_link`, contextIDs, data)
-		} else {
-			_, err = tx.Exec(`
-				INSERT INTO ipni_contexts (context_id, metadata)
-				SELECT * FROM unnest($1::bytea[], $2::bytea[])
-				ON CONFLICT (context_id) DO UPDATE SET metadata = EXCLUDED.metadata`, contextIDs, data)
-		}
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("putting IPNI %s for %d contexts: %w", t.column, len(entries), err)
-	}
-	return nil
-}
-
-func (t *contextTable) DeleteMany(ctx context.Context, p peer.ID, contextIDs [][]byte) error {
-	if err := t.checkProvider(p); err != nil {
-		return err
-	}
-	err := harmonytx.Run(ctx, t.db, func(ctx context.Context, tx *harmonydb.Tx) error {
-		var err error
-		if t.column == chunkLinkColumn {
-			_, err = tx.Exec(`UPDATE ipni_contexts SET chunk_link = NULL WHERE context_id = ANY($1)`, contextIDs)
-		} else {
-			_, err = tx.Exec(`UPDATE ipni_contexts SET metadata = NULL WHERE context_id = ANY($1)`, contextIDs)
-		}
-		if err != nil {
-			return err
-		}
-		_, err = tx.Exec(`DELETE FROM ipni_contexts WHERE context_id = ANY($1) AND chunk_link IS NULL AND metadata IS NULL`, contextIDs)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("deleting IPNI %s for %d contexts: %w", t.column, len(contextIDs), err)
 	}
 	return nil
 }

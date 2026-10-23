@@ -362,7 +362,11 @@ func New(
 
 	// The publisher announces nothing itself: PublishClaimed announces once
 	// the batch has committed.
-	ipniPublisher, err := ipnipub.New(priv, publisherStore)
+	var ipniOpts []ipnipub.Option
+	if o.batchStore != nil {
+		ipniOpts = append(ipniOpts, ipnipub.WithBatchStore(o.batchStore))
+	}
+	ipniPublisher, err := ipnipub.New(priv, publisherStore, ipniOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI publisher instance: %w", err)
 	}
