@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -32,8 +33,8 @@ var (
 
 func startHarmonyPostgres() {
 	harmonyPGOnce.Do(func() {
-		if runtime.GOOS == "darwin" {
-			harmonyPGErr = fmt.Errorf("skipping postgres-backed tests on darwin")
+		if os.Getenv("CI") != "" && runtime.GOOS == "darwin" {
+			harmonyPGErr = fmt.Errorf("skipping postgres-backed tests on darwin in CI")
 			return
 		}
 		ctx := context.Background()
