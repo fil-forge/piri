@@ -76,6 +76,31 @@ for example alerts.
 | `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
 | `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
+### PDP Database Pool Metrics
+
+Every PDP task and every `blob/accept` shares one Postgres connection pool,
+sized by the `pool_max_conns` parameter on the Postgres URL (see
+[Database configuration](../configuration/repo/database.md)). These report
+pgx's own counters for that pool, read in memory at each collection. See
+[Monitoring > PDP Database Pool](../operator-guide/monitoring.md#pdp-database-pool)
+for how to read them.
+
+| Metric                                                       | Type    | Unit  | Description                                                  |
+|--------------------------------------------------------------|---------|-------|--------------------------------------------------------------|
+| <nobr>`piri_pdp_db_pool_connections`</nobr>                  | Gauge   | count | Open connections, by `state`: held by a caller (`acquired`) or waiting unused (`idle`) |
+| <nobr>`piri_pdp_db_pool_max_connections`</nobr>              | Gauge   | count | Configured maximum size of the pool                          |
+| <nobr>`piri_pdp_db_pool_acquires`</nobr>                     | Counter | count | Connections handed out by the pool                           |
+| <nobr>`piri_pdp_db_pool_acquire_seconds`</nobr>              | Counter | s     | Time callers spent obtaining a connection, waiting or not    |
+| <nobr>`piri_pdp_db_pool_acquires_waited`</nobr>              | Counter | count | Acquires that waited for a connection to be released or opened because none was free |
+| <nobr>`piri_pdp_db_pool_acquire_wait_seconds`</nobr>         | Counter | s     | Time those acquires spent waiting                            |
+| <nobr>`piri_pdp_db_pool_acquires_cancelled`</nobr>           | Counter | count | Acquires abandoned because the caller's context ended before a connection was free |
+
+**Labels:**
+
+| Label | Description |
+|-------|-------------|
+| `state` | `acquired` or `idle` (`piri_pdp_db_pool_connections`) |
+
 ### Aggregation Pipeline Metrics
 
 The entry of the aggregation pipeline. An accepted blob waits out
