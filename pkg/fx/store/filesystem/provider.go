@@ -85,6 +85,7 @@ func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 type Configs struct {
 	fx.Out
 	Aggregator    app.AggregatorStorageConfig
+	Publisher     app.PublisherStorageConfig
 	Blob          app.BlobStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
 	KeyStore      app.KeyStoreConfig
@@ -96,6 +97,7 @@ type Configs struct {
 func ProvideConfigs(cfg app.StorageConfig) Configs {
 	return Configs{
 		Aggregator:    cfg.Aggregator,
+		Publisher:     cfg.Publisher,
 		Blob:          cfg.Blobs,
 		EgressTracker: cfg.EgressTracker,
 		KeyStore:      cfg.KeyStore,
@@ -122,18 +124,17 @@ func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (d
 	return ds, nil
 }
 
-// NewIPNIObjectStore provides the flatfs directory data_dir/ipni holding the
-// node's IPNI adverts, one file per advert named by its CID. postgres.Module
-// keeps the rest of the advertisement chain.
-func NewIPNIObjectStore(cfg app.StorageConfig, lc fx.Lifecycle) (objectstore.Store, error) {
-	if cfg.DataDir == "" {
+// NewIPNIObjectStore provides the flatfs directory holding the node's IPNI
+// adverts, one file per advert named by its CID. postgres.Module keeps the
+// rest of the advertisement chain.
+func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (objectstore.Store, error) {
+	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for IPNI object store")
 	}
-	dir, err := mkdirp(cfg.DataDir, "ipni")
-	if err != nil {
+	if _, err := mkdirp(cfg.Dir); err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}
-	objStore, err := flatfs.New(dir, flatfs.NextToLast(2), false)
+	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}
