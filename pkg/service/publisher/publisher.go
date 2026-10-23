@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"sync"
+	"time"
 
 	errdm "github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
@@ -35,6 +37,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan/invocation"
 
 	"github.com/fil-forge/piri/lib"
+	"github.com/fil-forge/piri/lib/telemetry"
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/service/publisher/advert"
@@ -184,13 +187,21 @@ func (pub *PublisherService) publishBatch(ctx context.Context, specs []ipnipub.A
 	return pub.ipni.PublishBatch(ctx, pub.provider, specs)
 }
 
+// announceTimeout bounds one announce request, as go-libipni's own client
+// does.
+const announceTimeout = time.Minute
+
 // announce tells the configured indexers about the head. A failed announce
 // is only logged: indexers also find the head when they next poll.
 func (pub *PublisherService) announce(ctx context.Context, head ipld.Link) {
 	if pub.announcer == nil || head == nil {
 		return
 	}
+	ctx, span := tracer.Start(ctx, "ipni.announce", trace.WithAttributes(attribute.String("ipni.head", head.String())))
+	defer span.End()
 	if err := announce.Send(ctx, head.(cidlink.Link).Cid, pub.announceAddrs, pub.announcer); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		log.Warnw("Failed to announce advertisement", "head", head, "err", err)
 	}
 }
@@ -402,7 +413,9 @@ func New(
 			log.Infof("Announcing new IPNI adverts to: %s", u.String())
 			urls[i] = &u
 		}
-		if announcer, err = httpsender.New(urls, peerid); err != nil {
+		// Each request to an indexer is a client span under ipni.announce.
+		client := &http.Client{Timeout: announceTimeout, Transport: telemetry.NewTransport(http.DefaultTransport)}
+		if announcer, err = httpsender.New(urls, peerid, httpsender.WithClient(client)); err != nil {
 			return nil, fmt.Errorf("creating IPNI announce sender: %w", err)
 		}
 	}

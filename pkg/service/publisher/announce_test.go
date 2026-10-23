@@ -18,6 +18,9 @@ import (
 	"github.com/ipni/go-libipni/announce/message"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/fil-forge/piri/pkg/store/ipnistore"
 )
@@ -25,6 +28,50 @@ import (
 func TestPublishClaimedAnnouncesTheNewHead(t *testing.T) {
 	ctx := t.Context()
 	announced := make(chan cid.Cid, 4)
+	svc, publisherStore := newAnnouncingService(t, announced)
+	publishOneClaim(t, svc)
+	hd, err := publisherStore.Head(ctx)
+	require.NoError(t, err)
+	close(announced)
+
+	var got []cid.Cid
+	for c := range announced {
+		got = append(got, c)
+	}
+	require.Equal(t, []cid.Cid{hd.Head.(cidlink.Link).Cid}, got)
+}
+
+// Each announce request is a client span under ipni.announce, so a trace
+// shows how long every indexer took.
+func TestPublishClaimedTracesTheAnnounce(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	prev := otel.GetTracerProvider()
+	otel.SetTracerProvider(sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec)))
+	t.Cleanup(func() { otel.SetTracerProvider(prev) })
+
+	svc, _ := newAnnouncingService(t, make(chan cid.Cid, 4))
+	publishOneClaim(t, svc)
+
+	var announceSpan sdktrace.ReadOnlySpan
+	for _, sp := range rec.Ended() {
+		if sp.Name() == "ipni.announce" {
+			announceSpan = sp
+		}
+	}
+	require.NotNil(t, announceSpan, "no ipni.announce span")
+	var children []string
+	for _, sp := range rec.Ended() {
+		if sp.Parent().SpanID() == announceSpan.SpanContext().SpanID() {
+			children = append(children, sp.Name())
+		}
+	}
+	require.Equal(t, []string{"HTTP PUT"}, children)
+}
+
+// newAnnouncingService returns a publisher service that announces to an
+// indexer, which sends the CID of every announce it receives to announced.
+func newAnnouncingService(t *testing.T, announced chan<- cid.Cid) (*PublisherService, store.PublisherStore) {
+	t.Helper()
 	indexer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var msg message.Message
 		if err := msg.UnmarshalCBOR(r.Body); err != nil {
@@ -41,19 +88,15 @@ func TestPublishClaimedAnnouncesTheNewHead(t *testing.T) {
 	publisherStore := store.FromDatastore(dssync.MutexWrap(datastore.NewMapDatastore()),
 		store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries(ipnistore.MaxIdentityEntries))
 	svc, _ := newTestService(t, publisherStore, addr, WithDirectAnnounce(*indexerURL))
+	return svc, publisherStore
+}
 
+// publishOneClaim queues one location claim and publishes it.
+func publishOneClaim(t *testing.T, svc *PublisherService) {
+	t.Helper()
 	shard := testutil.RandomMultihash(t)
 	location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
-	require.NoError(t, svc.Publish(ctx, mintLocationClaim(t, testutil.RandomDID(t), shard, *location)))
-	_, _, err := svc.PublishClaimed(ctx, 1)
+	require.NoError(t, svc.Publish(t.Context(), mintLocationClaim(t, testutil.RandomDID(t), shard, *location)))
+	_, _, err := svc.PublishClaimed(t.Context(), 1)
 	require.NoError(t, err)
-	hd, err := publisherStore.Head(ctx)
-	require.NoError(t, err)
-	close(announced)
-
-	var got []cid.Cid
-	for c := range announced {
-		got = append(got, c)
-	}
-	require.Equal(t, []cid.Cid{hd.Head.(cidlink.Link).Cid}, got)
 }
