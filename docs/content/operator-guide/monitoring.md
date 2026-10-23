@@ -309,6 +309,12 @@ piri client admin log list
 
 When troubleshooting, increase verbosity for the relevant subsystem, reproduce the issue, then review logs.
 
+The HTTP server logs under the `fx/echo` subsystem: one entry per request, plus the messages of
+the HTTP framework and of Go's HTTP server, such as TLS handshake failures. A request whose
+handler panicked is logged at error level as `server error`, with the panic message and the stack
+trace in the `error` field. The client receives a 500 response that says only
+`Internal Server Error`.
+
 ## Health Endpoint
 
 Your node exposes a health endpoint:

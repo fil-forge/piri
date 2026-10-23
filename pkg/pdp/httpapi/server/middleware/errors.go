@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+	echomiddleware "github.com/labstack/echo/v5/middleware"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
@@ -47,6 +48,13 @@ func HandleError(err error, c *echo.Context) {
 
 // extractErrorInfo determines the appropriate HTTP status code and message from an error
 func extractErrorInfo(err error) (int, string) {
+	// A recovered panic carries the panic value and the stack trace. Both stay
+	// out of the response: the request log records them.
+	var panicErr *echomiddleware.PanicStackError
+	if errors.As(err, &panicErr) {
+		return http.StatusInternalServerError, http.StatusText(http.StatusInternalServerError)
+	}
+
 	// Handle Echo's HTTPError
 	var he *echo.HTTPError
 	if errors.As(err, &he) {

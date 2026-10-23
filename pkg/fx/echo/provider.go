@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -38,6 +39,8 @@ type RouteRegistrar interface {
 // NewEcho creates a new Echo instance with default middleware
 func NewEcho() *echo.Echo {
 	e := echo.New()
+	e.Logger = echoLogger()
+	e.JSONSerializer = jsonSerializer{}
 
 	// Set custom error handler
 	e.HTTPErrorHandler = pirimiddleware.CustomHTTPErrorHandler
@@ -62,6 +65,12 @@ func NewEcho() *echo.Echo {
 	}))
 
 	return e
+}
+
+// echoLogger sends the messages Echo logs itself through go-log, under the
+// same subsystem as this package.
+func echoLogger() *slog.Logger {
+	return slog.New(logging.SlogHandler()).With("logger", "fx/echo")
 }
 
 // healthCheckPaths are the routes pkg/health registers. Container
@@ -92,8 +101,9 @@ func StartEchoServer(cfg app.ServerConfig, e *echo.Echo, lc fx.Lifecycle) (*Echo
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: e,
+		Addr:     addr,
+		Handler:  e,
+		ErrorLog: slog.NewLogLogger(e.Logger.Handler(), slog.LevelWarn),
 	}
 	server := &EchoServer{
 		echo:   e,
