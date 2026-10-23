@@ -66,7 +66,6 @@ type StorageConfig struct {
 	// Service-specific storage subdirectories
 	Aggregator       AggregatorStorageConfig
 	Blobs            BlobStorageConfig
-	Publisher        PublisherStorageConfig
 	EgressTracker    EgressTrackerStorageConfig
 	Replicator       ReplicatorStorageConfig
 	KeyStore         KeyStoreConfig
@@ -93,11 +92,6 @@ type AggregatorStorageConfig struct {
 type BlobStorageConfig struct {
 	Dir    string
 	TmpDir string
-}
-
-// PublisherStorageConfig contains publisher-specific storage paths
-type PublisherStorageConfig struct {
-	Dir string
 }
 
 // EgressTrackerStorageConfig contains egress tracker store-specific storage paths

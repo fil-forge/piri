@@ -30,13 +30,9 @@ var Module = fx.Module("filesystem-store",
 			// safely provide as is.
 			fx.ResultTags(`name:"aggregator_datastore"`),
 		),
-		fx.Annotate(
-			NewIPNIObjectStore,
-			fx.ResultTags(`name:"ipni_objectstore"`),
-		),
 		NewRetrievalJournal,
 		NewKeyStore,
-		NewPDPStore,
+		NewPDPStores,
 	),
 )
 
@@ -85,7 +81,6 @@ func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 type Configs struct {
 	fx.Out
 	Aggregator    app.AggregatorStorageConfig
-	Publisher     app.PublisherStorageConfig
 	Blob          app.BlobStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
 	KeyStore      app.KeyStoreConfig
@@ -97,7 +92,6 @@ type Configs struct {
 func ProvideConfigs(cfg app.StorageConfig) Configs {
 	return Configs{
 		Aggregator:    cfg.Aggregator,
-		Publisher:     cfg.Publisher,
 		Blob:          cfg.Blobs,
 		EgressTracker: cfg.EgressTracker,
 		KeyStore:      cfg.KeyStore,
@@ -122,28 +116,6 @@ func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (d
 	})
 
 	return ds, nil
-}
-
-// NewIPNIObjectStore provides the flatfs directory holding the node's IPNI
-// adverts, one file per advert named by its CID. postgres.Module keeps the
-// rest of the advertisement chain.
-func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (objectstore.Store, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for IPNI object store")
-	}
-	if _, err := mkdirp(cfg.Dir); err != nil {
-		return nil, fmt.Errorf("creating IPNI object store: %w", err)
-	}
-	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
-	if err != nil {
-		return nil, fmt.Errorf("creating IPNI object store: %w", err)
-	}
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return objStore.Close()
-		},
-	})
-	return objectstore.Traced("ipni", objStore), nil
 }
 
 func NewRetrievalJournal(storeCfg app.EgressTrackerStorageConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {
@@ -182,20 +154,34 @@ func NewKeyStore(cfg app.KeyStoreConfig, lc fx.Lifecycle) (keystore.KeyStore, er
 	return keystore.NewKeyStore(ds)
 }
 
-func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (*blobstore.Store, error) {
+// PDPStores is the PDP flatfs directory, as the blob store backing PDP piece
+// storage and as the store of the node's IPNI adverts, one file per advert
+// named ipni-<cid>. postgres.Module keeps the rest of the advertisement
+// chain. flatfs keys cannot hold a slash, so the prefix differs from the
+// ipni/ the S3 module uses in the PDP bucket.
+type PDPStores struct {
+	fx.Out
+	Blobs *blobstore.Store
+	IPNI  objectstore.Store `name:"ipni_objectstore"`
+}
+
+func NewPDPStores(cfg app.PDPStoreConfig, lc fx.Lifecycle) (PDPStores, error) {
 	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for pdp store")
+		return PDPStores{}, fmt.Errorf("no data dir provided for pdp store")
 	}
 	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
 	if err != nil {
-		return nil, fmt.Errorf("creating pdp object store: %w", err)
+		return PDPStores{}, fmt.Errorf("creating pdp object store: %w", err)
 	}
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
 			return objStore.Close()
 		},
 	})
-	return blobstore.NewFlatfsStore(objStore), nil
+	return PDPStores{
+		Blobs: blobstore.NewFlatfsStore(objStore),
+		IPNI:  objectstore.Traced("ipni", objectstore.Prefixed("ipni-", objStore)),
+	}, nil
 }
 
 func newDs(path string) (*leveldb.Datastore, error) {
