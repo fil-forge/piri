@@ -126,7 +126,9 @@ func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (d
 
 // NewIPNIObjectStore provides the flatfs directory holding the node's IPNI
 // adverts, one file per advert named by its CID. postgres.Module keeps the
-// rest of the advertisement chain.
+// rest of the advertisement chain. Writes are synced to disk: Postgres
+// commits a head that links to the advert, so the advert must survive a crash
+// that the commit survives.
 func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (objectstore.Store, error) {
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for IPNI object store")
@@ -134,7 +136,7 @@ func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (object
 	if _, err := mkdirp(cfg.Dir); err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}
-	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
+	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), true)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}

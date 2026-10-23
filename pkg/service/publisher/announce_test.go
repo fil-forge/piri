@@ -41,8 +41,8 @@ func TestPublishClaimedAnnouncesTheNewHead(t *testing.T) {
 	require.Equal(t, []cid.Cid{hd.Head.(cidlink.Link).Cid}, got)
 }
 
-// Each announce request is a client span under ipni.announce, so a trace
-// shows how long every indexer took.
+// The announce is traced once, so both checks read the same recording: the
+// global tracer provider delegates only to the first one a test sets.
 func TestPublishClaimedTracesTheAnnounce(t *testing.T) {
 	rec := tracetest.NewSpanRecorder()
 	prev := otel.GetTracerProvider()
@@ -59,13 +59,23 @@ func TestPublishClaimedTracesTheAnnounce(t *testing.T) {
 		}
 	}
 	require.NotNil(t, announceSpan, "no ipni.announce span")
-	var children []string
-	for _, sp := range rec.Ended() {
-		if sp.Parent().SpanID() == announceSpan.SpanContext().SpanID() {
-			children = append(children, sp.Name())
+
+	// Each announce request is a client span under ipni.announce, so a
+	// trace shows how long every indexer took.
+	t.Run("each indexer request is a child span", func(t *testing.T) {
+		var children []string
+		for _, sp := range rec.Ended() {
+			if sp.Parent().SpanID() == announceSpan.SpanContext().SpanID() {
+				children = append(children, sp.Name())
+			}
 		}
-	}
-	require.Equal(t, []string{"HTTP PUT"}, children)
+		require.Equal(t, []string{"HTTP PUT"}, children)
+	})
+
+	// The head CID is unique per batch, so it stays out of span attributes.
+	t.Run("the span carries no attributes", func(t *testing.T) {
+		require.Empty(t, announceSpan.Attributes())
+	})
 }
 
 // newAnnouncingService returns a publisher service that announces to an

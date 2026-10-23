@@ -198,7 +198,7 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
 | <nobr>`ipni.publish_batch`</nobr> | Building and committing a batch of IPNI advertisements |
 | <nobr>`ipni.put_adverts`</nobr> | Writing a batch's adverts to the blob store, as `objectstore.put` spans with `objectstore.name=ipni` |
-| <nobr>`ipni.announce`</nobr> | Announcing a new head (`ipni.head`) to the configured indexers once its batch commits, with one `HTTP PUT` client span per indexer. A failed announce gets an error status; indexers still find the head when they next poll |
+| <nobr>`ipni.announce`</nobr> | Announcing a new head to the configured indexers once its batch commits, with one `HTTP PUT` client span per indexer. A failed announce gets an error status; indexers still find the head when they next poll |
 
 HTTP requests are also traced by the echo-otel middleware, which names its spans after the
 method and matched route (for example `GET /pdp/proof-sets/:proofSetID`), so those appear

@@ -2,6 +2,7 @@ package publisher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
+	"github.com/ipfs/go-datastore/failstore"
 	dssync "github.com/ipfs/go-datastore/sync"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/multiformats/go-multihash"
@@ -220,6 +222,28 @@ func TestPublisherService(t *testing.T) {
 		ad, err := publisherStore.Advert(ctx, hd.Head)
 		require.NoError(t, err)
 		require.Nil(t, ad.PreviousID, "only the row with a spec was advertised")
+	})
+
+	t.Run("keeps the rows of a batch that fails to publish", func(t *testing.T) {
+		dstore := failstore.NewFailstore(dssync.MutexWrap(datastore.NewMapDatastore()), func(op string) error {
+			if op == "put" {
+				return errors.New("disk full")
+			}
+			return nil
+		})
+		publisherStore := store.FromDatastore(dstore, store.WithMetadataContext(metadata.MetadataContext))
+		svc, queue := newTestService(t, publisherStore, addr)
+
+		shard := testutil.RandomMultihash(t)
+		location := testutil.Must(url.Parse(fmt.Sprintf("http://localhost:3000/blob/%s", digestutil.Format(shard))))(t)
+		clm := mintLocationClaim(t, testutil.RandomDID(t), shard, *location)
+		require.NoError(t, svc.Publish(ctx, clm))
+
+		// Without a transaction to roll back, a failed batch must leave its
+		// rows queued for the retry.
+		_, _, err := svc.PublishClaimed(ctx, 1)
+		require.Error(t, err)
+		require.Equal(t, []cid.Cid{clm.Link()}, queue.links())
 	})
 
 	t.Run("a withdrawal waits for the batch in flight", func(t *testing.T) {

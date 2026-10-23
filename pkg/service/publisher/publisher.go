@@ -152,19 +152,24 @@ func (pub *PublisherService) PublishClaimed(ctx context.Context, batch harmonyta
 				Metadata:  meta,
 			})
 		}
+		var head ipld.Link
+		if len(specs) > 0 {
+			head, err = pub.publishBatch(ctx, specs)
+			if err != nil {
+				return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
+			}
+			published = len(specs)
+		}
+		// Retired after publishing: a transactor that cannot roll back
+		// would otherwise drop the rows of a batch that failed to publish.
 		if rows > 0 {
 			if err := pub.queue.Retire(ctx, batch); err != nil {
 				return err
 			}
 		}
-		if len(specs) == 0 {
+		if head == nil {
 			return nil
 		}
-		head, err := pub.publishBatch(ctx, specs)
-		if err != nil {
-			return fmt.Errorf("publishing %d advertisements: %w", len(specs), err)
-		}
-		published = len(specs)
 		// Announced only once committed, so an indexer never fetches a head
 		// that a rollback discarded.
 		return harmonytx.AfterCommit(ctx, func(ctx context.Context) error {
@@ -197,13 +202,15 @@ func (pub *PublisherService) announce(ctx context.Context, head ipld.Link) {
 	if pub.announcer == nil || head == nil {
 		return
 	}
-	ctx, span := tracer.Start(ctx, "ipni.announce", trace.WithAttributes(attribute.String("ipni.head", head.String())))
+	ctx, span := tracer.Start(ctx, "ipni.announce")
 	defer span.End()
 	if err := announce.Send(ctx, head.(cidlink.Link).Cid, pub.announceAddrs, pub.announcer); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		log.Warnw("Failed to announce advertisement", "head", head, "err", err)
+		return
 	}
+	log.Debugw("Announced advertisement", "head", head)
 }
 
 // locationAdvertSpec is what a location commitment advertises: its content
