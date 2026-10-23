@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 )
@@ -23,7 +23,7 @@ type RootEntry struct {
 }
 
 // handleGetProofSet -> GET /pdp/proof-sets/:proofSetID
-func (p *PDPHandler) handleGetProofSet(c echo.Context) error {
+func (p *PDPHandler) handleGetProofSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 	proofSetIDStr := c.Param("proofSetID")
 

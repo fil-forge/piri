@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/curiostorage/harmonyquery"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
@@ -91,6 +92,8 @@ type pdpMetricsSource interface {
 	// completed without a retryable error on this node. Names without one
 	// are absent.
 	lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error)
+	// poolStat returns a snapshot of the database connection pool.
+	poolStat() harmonyquery.PoolStat
 }
 
 // dbMetricsSource is pdpMetricsSource over the harmony database.
@@ -142,6 +145,10 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 // harmonytask records result = TRUE whenever a task's Do returns done with no
 // error, which for the PDP tasks includes runs that gave up or handled a
 // failure themselves; see the metric's description.
+func (s *dbMetricsSource) poolStat() harmonyquery.PoolStat {
+	return s.db.Stat()
+}
+
 func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -189,6 +196,11 @@ func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]tim
 // is observed for it until the first tipset arrives. The proof set and task
 // gauges are read from src on each collection; a failed read is logged and
 // that collection skips the gauges it feeds.
+//
+// The pool instruments report pgx's own counters for the harmonydb pool every
+// PDP task and blob/accept share, so a pool too small for the load shows up as
+// acquires that waited and the time they spent waiting. They are read from the
+// pool in memory and cannot fail.
 func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, src pdpMetricsSource) error {
 	headEpoch, err := meter.Int64ObservableGauge(
 		"piri_chain_head_epoch",
@@ -262,6 +274,62 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create task last success gauge: %w", err)
 	}
+	poolConns, err := meter.Int64ObservableGauge(
+		"piri_pdp_db_pool_connections",
+		metric.WithDescription("Open connections in the PDP pipeline's Postgres pool, by whether a caller holds them (acquired) or they wait unused (idle)"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool connections gauge: %w", err)
+	}
+	poolMaxConns, err := meter.Int64ObservableGauge(
+		"piri_pdp_db_pool_max_connections",
+		metric.WithDescription("Configured maximum size of the PDP pipeline's Postgres pool"),
+		metric.WithUnit("{connection}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool max connections gauge: %w", err)
+	}
+	poolAcquires, err := meter.Int64ObservableCounter(
+		"piri_pdp_db_pool_acquires",
+		metric.WithDescription("Connections handed out by the PDP pipeline's Postgres pool"),
+		metric.WithUnit("{acquire}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool acquires counter: %w", err)
+	}
+	poolAcquireSeconds, err := meter.Float64ObservableCounter(
+		"piri_pdp_db_pool_acquire_seconds",
+		metric.WithDescription("Time callers spent obtaining a connection from the PDP pipeline's Postgres pool, waiting or not"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool acquire seconds counter: %w", err)
+	}
+	poolAcquiresWaited, err := meter.Int64ObservableCounter(
+		"piri_pdp_db_pool_acquires_waited",
+		metric.WithDescription("Acquires from the PDP pipeline's Postgres pool that waited for a connection to be released or opened because none was free"),
+		metric.WithUnit("{acquire}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool acquires waited counter: %w", err)
+	}
+	poolAcquireWaitSeconds, err := meter.Float64ObservableCounter(
+		"piri_pdp_db_pool_acquire_wait_seconds",
+		metric.WithDescription("Time those acquires spent waiting for a free connection"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool acquire wait seconds counter: %w", err)
+	}
+	poolAcquiresCancelled, err := meter.Int64ObservableCounter(
+		"piri_pdp_db_pool_acquires_cancelled",
+		metric.WithDescription("Acquires from the PDP pipeline's Postgres pool abandoned because the caller's context ended before a connection was free"),
+		metric.WithUnit("{acquire}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create pool acquires cancelled counter: %w", err)
+	}
 
 	reg, err := meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
@@ -302,6 +370,16 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 				o.ObserveInt64(unrecoverable, unrecoverableCount)
 			}
 
+			pool := src.poolStat()
+			o.ObserveInt64(poolConns, int64(pool.AcquiredConns), metric.WithAttributes(attribute.String("state", "acquired")))
+			o.ObserveInt64(poolConns, int64(pool.IdleConns), metric.WithAttributes(attribute.String("state", "idle")))
+			o.ObserveInt64(poolMaxConns, int64(pool.MaxConns))
+			o.ObserveInt64(poolAcquires, pool.AcquireCount)
+			o.ObserveFloat64(poolAcquireSeconds, pool.AcquireDuration.Seconds())
+			o.ObserveInt64(poolAcquiresWaited, pool.EmptyAcquireCount)
+			o.ObserveFloat64(poolAcquireWaitSeconds, pool.EmptyAcquireWaitTime.Seconds())
+			o.ObserveInt64(poolAcquiresCancelled, pool.CanceledAcquireCount)
+
 			// lastTaskSuccesses times out each of its queries itself.
 			if last, err := src.lastTaskSuccesses(ctx); err != nil {
 				log.Warnw("measuring PDP task history", "error", err)
@@ -321,6 +399,13 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		nextProveAttempt,
 		unrecoverable,
 		taskLastSuccess,
+		poolConns,
+		poolMaxConns,
+		poolAcquires,
+		poolAcquireSeconds,
+		poolAcquiresWaited,
+		poolAcquireWaitSeconds,
+		poolAcquiresCancelled,
 	)
 	if err != nil {
 		return fmt.Errorf("register PDP metrics callback: %w", err)

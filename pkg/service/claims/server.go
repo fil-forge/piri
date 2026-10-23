@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/ipfs/go-cid"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/ucantone/ipld/codec/dagcbor"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -39,13 +39,13 @@ func NewHandler(claims invocationstore.InvocationStore) handler.Func {
 		parts := strings.Split(r.URL.Path, "/")
 		c, err := cid.Parse(parts[len(parts)-1])
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("invalid claim CID: %w", err))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("invalid claim CID: %s", err))
 		}
 
 		claim, err := claims.Get(r.Context(), c)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				return echo.NewHTTPError(http.StatusNotFound, fmt.Errorf("not found: %s", c))
+				return echo.NewHTTPError(http.StatusNotFound, fmt.Sprintf("not found: %s", c))
 			}
 			return fmt.Errorf("failed to get claim: %w", err)
 		}

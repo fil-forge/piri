@@ -1,7 +1,7 @@
 package root
 
 import (
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/libforge/identity"
