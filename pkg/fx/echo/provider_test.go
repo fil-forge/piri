@@ -196,3 +196,34 @@ func TestEchoServerLogsThroughGoLog(t *testing.T) {
 		})
 	}
 }
+
+func TestNewEchoClientIP(t *testing.T) {
+	testCases := []struct {
+		name         string
+		peerAddress  string
+		forwardedFor string
+		expectedIP   string
+	}{
+		{"a direct client without X-Forwarded-For", "203.0.113.7:4000", "", "203.0.113.7"},
+		{"a direct client spoofing X-Forwarded-For", "203.0.113.7:4000", "198.51.100.1", "203.0.113.7"},
+		{"a client behind a local proxy", "127.0.0.1:4000", "198.51.100.1", "198.51.100.1"},
+		{"a client behind a chain of private proxies", "10.0.0.2:4000", "198.51.100.1, 10.0.0.1", "198.51.100.1"},
+		{"a spoofed hop before a local proxy", "127.0.0.1:4000", "192.0.2.66, 198.51.100.1", "198.51.100.1"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewEcho()
+			e.GET("/ip", func(c *echo.Context) error { return c.String(http.StatusOK, c.RealIP()) })
+			req := httptest.NewRequest(http.MethodGet, "/ip", nil)
+			req.RemoteAddr = tc.peerAddress
+			if tc.forwardedFor != "" {
+				req.Header.Set(echo.HeaderXForwardedFor, tc.forwardedFor)
+			}
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+
+			require.Equal(t, tc.expectedIP, rec.Body.String())
+		})
+	}
+}

@@ -315,6 +315,12 @@ handler panicked is logged at error level as `server error`, with the panic mess
 trace in the `error` field. The client receives a 500 response that says only
 `Internal Server Error`.
 
+The request log's `remote_ip` field and the HTTP spans' `client.address` attribute hold the
+client's address. When the request arrives from a loopback, link-local or private address, such
+as the nginx proxy in front of Piri, Piri reads the client address from `X-Forwarded-For`.
+Otherwise it uses the address of the connection, so a client connecting directly cannot set its
+own. A proxy on a public address is not trusted: its own address is recorded instead.
+
 ## Health Endpoint
 
 Your node exposes a health endpoint:

@@ -41,6 +41,11 @@ func NewEcho() *echo.Echo {
 	e := echo.New()
 	e.Logger = echoLogger()
 	e.JSONSerializer = jsonSerializer{}
+	// Behind a reverse proxy, such as the nginx in deploy/full-node, the peer
+	// address is the proxy's. Take the client address from X-Forwarded-For,
+	// trusting only the hops on loopback, link-local and private networks, so
+	// that a client connecting directly cannot spoof its address.
+	e.IPExtractor = echo.ExtractIPFromXFFHeader()
 
 	// Set custom error handler
 	e.HTTPErrorHandler = pirimiddleware.CustomHTTPErrorHandler
