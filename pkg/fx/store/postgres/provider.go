@@ -1,15 +1,23 @@
 package postgres
 
 import (
+	"fmt"
+
+	ipnitools "github.com/fil-forge/go-ipni-tools/pkg/store"
+	"github.com/fil-forge/libforge/identity"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/fx"
 
+	"github.com/fil-forge/piri/lib"
 	"github.com/fil-forge/piri/pkg/database/harmonytx"
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
+	"github.com/fil-forge/piri/pkg/store/ipnistore"
+	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
@@ -23,6 +31,14 @@ var Module = fx.Module("postgres-store",
 		NewReceiptStore,
 		NewConsolidationStore,
 		NewTransactor,
+		fx.Annotate(
+			NewIPNIStore,
+			fx.ParamTags(``, `name:"ipni_objectstore"`),
+			fx.As(new(ipnitools.FullStore)),
+			fx.As(new(ipnitools.PublisherStore)),
+			fx.As(new(ipnitools.EncodeableStore)),
+			fx.As(new(ipnitools.BatchStore)),
+		),
 	),
 )
 
@@ -44,6 +60,20 @@ func NewReceiptStore(db *harmonydb.DB) receiptstore.ReceiptStore {
 
 func NewConsolidationStore(db *harmonydb.DB) consolidationstore.Store {
 	return consolidationstore.NewPostgresStore(db)
+}
+
+// NewIPNIStore keeps the node's IPNI advertisement chain: the head and the
+// per-context maps in db, the adverts in objects.
+func NewIPNIStore(db *harmonydb.DB, objects objectstore.Store, id identity.Identity) (*ipnistore.Store, error) {
+	key, err := lib.Libp2pKey(id)
+	if err != nil {
+		return nil, fmt.Errorf("creating IPNI store: %w", err)
+	}
+	provider, err := peer.IDFromPrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("creating IPNI store: deriving peer ID: %w", err)
+	}
+	return ipnistore.New(db, objects, provider), nil
 }
 
 // NewTransactor runs writes that span the record stores as one transaction.

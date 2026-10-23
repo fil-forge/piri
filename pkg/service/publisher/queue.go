@@ -30,6 +30,9 @@ type AdvertQueue interface {
 	Dequeue(ctx context.Context, claim cid.Cid) error
 	// Claimed returns the rows stamped with the batch id, oldest first.
 	Claimed(ctx context.Context, batch harmonytask.TaskID) ([]QueuedAdvert, error)
+	// Retire deletes the rows stamped with the batch id, in the caller's
+	// transaction when the context carries one.
+	Retire(ctx context.Context, batch harmonytask.TaskID) error
 }
 
 // DBQueue is the AdvertQueue on harmonydb (ipni_pending_adverts), the same
@@ -156,9 +159,12 @@ func (q *DBQueue) Claimed(ctx context.Context, id harmonytask.TaskID) ([]QueuedA
 	return out, nil
 }
 
-// retire deletes the rows stamped with the task id.
-func (q *DBQueue) retire(ctx context.Context, id harmonytask.TaskID) error {
-	_, err := q.db.Exec(ctx, `DELETE FROM ipni_pending_adverts WHERE publish_task_id = $1`, id)
+// Retire implements AdvertQueue.
+func (q *DBQueue) Retire(ctx context.Context, id harmonytask.TaskID) error {
+	err := harmonytx.Run(ctx, q.db, func(ctx context.Context, tx *harmonydb.Tx) error {
+		_, err := tx.Exec(`DELETE FROM ipni_pending_adverts WHERE publish_task_id = $1`, id)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("retiring published advertisements: %w", err)
 	}
