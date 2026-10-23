@@ -21,7 +21,7 @@ import (
 
 	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/testutil"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.uber.org/fx"

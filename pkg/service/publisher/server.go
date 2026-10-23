@@ -5,7 +5,7 @@ import (
 
 	"github.com/fil-forge/go-ipni-tools/pkg/server"
 	"github.com/fil-forge/go-ipni-tools/pkg/store"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	echofx "github.com/fil-forge/piri/pkg/fx/echo"
 )

@@ -4,14 +4,14 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
 
 // echoHandleCreateProofSet -> POST /pdp/proof-sets
-func (p *PDPHandler) handleCreateProofSet(c echo.Context) error {
+func (p *PDPHandler) handleCreateProofSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	var req httpapi.CreateProofSetRequest

@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 )
 
 // echoHandleGetProofSetCreationStatus -> GET /pdp/proof-sets/created/:txHash
-func (p *PDPHandler) handleGetProofSetCreationStatus(c echo.Context) error {
+func (p *PDPHandler) handleGetProofSetCreationStatus(c *echo.Context) error {
 	ctx := c.Request().Context()
 	txHash := c.Param("txHash")
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/admin/httpapi"
 	"github.com/fil-forge/piri/pkg/config/dynamic"
@@ -27,7 +27,7 @@ func NewConfigHandler(registry *dynamic.Registry, bridge *dynamic.ViperBridge) *
 
 // GetConfig returns the current dynamic configuration values.
 // GET /admin/config
-func (h *ConfigHandler) GetConfig(c echo.Context) error {
+func (h *ConfigHandler) GetConfig(c *echo.Context) error {
 	return c.JSON(http.StatusOK, httpapi.ConfigResponse{
 		Values: h.registry.GetAll(),
 	})
@@ -35,7 +35,7 @@ func (h *ConfigHandler) GetConfig(c echo.Context) error {
 
 // UpdateConfig updates one or more dynamic configuration values.
 // PATCH /admin/config
-func (h *ConfigHandler) UpdateConfig(c echo.Context) error {
+func (h *ConfigHandler) UpdateConfig(c *echo.Context) error {
 	var req httpapi.UpdateConfigRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest,
@@ -58,7 +58,7 @@ func (h *ConfigHandler) UpdateConfig(c echo.Context) error {
 
 // ReloadConfig reloads the configuration from the config file.
 // POST /admin/config/reload
-func (h *ConfigHandler) ReloadConfig(c echo.Context) error {
+func (h *ConfigHandler) ReloadConfig(c *echo.Context) error {
 	if h.bridge == nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "config reload not available (no config file)")
 	}

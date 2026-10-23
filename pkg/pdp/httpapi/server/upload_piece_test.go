@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,14 +32,14 @@ func TestLimitUploadBody(t *testing.T) {
 		rec := httptest.NewRecorder()
 
 		reached := false
-		handler := h.limitUploadBody(func(c echo.Context) error {
+		handler := h.limitUploadBody(func(c *echo.Context) error {
 			reached = true
 			return c.NoContent(http.StatusNoContent)
 		})
 
 		c := e.NewContext(req, rec)
 		if err := handler(c); err != nil {
-			e.HTTPErrorHandler(err, c)
+			e.HTTPErrorHandler(c, err)
 		}
 		t.Cleanup(func() {
 			if rec.Code == http.StatusRequestEntityTooLarge {

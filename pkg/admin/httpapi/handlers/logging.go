@@ -4,13 +4,13 @@ import (
 	"net/http"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/admin/httpapi"
 )
 
 // listLogLevels lists each logging systems and its associated level.
-func listLogLevels(ctx echo.Context) error {
+func listLogLevels(ctx *echo.Context) error {
 	systems := logging.GetSubsystems()
 	loggers := make(map[string]string, len(systems))
 	for _, system := range systems {
@@ -20,7 +20,7 @@ func listLogLevels(ctx echo.Context) error {
 }
 
 // setLogLevel sets the logging level of the specified system
-func setLogLevel(ctx echo.Context) error {
+func setLogLevel(ctx *echo.Context) error {
 	var req httpapi.SetLogLevelRequest
 	if err := ctx.Bind(&req); err != nil {
 		return err
@@ -38,7 +38,7 @@ func setLogLevel(ctx echo.Context) error {
 }
 
 // setLogLevelRegex sets all loggers to specified level that match the expression.
-func setLogLevelRegex(ctx echo.Context) error {
+func setLogLevelRegex(ctx *echo.Context) error {
 	var req httpapi.SetLogLevelRegexRequest
 	if err := ctx.Bind(&req); err != nil {
 		return err

@@ -3,13 +3,13 @@ package server
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 
 	"github.com/fil-forge/piri/pkg/pdp/httpapi"
 )
 
 // handleListProofSet -> GET /pdp/proof-sets
-func (p *PDPHandler) handleListProofSet(c echo.Context) error {
+func (p *PDPHandler) handleListProofSet(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	ps, err := p.Service.ListProofSets(ctx)
