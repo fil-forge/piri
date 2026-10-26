@@ -60,6 +60,7 @@ var Module = fx.Module("curio-pdp",
 		fx.Annotate(provideNextTask, fx.ResultTags(taskGroup)),
 		fx.Annotate(provideProveTask, fx.ResultTags(taskGroup)),
 		fx.Annotate(provideSettleTask, fx.ResultTags(taskGroup)),
+		fx.Annotate(provideProcessDeletionsTask, fx.ResultTags(taskGroup)),
 
 		// Engine consumes the whole task group.
 		fx.Annotate(provideEngine, fx.ParamTags("", "", taskGroup)),
@@ -161,6 +162,13 @@ func provideSettleTask(db *harmonydb.DB, ec ethchain.EthClient, s *message.Sende
 	return pay.NewSettleTask(db, ec, s, al)
 }
 
+// provideProcessDeletionsTask drains a dataset's scheduled piece removals with
+// processPieceDeletions. PDPVerifier 3.5.0 reverts nextProvingPeriod while that
+// queue is not empty.
+func provideProcessDeletionsTask(db *harmonydb.DB, ec ethchain.EthClient, fil service.ChainClient, w *pdpv0.Watcher, s *message.SenderETH) harmonytask.TaskInterface {
+	return pdpv0.NewProcessDeletionsTask(db, ec, fil, w, s)
+}
+
 // --- engine + pipeline startup ---
 
 // resourceInspector reports machine resources for the harmonytask scheduler. Piri
@@ -171,7 +179,9 @@ type resourceInspector struct{}
 func (resourceInspector) GetResources() (resources.Resources, error) { return resources.System(0) }
 
 func provideEngine(lc fx.Lifecycle, db *harmonydb.DB, tasks []harmonytask.TaskInterface) (*harmonytask.TaskEngine, error) {
-	eng, err := harmonytask.New(db, tasks, harmonyMachineID, resourceInspector{})
+	// Piri runs a single machine, so it opens no peer connections: a nil
+	// connector makes harmonytask use its no-op one.
+	eng, err := harmonytask.New(db, tasks, harmonyMachineID, nil, resourceInspector{})
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +200,10 @@ func startPipeline(lc fx.Lifecycle, db *harmonydb.DB, ec ethchain.EthClient, cs 
 	pdpv0.NewDataSetWatch(w)
 	// Curio's payment-settlement confirmation watcher (registers on the pdpv0 watcher).
 	pay.NewSettleWatcher(w)
+	// Reconciles proving periods whose nextProvingPeriod reverted or was lost.
+	pdpv0.NewProvingPeriodWatcher(w)
+	// Tracks in-flight processPieceDeletions messages for the deletion-drain task.
+	pdpv0.NewProcessDeletionsWatcher(w)
 	// Watches message_waits_eth and records tx receipts / tx_success — required for
 	// the sender's WaitForConfirmation (provider registration, create, addPieces).
 	if _, err := message.NewMessageWatcherEth(db, eng, cs, ec); err != nil {
