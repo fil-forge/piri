@@ -195,13 +195,14 @@ func TestChainHeadGauges(t *testing.T) {
 
 func TestProofSetAndTaskGauges(t *testing.T) {
 	proveAt := time.Unix(1_700_000_500, 0)
+	drainQueued := time.Unix(1_700_000_200, 0)
 	src := &fakeSource{
 		sets: []proofSetState{
 			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
-			// 8: window and period unknown; 9: no schedule; 10 and 11: unrecoverable.
+			// 8: window and period unknown; 9: no schedule, drain queued; 10 and 11: unrecoverable.
 			{ID: 8, ProveAtEpoch: ptr(2000)},
-			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
-			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400)},
+			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued},
+			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued},
 			{ID: 11, UnrecoverableEpoch: ptr(450)},
 		},
 		last: map[string]time.Time{"PDPv0_Prove": proveAt},
@@ -214,6 +215,8 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	require.Equal(t, map[string]int64{"7": 2880}, got["piri_pdp_proofset_proving_period_epochs"])
 	// Unrecoverable proof sets are counted, not reported per proof set.
 	require.Equal(t, map[string]int64{"": 2}, got["piri_pdp_proofsets_unrecoverable"])
+	// A queued drain is reported whether or not a schedule is set.
+	require.Equal(t, map[string]int64{"9": drainQueued.Unix()}, got["piri_pdp_proofset_deletion_drain_queued_timestamp_seconds"])
 	require.Equal(t, map[string]int64{"PDPv0_Prove": proveAt.Unix()}, got["piri_pdp_task_last_success_timestamp_seconds"])
 }
 
@@ -252,6 +255,8 @@ func TestDBMetricsSource(t *testing.T) {
 			(3, '0x3', 'other',    3000, 60, 2880, NULL),
 			(4, '0x4', 'storacha', 4000, NULL, NULL, NULL)`)
 	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO pdpv0_deletion_drain (data_set, created_at) VALUES (4, '2026-01-01T00:30:00Z')`)
+	require.NoError(t, err)
 
 	const host = "10.0.0.1:12300"
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -267,6 +272,7 @@ func TestDBMetricsSource(t *testing.T) {
 	insertHistory("PDPv0_Prove", t0.Add(2*time.Hour), false, host)     // failed
 	insertHistory("PDPv0_Prove", t0.Add(3*time.Hour), true, "other:1") // another machine
 	insertHistory("PDPv0_InitPP", t0, true, host)
+	insertHistory("PDPv0_ProcDel", t0, true, host)
 	insertHistory("PDPSync", t0.Add(4*time.Hour), true, host) // not exported
 
 	src := newDBMetricsSource(db, pdpServiceLabel, host)
@@ -275,17 +281,25 @@ func TestDBMetricsSource(t *testing.T) {
 
 	sets, err := src.proofSets(ctx)
 	require.NoError(t, err)
+	for i := range sets {
+		if q := sets[i].DrainQueuedAt; q != nil {
+			utc := q.UTC() // compare instants, not the location pgx decodes into
+			sets[i].DrainQueuedAt = &utc
+		}
+	}
+	drainQueued := t0.Add(30 * time.Minute)
 	require.Equal(t, []proofSetState{
 		{ID: 1, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
 		{ID: 2, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(900)},
-		{ID: 4, ProveAtEpoch: ptr(4000)},
+		{ID: 4, ProveAtEpoch: ptr(4000), DrainQueuedAt: &drainQueued},
 	}, sets)
 
 	last, err := src.lastTaskSuccesses(ctx)
 	require.NoError(t, err)
 	requireSameTimes(t, map[string]time.Time{
-		"PDPv0_Prove":  t0.Add(time.Hour),
-		"PDPv0_InitPP": t0,
+		"PDPv0_Prove":   t0.Add(time.Hour),
+		"PDPv0_InitPP":  t0,
+		"PDPv0_ProcDel": t0,
 	}, last)
 
 	// The next read starts from the previous one, less the overlap; earlier
@@ -300,6 +314,7 @@ func TestDBMetricsSource(t *testing.T) {
 	requireSameTimes(t, map[string]time.Time{
 		"PDPv0_Prove":      t0.Add(time.Hour),
 		"PDPv0_InitPP":     t0,
+		"PDPv0_ProcDel":    t0,
 		"PDPv0_ProvPeriod": t0.Add(5*time.Hour - time.Minute),
 	}, last)
 }

@@ -87,6 +87,7 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_chain_head_timestamp_seconds` | When the chain head the PDP pipeline last saw was produced |
 | `piri_pdp_proofset_next_challenge_epoch` | The challenge epoch Curio scheduled for each proof set |
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
+| `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | When each proof set was queued to drain scheduled piece removals, which must finish before its next proving period |
 | `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
 | `piri_pdp_db_pool_acquires_waited` | PDP database acquires that waited for a free connection (rising share means the pool is too small) |
 | `piri_pdp_db_pool_acquire_wait_seconds` | Time those acquires spent waiting |
@@ -124,7 +125,8 @@ proof landed.
 | `piri_pdp_proofset_challenge_window_epochs` | epochs | `proof_set` | Length of the proof set's challenge window |
 | `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
-| `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
+| `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | unix seconds | `proof_set` | When the proof set was queued to drain its scheduled piece removals with `processPieceDeletions` (`pdpv0_deletion_drain.created_at`). PDPVerifier 3.5.0 rejects `nextProvingPeriod` while removals are queued, so a drain still queued after a proving period means proving is blocked on it. Absent when no drain is queued |
+| `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
 The names above are what Prometheus sees when the OTLP metrics pass through a
 collector such as Grafana Alloy: gauges keep their names, and a name that
@@ -141,6 +143,9 @@ The proof set gauges are read from the database at each collection:
   start its proving periods again.
 - A proof set marked unrecoverable has no per-proof-set series at all; it is
   counted in `piri_pdp_proofsets_unrecoverable` instead.
+- `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` is reported only
+  while a drain is queued. A queued drain the task finds empty is dropped on
+  its next run, so a short-lived series after removals or an upgrade is normal.
 
 `piri_pdp_task_last_success_timestamp_seconds` has no series for a task that
 has not yet finished a run on this node.
@@ -180,6 +185,18 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
 # alert only when a new one appears, use
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
+
+# Deletion drain stuck: a proof set has had scheduled piece removals queued for
+# longer than a proving period. PDPVerifier 3.5.0 rejects nextProvingPeriod
+# until they are drained, so its proving periods stop advancing. Check logs for
+# the PDPv0_ProcDel task and its processPieceDeletions transactions.
+(
+  time() - piri_pdp_proofset_deletion_drain_queued_timestamp_seconds{job="forge/piri"}
+)
+> on (node, proof_set)
+(
+  30 * piri_pdp_proofset_proving_period_epochs{job="forge/piri"}
+)
 
 # Prove task not running: no PDPv0_Prove run has finished in 1.5 proving
 # periods. This shows the task engine has stopped proving altogether; it says
@@ -312,6 +329,7 @@ Recommended alerts:
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Critical | Check logs for why Curio gave up on the proof set |
+| Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
