@@ -142,7 +142,7 @@ func TestCommPBacklog(t *testing.T) {
 // cancelled its row (released during the delay) completes without work.
 func TestDo_CancelledHeldRowIsNoop(t *testing.T) {
 	p := newTestPipeline(t)
-	done, err := p.commp.Do(999, func() bool { return true })
+	done, err := p.commp.Do(t.Context(), 999, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 }

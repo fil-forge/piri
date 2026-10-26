@@ -49,7 +49,7 @@ func NewAggregateTask(db *harmonydb.DB, store aggtypes.Store, submitter RootSubm
 }
 
 // spawn creates a PDPAggregate task for the blob's piece, deduped on
-// agg_task_id. Best-effort; Follows and IAmBored recover lost spawns.
+// agg_task_id. Best-effort; IAmBored recovers lost spawns.
 func (t *AggregateTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	t.add.Val(ctx)(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 		n, err := tx.Exec(`
@@ -60,9 +60,7 @@ func (t *AggregateTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	})
 }
 
-func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *AggregateTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var roots []cid.Cid
 	if _, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		roots = roots[:0]
@@ -140,37 +138,6 @@ func (t *AggregateTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (d
 	return true, nil
 }
 
-// followCommP recovers lost aggregation spawns. A completing PDPCommP task
-// enqueues the PDPAggregate task for its piece (the spawn in CommPTask.Do),
-// but that spawn is best-effort: AddTask swallows errors, and the process
-// can die after the commp result commits but before the spawn commits —
-// leaving a row with a commp set and no aggregation task to fold it. The
-// engine's Follows poller (~1 min cadence) walks completed PDPCommP tasks
-// and calls this to spawn the missing PDPAggregate for any such row. Dedup
-// is the engine's previous_task check plus the agg_task_id guard.
-func (t *AggregateTask) followCommP(commpTaskID harmonytask.TaskID, add harmonytask.AddTaskFunc) (bool, error) {
-	var missing bool
-	if err := t.db.QueryRow(context.Background(), `
-		SELECT EXISTS (
-			SELECT 1 FROM pdp_blob_pipeline
-			WHERE commp_task_id = $1 AND commp IS NOT NULL
-			  AND aggregate_root IS NULL AND agg_task_id IS NULL
-		)`, commpTaskID).Scan(&missing); err != nil {
-		return false, err
-	}
-	if !missing {
-		return false, nil
-	}
-	add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
-		n, err := tx.Exec(`
-			UPDATE pdp_blob_pipeline SET agg_task_id = $1
-			WHERE commp_task_id = $2 AND agg_task_id IS NULL AND aggregate_root IS NULL
-		`, id, commpTaskID)
-		return n > 0, err
-	})
-	return true, nil
-}
-
 func (t *AggregateTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {
 	return ids, nil
 }
@@ -185,11 +152,9 @@ func (t *AggregateTask) TypeDetails() harmonytask.TaskTypeDetails {
 		},
 		MaxFailures: 50,
 		RetryWait:   taskhelp.RetryWaitLinear(5*time.Second, 5*time.Second),
-		Follows: map[string]func(harmonytask.TaskID, harmonytask.AddTaskFunc) (bool, error){
-			CommPTaskName: t.followCommP,
-		},
-		// Scavenge pieces whose aggregation spawn was lost outside the
-		// Follows window (e.g. across an engine restart).
+		MayFollow:   []string{CommPTaskName},
+		// Scavenge pieces whose aggregation spawn was lost, e.g. when the
+		// process died between the commP result and the spawn.
 		IAmBored: func(add harmonytask.AddTaskFunc) error {
 			add(func(id harmonytask.TaskID, tx *harmonydb.Tx) (bool, error) {
 				n, err := tx.Exec(`

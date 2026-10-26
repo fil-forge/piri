@@ -65,21 +65,13 @@ func (h *chainHead) load() (epoch, timestamp int64, ok bool) {
 	return h.epoch.Load(), h.timestamp.Load(), true
 }
 
-// proofSetState is one proof set's proving schedule and Curio's proving
-// failure state for it, from pdp_data_sets.
+// proofSetState is one proof set's proving schedule and whether Curio has
+// given up proving it, from pdp_data_sets.
 type proofSetState struct {
 	ID              int64  `db:"id"`
 	ProveAtEpoch    *int64 `db:"prove_at_epoch"`
 	ChallengeWindow *int64 `db:"challenge_window"`
 	ProvingPeriod   *int64 `db:"proving_period"`
-	// ConsecutiveProveFailures counts the proving sends (Prove, InitPP,
-	// NextPP) that Curio has handled as contract reverts since the last
-	// successful prove send.
-	ConsecutiveProveFailures int64 `db:"consecutive_prove_failures"`
-	// NextProveAttemptAt is the backoff deadline Curio set after the last
-	// proving failure. It stays once passed; Curio clears it on the next
-	// successful prove send.
-	NextProveAttemptAt *int64 `db:"next_prove_attempt_at"`
 	// UnrecoverableEpoch is set once Curio has given up proving the set.
 	UnrecoverableEpoch *int64 `db:"unrecoverable_proving_failure_epoch"`
 }
@@ -125,7 +117,6 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 	var rows []proofSetState
 	if err := s.db.Select(ctx, &rows, `
 		SELECT id, prove_at_epoch, challenge_window, proving_period,
-		       consecutive_prove_failures, next_prove_attempt_at,
 		       unrecoverable_proving_failure_epoch
 		FROM pdp_data_sets
 		WHERE service = $1
@@ -242,22 +233,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create proving period gauge: %w", err)
 	}
-	proveFailures, err := meter.Int64ObservableGauge(
-		"piri_pdp_proofset_consecutive_prove_failures",
-		metric.WithDescription("Proving sends Curio has handled as contract reverts since the proof set's last successful prove send (pdp_data_sets.consecutive_prove_failures), which is the only thing that resets it; proof sets marked unrecoverable are not reported"),
-		metric.WithUnit("{failure}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create consecutive prove failures gauge: %w", err)
-	}
-	nextProveAttempt, err := meter.Int64ObservableGauge(
-		"piri_pdp_proofset_next_prove_attempt_epoch",
-		metric.WithDescription("Backoff deadline Curio set after the proof set's last proving failure (pdp_data_sets.next_prove_attempt_at): Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send"),
-		metric.WithUnit("{epoch}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create next prove attempt gauge: %w", err)
-	}
 	unrecoverable, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofsets_unrecoverable",
 		metric.WithDescription("Number of this node's proof sets Curio has stopped proving after an unrecoverable failure (pdp_data_sets.unrecoverable_proving_failure_epoch set)"),
@@ -351,10 +326,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 						continue
 					}
 					attrs := metric.WithAttributes(attribute.String("proof_set", strconv.FormatInt(ps.ID, 10)))
-					o.ObserveInt64(proveFailures, ps.ConsecutiveProveFailures, attrs)
-					if ps.NextProveAttemptAt != nil {
-						o.ObserveInt64(nextProveAttempt, *ps.NextProveAttemptAt, attrs)
-					}
 					// The schedule is only reported while one is set.
 					if ps.ProveAtEpoch == nil {
 						continue
@@ -395,8 +366,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		nextChallenge,
 		challengeWindow,
 		provingPeriod,
-		proveFailures,
-		nextProveAttempt,
 		unrecoverable,
 		taskLastSuccess,
 		poolConns,

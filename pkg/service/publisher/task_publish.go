@@ -94,8 +94,7 @@ func (t *PublishTask) schedule(ctx context.Context) {
 // was running; the new owner publishes the batch.
 var errLostOwnership = errors.New("publish task is no longer owned by this worker")
 
-func (t *PublishTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
+func (t *PublishTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	// A failure leaves the rows stamped for this task, and harmonytask
 	// retries it with the same batch. That is safe on the publisher's side
 	// too: a failed commit leaves nothing behind, and anything that did

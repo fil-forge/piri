@@ -64,7 +64,7 @@ func TestSettleTask_SettlesAndHandsOff(t *testing.T) {
 	p.stage(t, blob)
 	require.NoError(t, p.entry.Enqueue(t.Context(), blob))
 
-	done, err := p.settle.Do(harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
+	done, err := p.settle.Do(t.Context(), harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, []multihash.Multihash{blob}, p.settler.settled)
@@ -83,7 +83,7 @@ func TestSettleTask_HeldRowWaitsForDelay(t *testing.T) {
 	p.stage(t, blob)
 	require.NoError(t, p.entry.Enqueue(t.Context(), blob))
 
-	done, err := p.settle.Do(harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
+	done, err := p.settle.Do(t.Context(), harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	row := p.row(t, blob)
@@ -108,7 +108,7 @@ func TestSettleTask_CancelledRowIsNoop(t *testing.T) {
 	_, err := p.db.Exec(t.Context(), `DELETE FROM pdp_blob_pipeline WHERE digest = $1`, []byte(blob))
 	require.NoError(t, err)
 
-	done, err := p.settle.Do(id, func() bool { return true })
+	done, err := p.settle.Do(t.Context(), id, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Empty(t, p.settler.settled)
@@ -123,7 +123,7 @@ func TestSettleTask_FailedSettleIsRetried(t *testing.T) {
 	require.NoError(t, p.entry.Enqueue(t.Context(), blob))
 	p.settler.err = errors.New("object store unreachable")
 
-	done, err := p.settle.Do(harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
+	done, err := p.settle.Do(t.Context(), harmonytask.TaskID(*p.row(t, blob).SettleTaskID), func() bool { return true })
 	require.ErrorIs(t, err, p.settler.err)
 	require.False(t, done)
 	row := p.row(t, blob)

@@ -50,9 +50,7 @@ func NewAddRootsTask(
 	return &AddRootsTask{db: db, api: api, proofSet: proofSet, store: store, accepter: accepter, cfg: cfg}
 }
 
-func (t *AddRootsTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *AddRootsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var rows []struct {
 		Root string `db:"root"`
 	}

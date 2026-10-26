@@ -107,7 +107,7 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 
 	// A worker the engine has taken the task from publishes nothing and
 	// leaves the rows for the new owner.
-	done, err := task.Do(id, func() bool { return false })
+	done, err := task.Do(t.Context(), id, func() bool { return false })
 	require.ErrorIs(t, err, errLostOwnership)
 	require.False(t, done)
 	_, err = publisherStore.Head(ctx)
@@ -116,7 +116,7 @@ func TestPublishTask_PublishesClaimedBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, claimed, queued, "the rows stay stamped for the task's new owner")
 
-	done, err = task.Do(id, func() bool { return true })
+	done, err = task.Do(t.Context(), id, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 
