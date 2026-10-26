@@ -16,7 +16,7 @@ require (
 	github.com/fil-forge/libforge v0.0.0-20261012140631-fbc83e2e745b
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3
-	github.com/filecoin-project/curio v1.29.1-0.20261021151641-127dea117f00
+	github.com/filecoin-project/curio v1.29.1-0.20261026124158-5910e6d3ea34
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
