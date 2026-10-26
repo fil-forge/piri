@@ -141,7 +141,7 @@ func TestAddRoots_RetireRemovesAggregate(t *testing.T) {
 }
 
 // TestAddRoots_NoSubmissionRows: a task whose submission rows are gone, as
-// after the 00000008 migration, completes without doing anything.
+// after the 00000009 migration, completes without doing anything.
 func TestAddRoots_NoSubmissionRows(t *testing.T) {
 	db := testutil.NewHarmonyDB(t)
 	done, err := (&AddRootsTask{db: db}).Do(7, func() bool { return true })
@@ -149,7 +149,7 @@ func TestAddRoots_NoSubmissionRows(t *testing.T) {
 	require.True(t, done)
 }
 
-// The 00000008 migration unfolds aggregated rows and clears their
+// The 00000009 migration unfolds aggregated rows and clears their
 // agg_task_id, so the aggregation task's IAmBored claims them again. A row
 // that kept a stale agg_task_id would wait for a fold spawned by another
 // piece.
