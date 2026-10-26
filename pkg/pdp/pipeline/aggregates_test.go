@@ -98,6 +98,9 @@ func TestAggregate_RepeatedRoot(t *testing.T) {
 	policy := aggregator.NewPolicy(func() uint64 { return pieces[0].PaddedSize() - 1 })
 	want, err := aggregator.NewAggregate(pieces[:1])
 	require.NoError(t, err)
+	// A single-piece aggregate has an empty proof path, which CBOR decodes
+	// as nil.
+	want.Pieces[0].InclusionProof.Path = nil
 	done, err := NewAggregateTask(db, &recordingSubmitter{}, policy).Do(1, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
@@ -121,6 +124,73 @@ func TestAggregate_ConflictingPositions(t *testing.T) {
 
 	_, err = loadAggregate(t.Context(), db, a.Root)
 	require.ErrorContains(t, err, "are both stored at position 0")
+}
+
+// TestStoreAggregate_Failures: storeAggregate refuses an aggregate whose
+// pieces it cannot match one-to-one to unaggregated rows, and names the
+// cause. blob-a holds piece-1 at position 0 and blob-b piece-2 at position 1;
+// each case breaks blob-b's side.
+func TestStoreAggregate_Failures(t *testing.T) {
+	blobA, _, _ := testBlobAndPiece(t, "blob-a")
+	blobB, _, _ := testBlobAndPiece(t, "blob-b")
+	_, commp1, _ := testBlobAndPiece(t, "piece-1")
+	_, commp2, _ := testBlobAndPiece(t, "piece-2")
+	cases := map[string]struct {
+		setup   func(t *testing.T, db *harmonydb.DB, blob []byte)
+		digests [][]byte
+		want    string
+	}{
+		"a blob is given for two pieces": {
+			digests: [][]byte{blobA, blobA},
+			want:    "blob " + blobA.String() + " is given for the pieces at positions 0 and 1",
+		},
+		"a blob has no row": {
+			setup: func(t *testing.T, db *harmonydb.DB, blob []byte) {
+				_, err := db.Exec(t.Context(), `DELETE FROM pdp_blob_pipeline WHERE digest = $1`, blob)
+				require.NoError(t, err)
+			},
+			digests: [][]byte{blobA, blobB},
+			want:    "position 1 (piece " + commp2 + "): blob " + blobB.String() + " has no pipeline row",
+		},
+		"a row holds another piece": {
+			setup: func(t *testing.T, db *harmonydb.DB, blob []byte) {
+				_, err := db.Exec(t.Context(), `UPDATE pdp_blob_pipeline SET commp = $1 WHERE digest = $2`, commp1, blob)
+				require.NoError(t, err)
+			},
+			digests: [][]byte{blobA, blobB},
+			want:    "blob " + blobB.String() + " has piece " + commp1,
+		},
+		"a row is already aggregated": {
+			setup: func(t *testing.T, db *harmonydb.DB, blob []byte) {
+				_, err := db.Exec(t.Context(), `UPDATE pdp_blob_pipeline SET aggregate_root = 'other-root' WHERE digest = $1`, blob)
+				require.NoError(t, err)
+			},
+			digests: [][]byte{blobA, blobB},
+			want:    "blob " + blobB.String() + " is already in aggregate other-root",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			db := testutil.NewHarmonyDB(t)
+			pieces := insertPieceRows(t, db, []pieceRow{
+				{seed: "blob-a", pieceSeed: "piece-1"},
+				{seed: "blob-b", pieceSeed: "piece-2"},
+			})
+			a, err := aggregator.NewAggregate(pieces)
+			require.NoError(t, err)
+			if tc.setup != nil {
+				tc.setup(t, db, blobB)
+			}
+
+			var storeErr error
+			_, err = db.BeginTransaction(t.Context(), func(tx *harmonydb.Tx) (bool, error) {
+				storeErr = storeAggregate(tx, a, tc.digests)
+				return false, nil
+			})
+			require.NoError(t, err)
+			require.ErrorContains(t, storeErr, tc.want)
+		})
+	}
 }
 
 // TestAddRoots_RetireRemovesAggregate: retiring a submitted batch deletes
