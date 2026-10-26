@@ -55,7 +55,6 @@ pkg/pdp/              # PDP pipeline: aggregation (commp, aggregator, manager),
 pkg/config/           # config structs, validation, repo handling, presets glue
 pkg/store/            # store implementations behind pkg/fx/store
 lib/jobqueue/         # SQL-backed job queue (async work: replication, etc.)
-internal/ipldstore/   # IPLD store internals
 deploy/full-node/     # deployment assets; Dockerfile at repo root
 docs/                 # mkdocs operator documentation (content/ + mkdocs.yml)
 ```
