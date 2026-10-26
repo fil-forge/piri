@@ -15,7 +15,6 @@ import (
 	libpiece "github.com/fil-forge/libforge/piece"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
-	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/promise"
 )
 
@@ -37,15 +36,14 @@ const AggregateTaskName = "PDPAggregate"
 // proves deleted bytes.
 type AggregateTask struct {
 	db        *harmonydb.DB
-	store     aggtypes.Store
 	submitter RootSubmitter
 	policy    aggregator.Policy
 
 	add promise.Promise[harmonytask.AddTaskFunc]
 }
 
-func NewAggregateTask(db *harmonydb.DB, store aggtypes.Store, submitter RootSubmitter, policy aggregator.Policy) *AggregateTask {
-	return &AggregateTask{db: db, store: store, submitter: submitter, policy: policy}
+func NewAggregateTask(db *harmonydb.DB, submitter RootSubmitter, policy aggregator.Policy) *AggregateTask {
+	return &AggregateTask{db: db, submitter: submitter, policy: policy}
 }
 
 // spawn creates a PDPAggregate task for the blob's piece, deduped on
@@ -82,7 +80,9 @@ func (t *AggregateTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		}
 
 		pieces := make([]libpiece.Piece, 0, len(rows))
+		digestsByPiece := make(map[string][][]byte, len(rows))
 		for _, r := range rows {
+			digestsByPiece[r.Commp] = append(digestsByPiece[r.Commp], r.Blob)
 			c, err := cid.Parse(r.Commp)
 			if err != nil {
 				return false, fmt.Errorf("parsing piece cid %s: %w", r.Commp, err)
@@ -104,21 +104,17 @@ func (t *AggregateTask) Do(ctx context.Context, taskID harmonytask.TaskID, still
 		}
 
 		for _, a := range aggregates {
-			// Persisting into the aggregate store inside the transaction is
-			// safe: Put is idempotent, and an orphan write from an aborted
-			// transaction is unreferenced.
-			if err := t.store.Put(ctx, a.Root, a); err != nil {
-				return false, fmt.Errorf("storing aggregate %s: %w", a.Root, err)
-			}
-			members := make([]string, len(a.Pieces))
+			digests := make([][]byte, len(a.Pieces))
 			for i, p := range a.Pieces {
-				members[i] = p.Link.String()
+				link := p.Link.String()
+				queue := digestsByPiece[link]
+				if len(queue) == 0 {
+					return false, fmt.Errorf("aggregate %s holds piece %s, which no loaded row has", a.Root, link)
+				}
+				digests[i], digestsByPiece[link] = queue[0], queue[1:]
 			}
-			if _, err := tx.Exec(`
-				UPDATE pdp_blob_pipeline SET aggregate_root = $1, aggregated_at = now()
-				WHERE commp = ANY($2) AND aggregate_root IS NULL
-			`, a.Root.String(), members); err != nil {
-				return false, fmt.Errorf("marking aggregated pieces: %w", err)
+			if err := storeAggregate(tx, a, digests); err != nil {
+				return false, fmt.Errorf("storing aggregate %s: %w", a.Root, err)
 			}
 			roots = append(roots, a.Root)
 			log.Infow("aggregate created", "root", a.Root.String(), "pieces", len(a.Pieces))
