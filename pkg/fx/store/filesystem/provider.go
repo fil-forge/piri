@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ipfs/go-datastore"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	"go.uber.org/fx"
 
@@ -25,12 +24,6 @@ var Module = fx.Module("filesystem-store",
 	fx.Provide(
 		ProvideConfigs,
 		fx.Annotate(
-			NewAggregatorDatastore,
-			// tagged as aggregator_datastore since this returns a datastore.Datastore which is too generic to
-			// safely provide as is.
-			fx.ResultTags(`name:"aggregator_datastore"`),
-		),
-		fx.Annotate(
 			NewIPNIObjectStore,
 			fx.ResultTags(`name:"ipni_objectstore"`),
 		),
@@ -48,7 +41,6 @@ var KeyStoreModule = fx.Module("filesystem-keystore",
 
 // LocalOnlyModule provides stores that must always be local (filesystem-based).
 // These stores cannot be backed by S3 due to their usage patterns:
-// - AggregatorDatastore: high-frequency state for PDP aggregation
 // - RetrievalJournal: periodic filesystem-based journal with GC
 // - KeyStore: private keys must never leave disk
 //
@@ -56,10 +48,6 @@ var KeyStoreModule = fx.Module("filesystem-keystore",
 var LocalOnlyModule = fx.Module("local-only-store",
 	fx.Provide(
 		ProvideLocalOnlyConfigs,
-		fx.Annotate(
-			NewAggregatorDatastore,
-			fx.ResultTags(`name:"aggregator_datastore"`),
-		),
 		NewRetrievalJournal,
 		NewKeyStore,
 	),
@@ -68,7 +56,6 @@ var LocalOnlyModule = fx.Module("local-only-store",
 // LocalOnlyConfigs provides configs needed by LocalOnlyModule stores.
 type LocalOnlyConfigs struct {
 	fx.Out
-	Aggregator    app.AggregatorStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
 	KeyStore      app.KeyStoreConfig
 }
@@ -76,7 +63,6 @@ type LocalOnlyConfigs struct {
 // ProvideLocalOnlyConfigs extracts configs for local-only stores.
 func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 	return LocalOnlyConfigs{
-		Aggregator:    cfg.Aggregator,
 		EgressTracker: cfg.EgressTracker,
 		KeyStore:      cfg.KeyStore,
 	}
@@ -84,7 +70,6 @@ func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 
 type Configs struct {
 	fx.Out
-	Aggregator    app.AggregatorStorageConfig
 	Publisher     app.PublisherStorageConfig
 	Blob          app.BlobStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
@@ -96,7 +81,6 @@ type Configs struct {
 // ProvideConfigs provides the fields of a storage config
 func ProvideConfigs(cfg app.StorageConfig) Configs {
 	return Configs{
-		Aggregator:    cfg.Aggregator,
 		Publisher:     cfg.Publisher,
 		Blob:          cfg.Blobs,
 		EgressTracker: cfg.EgressTracker,
@@ -104,24 +88,6 @@ func ProvideConfigs(cfg app.StorageConfig) Configs {
 		Stash:         cfg.StashStore,
 		PDP:           cfg.PDPStore,
 	}
-}
-
-func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (datastore.Datastore, error) {
-	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for aggregator store")
-	}
-
-	ds, err := newDs(cfg.Dir)
-	if err != nil {
-		return nil, fmt.Errorf("creating aggregator store: %w", err)
-	}
-	lc.Append(fx.Hook{
-		OnStop: func(ctx context.Context) error {
-			return ds.Close()
-		},
-	})
-
-	return ds, nil
 }
 
 // NewIPNIObjectStore provides the flatfs directory holding the node's IPNI
