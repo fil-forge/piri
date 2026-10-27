@@ -273,3 +273,45 @@ func TestProofCacheStore_ProvesAPieceAboveTheCacheThresholdFromTheLayerSaveCache
 	require.NotNil(t, got)
 	require.True(t, proof.VerifyProof(got.Leaf, got.Proof, [32]byte(commitment), challengedLeaf))
 }
+
+// saveCacheTaskID returns pdp_piecerefs.save_cache_task_id for the piece ref,
+// nil when no task holds it.
+func saveCacheTaskID(t *testing.T, db *harmonydb.DB, pieceRefID int64) *int64 {
+	t.Helper()
+	var id *int64
+	require.NoError(t, db.QueryRow(context.Background(),
+		`SELECT save_cache_task_id FROM pdp_piecerefs WHERE id = $1`, pieceRefID).Scan(&id))
+	return id
+}
+
+func TestReclaimOrphanedSaveCaches_FreesAPieceWhoseTaskTheEngineDeleted(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.NewHarmonyDB(t)
+	v1, _ := anyPiece(t, 1, 1<<20)
+	pieceRefID := parkPiece(t, db, v1, 1<<20)
+	// Task 8 failed MaxFailures times; the engine deleted it from harmony_task.
+	_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 8 WHERE id = $1`, pieceRefID)
+	require.NoError(t, err)
+
+	n, err := reclaimOrphanedSaveCaches(ctx, db)
+	require.NoError(t, err)
+
+	require.Equal(t, []any{1, (*int64)(nil)}, []any{n, saveCacheTaskID(t, db, pieceRefID)})
+}
+
+func TestReclaimOrphanedSaveCaches_KeepsAPieceWhoseTaskIsStillQueued(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.NewHarmonyDB(t)
+	v1, _ := anyPiece(t, 1, 1<<20)
+	pieceRefID := parkPiece(t, db, v1, 1<<20)
+	_, err := db.Exec(ctx, `INSERT INTO harmony_task (id, posted_time, added_by, name) VALUES (7, now(), 1, 'PDPv0_SaveCache')`)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 7 WHERE id = $1`, pieceRefID)
+	require.NoError(t, err)
+
+	n, err := reclaimOrphanedSaveCaches(ctx, db)
+	require.NoError(t, err)
+
+	taskID := int64(7)
+	require.Equal(t, []any{0, &taskID}, []any{n, saveCacheTaskID(t, db, pieceRefID)})
+}
