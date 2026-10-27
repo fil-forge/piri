@@ -204,9 +204,13 @@ unless on (node, proof_set)
 # `piri_pdp_proofset_consecutive_prove_failures` for the current state.
 increase(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
 
-# Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
-# run Curio's data set deletion, so the count does not go down on its own; to
-# alert only when a new one appears, use
+# Proof set unrecoverable: Curio has given up proving a proof set. It does so
+# either because the set's payment has ended or been terminated, or after five
+# consecutive rejected proving transactions, all but the last of which
+# "Proving failing" above has already alerted on if you alert on it as
+# recommended. So it calls for finding out why Curio gave up rather than an
+# urgent response. Piri does not run Curio's data set deletion, so the count
+# does not go down on its own; to alert only when a new one appears, use
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
@@ -341,7 +345,7 @@ Recommended alerts:
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Proving period not advanced, outside a failure backoff (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | New proving failure for a proof set (`piri_pdp_proofset_consecutive_prove_failures` rising) | Critical | Check logs for the rejected proving transaction |
-| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Critical | Check logs for why Curio gave up on the proof set |
+| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
