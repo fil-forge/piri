@@ -65,6 +65,7 @@ for example alerts.
 | <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
 | <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
+| <nobr>`piri_pdp_proofset_last_proven_epoch`</nobr> | Gauge | epoch | Epoch PDPVerifier last accepted a proof for the proof set, read from the chain on each collection |
 | <nobr>`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`</nobr> | Gauge | s | Unix time the proof set was queued to drain its scheduled piece removals; absent when none is queued. PDPVerifier 3.5.0 rejects `nextProvingPeriod` until the drain finishes |
 | <nobr>`piri_pdp_proof_cache_pending_oldest_seconds`</nobr> | Gauge | s | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer, which Curio needs to prove it, was parked; 0 when none waits |
 | <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |

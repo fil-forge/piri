@@ -3,10 +3,12 @@ package curiopdp
 import (
 	"context"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/curiostorage/harmonyquery"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
@@ -18,6 +20,18 @@ import (
 
 	"github.com/fil-forge/piri/pkg/internal/testutil"
 )
+
+// fakeVerifier answers GetDataSetLastProvenEpoch from a map, and fails for a
+// proof set it has no entry for.
+type fakeVerifier map[int64]int64
+
+func (f fakeVerifier) GetDataSetLastProvenEpoch(_ *bind.CallOpts, setID *big.Int) (*big.Int, error) {
+	epoch, ok := f[setID.Int64()]
+	if !ok {
+		return nil, errors.New("any-rpc-error")
+	}
+	return big.NewInt(epoch), nil
+}
 
 type fakeSource struct {
 	sets             []proofSetState
@@ -204,11 +218,11 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	drainQueued := time.Unix(1_700_000_200, 0)
 	src := &fakeSource{
 		sets: []proofSetState{
-			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
+			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), LastProvenEpoch: ptr(900)},
 			// 8: window and period unknown; 9: no schedule, drain queued; 10 and 11: unrecoverable.
 			{ID: 8, ProveAtEpoch: ptr(2000)},
-			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued},
-			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued},
+			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(950)},
+			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(100)},
 			{ID: 11, UnrecoverableEpoch: ptr(450)},
 		},
 		last: map[string]time.Time{"PDPv0_Prove": proveAt},
@@ -223,6 +237,8 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	require.Equal(t, map[string]int64{"": 2}, got["piri_pdp_proofsets_unrecoverable"])
 	// A queued drain is reported whether or not a schedule is set.
 	require.Equal(t, map[string]int64{"9": drainQueued.Unix()}, got["piri_pdp_proofset_deletion_drain_queued_timestamp_seconds"])
+	// The last proven epoch is reported whenever it was read, schedule or not.
+	require.Equal(t, map[string]int64{"7": 900, "9": 950}, got["piri_pdp_proofset_last_proven_epoch"])
 	require.Equal(t, map[string]int64{"PDPv0_Prove": proveAt.Unix()}, got["piri_pdp_task_last_success_timestamp_seconds"])
 }
 
@@ -281,7 +297,8 @@ func TestDBMetricsSource(t *testing.T) {
 	insertHistory("PDPv0_ProcDel", t0, true, host)
 	insertHistory("PDPSync", t0.Add(4*time.Hour), true, host) // not exported
 
-	src := newDBMetricsSource(db, pdpServiceLabel, host)
+	// Proof set 4's chain read fails; 2 is unrecoverable, so it is not read.
+	src := newDBMetricsSource(db, pdpServiceLabel, host, fakeVerifier{1: 950, 2: 800})
 	now := t0.Add(5 * time.Hour)
 	src.now = func() time.Time { return now }
 
@@ -295,7 +312,7 @@ func TestDBMetricsSource(t *testing.T) {
 	}
 	drainQueued := t0.Add(30 * time.Minute)
 	require.Equal(t, []proofSetState{
-		{ID: 1, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880)},
+		{ID: 1, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), LastProvenEpoch: ptr(950)},
 		{ID: 2, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(900)},
 		{ID: 4, ProveAtEpoch: ptr(4000), DrainQueuedAt: &drainQueued},
 	}, sets)
@@ -388,7 +405,7 @@ func TestDBMetricsSource_ReportsTheOldestUnclaimedPieceAboveTheCacheThreshold(t 
 	db := testutil.NewHarmonyDB(t)
 	parkPendingProofCaches(t, db, 3, 1)
 
-	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	got, err := newDBMetricsSource(db, "any-service", "any-host", fakeVerifier{}).oldestPendingProofCache(context.Background())
 	require.NoError(t, err)
 
 	require.InDelta(t, (3 * time.Hour).Seconds(), got.Seconds(), 60)
@@ -400,7 +417,7 @@ func TestDBMetricsSource_CountsAClaimedPieceAsWaiting(t *testing.T) {
 	db := testutil.NewHarmonyDB(t)
 	parkPendingProofCaches(t, db, 1, 3)
 
-	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	got, err := newDBMetricsSource(db, "any-service", "any-host", fakeVerifier{}).oldestPendingProofCache(context.Background())
 	require.NoError(t, err)
 
 	require.InDelta(t, (3 * time.Hour).Seconds(), got.Seconds(), 60)
@@ -409,7 +426,7 @@ func TestDBMetricsSource_CountsAClaimedPieceAsWaiting(t *testing.T) {
 func TestDBMetricsSource_ReportsZeroWhenNoPieceWaitsForAProofCache(t *testing.T) {
 	db := testutil.NewHarmonyDB(t)
 
-	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	got, err := newDBMetricsSource(db, "any-service", "any-host", fakeVerifier{}).oldestPendingProofCache(context.Background())
 	require.NoError(t, err)
 
 	require.Zero(t, got)
