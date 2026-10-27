@@ -50,10 +50,11 @@ separate scheduler inside Piri, reported by the PDP metrics below.
 
 ### PDP Metrics
 
-The chain head the PDP pipeline last saw, the proving schedule and recorded
-proving failures of the node's proof sets, and when the proving tasks last
-ran. They come from Curio's database, not the chain, so they do not confirm
-that a proof landed. See
+The chain head the PDP pipeline last saw, the proving schedule of the node's
+proof sets, the epoch each was last proven, and when the proving tasks last
+ran. Only `piri_pdp_proofset_last_proven_epoch` is read from the chain, so it
+is the one that confirms a proof landed; the rest come from Curio's database.
+See
 [Monitoring > PDP Proving Health](../operator-guide/monitoring.md#pdp-proving-health)
 for example alerts.
 
