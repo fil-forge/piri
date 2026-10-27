@@ -114,10 +114,11 @@ Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 ### PDP Proving Health
 
 These gauges let an alert tell a node whose chain view has stopped advancing,
-or whose proving is failing, from a healthy one. Piri reports the chain head
-and what Curio has recorded in its database, and leaves the judgement to the
-alert. None of it is read back from the chain, so none of it confirms that a
-proof landed.
+or whose proving is failing, from a healthy one. Piri reports the chain head,
+what Curio has recorded in its database, and the epoch each proof set was last
+proven on chain, and leaves the judgement to the alert. Only
+`piri_pdp_proofset_last_proven_epoch` is read back from the chain, so it is the
+one that confirms a proof landed.
 
 | Metric | Unit | Labels | What It Tells You |
 |--------|------|--------|-------------------|
@@ -246,11 +247,11 @@ piri_pdp_save_cache_pending_oldest_seconds{job="forge/piri"} > 1800
 )
 ```
 
-What these alerts do not catch: a proof transaction that Curio sent but that
-then failed on chain, and a prove task that woke after its challenge window
-had closed (Curio only logs this). Both are recorded as successful task runs
-and leave the failure count unchanged. The last alert is also per node: with
-several proof sets, proving one keeps it quiet.
+A proof transaction that failed on chain, and a prove task that woke after
+its challenge window had closed (Curio only logs this), are both recorded as
+successful task runs, so only the proving-failure alert catches them. The
+prove-task alert is also per node: with several proof sets, proving one keeps
+it quiet.
 
 ### Aggregation Pipeline Health
 
