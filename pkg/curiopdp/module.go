@@ -146,7 +146,7 @@ func provideNextTask(db *harmonydb.DB, ec ethchain.EthClient, fil pdpv0.NextProv
 }
 
 func provideSaveCacheTask(db *harmonydb.DB, pr pdpv0.PieceReader, pc pdpv0.ProofCacheStore) harmonytask.TaskInterface {
-	return pdpv0.NewTaskPDPSaveCache(db, pr, pc)
+	return &saveCacheTask{TaskPDPSaveCache: pdpv0.NewTaskPDPSaveCache(db, pr, pc), db: db}
 }
 
 func provideProveTask(db *harmonydb.DB, ec ethchain.EthClient, fil pdpv0.ProveTaskChainApi, w *pdpv0.Watcher, s *message.SenderETH, pr pdpv0.PieceReader, pc pdpv0.ProofCacheStore) harmonytask.TaskInterface {

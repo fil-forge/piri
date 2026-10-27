@@ -3,8 +3,10 @@ package curiopdp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
@@ -101,4 +103,48 @@ func (s *proofCacheStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, la
 		return false, nil, nil
 	}
 	return true, &indexstore.NodeDigest{Layer: layerIdx, Index: index, Hash: [32]byte(rows[0])}, nil
+}
+
+// saveCacheReclaimInterval is how often saveCacheTask returns stranded pieces
+// to the save-cache queue.
+const saveCacheReclaimInterval = time.Minute
+
+// saveCacheTask is pdpv0's save-cache task, plus the reclaim of pieces whose
+// task the engine deleted. harmonytask deletes a task after MaxFailures, and
+// pdpv0 never clears pdp_piecerefs.save_cache_task_id, so without the reclaim
+// such a piece is never cached and its proofs fail every proving period.
+type saveCacheTask struct {
+	*pdpv0.TaskPDPSaveCache
+	db *harmonydb.DB
+}
+
+// Adder runs the reclaim beside pdpv0's scheduler, which never returns.
+func (t *saveCacheTask) Adder(taskFunc harmonytask.AddTaskFunc) {
+	go func() {
+		ticker := time.NewTicker(saveCacheReclaimInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n, err := reclaimOrphanedSaveCaches(context.Background(), t.db); err != nil {
+				log.Warnw("reclaiming pieces from save-cache tasks the engine gave up on", "error", err)
+			} else if n > 0 {
+				log.Warnw("reclaimed pieces from save-cache tasks the engine gave up on", "pieces", n)
+			}
+		}
+	}()
+	t.TaskPDPSaveCache.Adder(taskFunc)
+}
+
+// reclaimOrphanedSaveCaches clears save_cache_task_id on pieces whose task no
+// longer exists, so pdpv0's scheduler claims them again. It reports how many
+// it cleared.
+func reclaimOrphanedSaveCaches(ctx context.Context, db *harmonydb.DB) (int, error) {
+	n, err := db.Exec(ctx, `
+		UPDATE pdp_piecerefs SET save_cache_task_id = NULL
+		WHERE save_cache_task_id IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM harmony_task WHERE id = pdp_piecerefs.save_cache_task_id)
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("reclaiming pieces from deleted save-cache tasks: %w", err)
+	}
+	return n, nil
 }
