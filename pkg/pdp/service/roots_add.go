@@ -346,49 +346,24 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		RawSize       uint64 // Actual unpadded data size (not derived from padded size)
 	}
 
-	type subrootRow struct {
-		PieceCID        string `db:"piece_cid"`
-		PDPPieceRefID   int64  `db:"pdp_piece_ref_id"`
-		PieceRefID      int64  `db:"piece_ref"`
-		PiecePaddedSize uint64 `db:"piece_padded_size"`
-		PieceRawSize    int64  `db:"piece_raw_size"`
-	}
-
-	// Convert set to slice of string for db query
-	newSubrootsList := lo.Map(newSubroots.Keys(), func(c cid.Cid, _ int) string {
-		return c.String()
-	})
-
-	var rows []subrootRow
-	if err := p.db.Select(ctx, &rows, `
-		SELECT ppr.piece_cid, ppr.id AS pdp_piece_ref_id, ppr.piece_ref,
-		       pp.piece_padded_size, pp.piece_raw_size
-		FROM pdp_piecerefs ppr
-		JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
-		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
-	`, p.name, newSubrootsList); err != nil {
+	parked, err := p.findParkedSubroots(ctx, newSubroots.Keys())
+	if err != nil {
 		return common.Hash{}, err
 	}
 
 	subrootInfoMap := make(map[cid.Cid]*SubrootInfo)
 	currentSubroots := cid.NewSet()
-	for _, r := range rows {
-		// Decode the piece CID.
-		decodedCID, err := cid.Decode(r.PieceCID)
-		if err != nil {
-			return common.Hash{}, fmt.Errorf("invalid piece CID in database: %s", r.PieceCID)
-		}
-		subrootInfoMap[decodedCID] = &SubrootInfo{
+	for subroot, piece := range parked {
+		subrootInfoMap[subroot] = &SubrootInfo{
 			PieceInfo: abi.PieceInfo{
-				Size:     abi.PaddedPieceSize(r.PiecePaddedSize),
-				PieceCID: decodedCID,
+				Size:     abi.PaddedPieceSize(piece.PaddedSize),
+				PieceCID: subroot,
 			},
-			PDPPieceRefID: r.PDPPieceRefID,
+			PDPPieceRefID: piece.PDPPieceRefID,
 			SubrootOffset: 0, // will be computed below
-			RawSize:       uint64(r.PieceRawSize),
+			RawSize:       piece.RawSize,
 		}
-		currentSubroots.Add(decodedCID)
+		currentSubroots.Add(subroot)
 	}
 
 	// Ensure every requested subrootCID was found.
@@ -699,3 +674,56 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 // ucantone-shaped equivalent that returns ([]cid.Cid /* blob/accept
 // task links */, ucan.Container /* invocations + pdp/accept receipts */,
 // error) when those stores migrate.
+
+// parkedSubroot is the parked piece behind one requested subroot.
+type parkedSubroot struct {
+	PDPPieceRefID int64
+	PaddedSize    uint64
+	RawSize       uint64 // Actual unpadded data size (not derived from padded size)
+}
+
+// findParkedSubroots finds the parked piece of each subroot this service
+// parked, keyed by the subroot's CID as given. pdp_piecerefs holds the v1
+// form, so a v2 subroot is looked up by its v1 CID. A subroot with no parked
+// piece is left out.
+func (p *PDPService) findParkedSubroots(ctx context.Context, subroots []cid.Cid) (map[cid.Cid]parkedSubroot, error) {
+	byV1 := make(map[string]cid.Cid, len(subroots))
+	for _, subroot := range subroots {
+		v1, err := asPieceCIDv1(subroot)
+		if err != nil {
+			return nil, fmt.Errorf("deriving v1 piece cid from %s: %w", subroot, err)
+		}
+		byV1[v1.String()] = subroot
+	}
+
+	var rows []struct {
+		PieceCID        string `db:"piece_cid"`
+		PDPPieceRefID   int64  `db:"pdp_piece_ref_id"`
+		PiecePaddedSize uint64 `db:"piece_padded_size"`
+		PieceRawSize    int64  `db:"piece_raw_size"`
+	}
+	if err := p.db.Select(ctx, &rows, `
+		SELECT ppr.piece_cid, ppr.id AS pdp_piece_ref_id,
+		       pp.piece_padded_size, pp.piece_raw_size
+		FROM pdp_piecerefs ppr
+		JOIN parked_piece_refs pprf ON pprf.ref_id = ppr.piece_ref
+		JOIN parked_pieces pp ON pp.id = pprf.piece_id
+		WHERE ppr.service = $1 AND ppr.piece_cid = ANY($2)
+	`, p.name, lo.Keys(byV1)); err != nil {
+		return nil, fmt.Errorf("finding parked subroots: %w", err)
+	}
+
+	found := make(map[cid.Cid]parkedSubroot, len(rows))
+	for _, r := range rows {
+		subroot, ok := byV1[r.PieceCID]
+		if !ok {
+			return nil, fmt.Errorf("internal: parked piece %s was not requested", r.PieceCID)
+		}
+		found[subroot] = parkedSubroot{
+			PDPPieceRefID: r.PDPPieceRefID,
+			PaddedSize:    r.PiecePaddedSize,
+			RawSize:       uint64(r.PieceRawSize),
+		}
+	}
+	return found, nil
+}

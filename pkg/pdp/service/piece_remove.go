@@ -200,7 +200,7 @@ func (p *PDPService) processPendingRemovals(ctx context.Context, removeRoot func
 			var refCount int
 			if err := p.db.QueryRow(ctx, `
 				SELECT count(*) FROM pdp_piecerefs WHERE piece_cid = $1
-			`, commp).Scan(&refCount); err != nil {
+			`, commpV1).Scan(&refCount); err != nil {
 				errs = errors.Join(errs, fmt.Errorf("counting piece refs for %s: %w", blob.String(), err))
 				continue
 			}
@@ -378,12 +378,12 @@ func (p *PDPService) finalizeRemoval(ctx context.Context, blob multihash.Multiha
 				FROM pdp_piecerefs pr
 				JOIN parked_piece_refs ppr ON ppr.ref_id = pr.piece_ref
 				WHERE pr.piece_cid = $1
-			`, commp); err != nil {
+			`, commpV1); err != nil {
 				return fmt.Errorf("finding piece refs: %w", err)
 			}
 			if _, err := tx.Exec(`
 				DELETE FROM pdp_piecerefs WHERE piece_cid = $1
-			`, commp); err != nil {
+			`, commpV1); err != nil {
 				return fmt.Errorf("deleting pdp piece refs: %w", err)
 			}
 			for _, ref := range refs {

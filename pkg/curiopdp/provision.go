@@ -29,6 +29,9 @@ const pdpServiceLabel = "storacha"
 //   - pdp_services (service_label='storacha'): FK target for
 //     pdp_data_set_creates / pdp_piece_uploads / pdp_piecerefs.
 //
+// It then rewrites pieces parked under their v2 CID to v1 (see
+// convertParkedPiecesToV1), before any task reads them.
+//
 // Runs as an OnStart hook so it executes after the owner key is in the keystore
 // (imported before fxApp.Start during `piri init`, or already persisted in the
 // serve path) and before any task/init step needs it. Idempotent. Mirrors
@@ -84,7 +87,8 @@ func provisionPDPState(lc fx.Lifecycle, db *harmonydb.DB, wlt *wallet.LocalWalle
 				}
 				log.Infow("provisioned pdp_services row", "service_label", pdpServiceLabel)
 			}
-			return nil
+
+			return convertParkedPiecesToV1(ctx, db)
 		},
 	})
 }
