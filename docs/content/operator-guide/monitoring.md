@@ -180,9 +180,12 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
   + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
 )
 
-# Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
-# run Curio's data set deletion, so the count does not go down on its own; to
-# alert only when a new one appears, use
+# Proof set unrecoverable: Curio has given up proving a proof set. It does so
+# only when the chain says proving cannot continue: the set's payment has ended
+# or been terminated, or PDPVerifier no longer has the set live. So it calls
+# for finding out why Curio gave up rather than an urgent response. Piri does
+# not run Curio's data set deletion, so the count does not go down on its own;
+# to alert only when a new one appears, use
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
@@ -328,7 +331,7 @@ Recommended alerts:
 | Lotus sync behind by >100 epochs | Critical | Check Lotus node immediately |
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
-| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Critical | Check logs for why Curio gave up on the proof set |
+| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
