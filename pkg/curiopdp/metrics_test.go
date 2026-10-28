@@ -19,11 +19,16 @@ import (
 )
 
 type fakeSource struct {
-	sets    []proofSetState
-	setsErr error
-	last    map[string]time.Time
-	lastErr error
-	pool    harmonyquery.PoolStat
+	sets      []proofSetState
+	setsErr   error
+	last      map[string]time.Time
+	lastErr   error
+	pool      harmonyquery.PoolStat
+	saveCache saveCacheBacklog
+}
+
+func (f *fakeSource) saveCacheBacklog(context.Context) (saveCacheBacklog, error) {
+	return f.saveCache, nil
 }
 
 func (f *fakeSource) poolStat() harmonyquery.PoolStat {
@@ -327,4 +332,50 @@ func requireSameTimes(t *testing.T, want, got map[string]time.Time) {
 		require.True(t, ok, "missing %s", k)
 		require.True(t, w.Equal(g), "%s: want %s, got %s", k, w, g)
 	}
+}
+
+// floatGauges collects every float64 gauge without attributes as name -> value.
+func floatGauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]float64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	out := map[string]float64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if g, ok := m.Data.(metricdata.Gauge[float64]); ok && len(g.DataPoints) == 1 {
+				out[m.Name] = g.DataPoints[0].Value
+			}
+		}
+	}
+	return out
+}
+
+func TestSaveCacheGauges_ReportThePiecesWaitingForAProofCache(t *testing.T) {
+	reader := startTestMetrics(t, &chainHead{}, &fakeSource{
+		saveCache: saveCacheBacklog{pieces: 3, oldest: 90 * time.Second},
+	})
+
+	require.Equal(t, map[string]int64{"": 3}, gauges(t, reader)["piri_pdp_save_cache_pending_pieces"])
+	require.Equal(t, 90.0, floatGauges(t, reader)["piri_pdp_save_cache_pending_oldest_seconds"])
+}
+
+func TestDBMetricsSource_CountsOnlyPiecesAboveTheCacheThresholdStillWaiting(t *testing.T) {
+	ctx := context.Background()
+	db := testutil.NewHarmonyDB(t)
+	waiting, _ := anyPiece(t, 1, 40<<20)
+	small, _ := anyPiece(t, 2, 1<<20)
+	cached, _ := anyPiece(t, 3, 40<<20)
+	waitingRef := parkSizedPiece(t, db, waiting, 40<<20, 64<<20)
+	parkSizedPiece(t, db, small, 1<<20, 1<<20) // below 32 MiB padded: never cached
+	cachedRef := parkSizedPiece(t, db, cached, 40<<20, 64<<20)
+	_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE WHERE id = $1`, cachedRef)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET created_at = now() - interval '1 hour' WHERE id = $1`, waitingRef)
+	require.NoError(t, err)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").saveCacheBacklog(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), got.pieces)
+	require.InDelta(t, time.Hour.Seconds(), got.oldest.Seconds(), 60)
 }
