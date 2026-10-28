@@ -44,6 +44,12 @@ func layerOf(layer int, hashes ...byte) []indexstore.NodeDigest {
 // ParkPiece writes for a piece, and returns the pdp_piecerefs id.
 func parkPiece(t *testing.T, db *harmonydb.DB, pieceCid cid.Cid, rawSize uint64) int64 {
 	t.Helper()
+	return parkSizedPiece(t, db, pieceCid, rawSize, rawSize)
+}
+
+// parkSizedPiece is parkPiece with the padded size given separately.
+func parkSizedPiece(t *testing.T, db *harmonydb.DB, pieceCid cid.Cid, rawSize, paddedSize uint64) int64 {
+	t.Helper()
 	ctx := context.Background()
 	var pieceID, refID, pieceRefID int64
 	_, err := db.Exec(ctx, `
@@ -53,7 +59,7 @@ func parkPiece(t *testing.T, db *harmonydb.DB, pieceCid cid.Cid, rawSize uint64)
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
 		VALUES ($1, $2, $3, TRUE, TRUE) RETURNING id`,
-		pieceCid.String(), int64(rawSize), int64(rawSize)).Scan(&pieceID))
+		pieceCid.String(), int64(paddedSize), int64(rawSize)).Scan(&pieceID))
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO parked_piece_refs (piece_id, data_url, long_term, data_headers)
 		VALUES ($1, 'pdpstore://any-blob', TRUE, '{}'::jsonb) RETURNING ref_id`,

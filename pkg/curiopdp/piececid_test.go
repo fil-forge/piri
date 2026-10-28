@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
@@ -60,4 +61,23 @@ func TestConvertParkedPiecesToV1_RewritesEveryPieceParkedUnderItsV2CID(t *testin
 	for i, ref := range refs {
 		require.Equal(t, []string{want[i].String(), want[i].String()}, parkedPieceCIDs(t, db, ref), "piece %d", i)
 	}
+}
+
+func TestConvertParkedPiecesToV1_MergesTwoPiecesThatShareAV1CID(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	// The same commitment and padded size with different payload sizes, as for
+	// payloads that differ only in trailing zero bytes: two v2 CIDs, one v1.
+	v1, shorter := anyPiece(t, 1, 1000)
+	longer, err := commcid.PieceCidV2FromV1(v1, 1016)
+	require.NoError(t, err)
+	first := parkSizedPiece(t, db, shorter, 1000, 1024)
+	second := parkSizedPiece(t, db, longer, 1016, 1024)
+
+	require.NoError(t, convertParkedPiecesToV1(t.Context(), db))
+
+	var parkedPieces []string
+	require.NoError(t, db.Select(t.Context(), &parkedPieces, `SELECT piece_cid FROM parked_pieces`))
+	require.Equal(t, []string{v1.String()}, parkedPieces)
+	require.Equal(t, parkedPieceCIDs(t, db, first), parkedPieceCIDs(t, db, second))
+	require.Equal(t, []string{v1.String(), v1.String()}, parkedPieceCIDs(t, db, second))
 }
