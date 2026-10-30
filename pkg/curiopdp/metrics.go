@@ -3,16 +3,20 @@ package curiopdp
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/curiostorage/harmonyquery"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/curio/lib/proof"
+	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
 	"go.opentelemetry.io/otel"
@@ -81,6 +85,16 @@ type proofSetState struct {
 	// removals; nil when none is queued. PDPVerifier 3.5.0 rejects
 	// nextProvingPeriod until the drain finishes.
 	DrainQueuedAt *time.Time `db:"drain_queued_at"`
+	// LastProvenEpoch is the epoch PDPVerifier last accepted a proof for the
+	// set, read from the chain rather than the database; nil when the read
+	// failed or the set is unrecoverable.
+	LastProvenEpoch *int64 `db:"-"`
+}
+
+// lastProvenReader reads when PDPVerifier last accepted a proof for a proof
+// set. Curio's PDPVerifier binding implements it.
+type lastProvenReader interface {
+	GetDataSetLastProvenEpoch(opts *bind.CallOpts, setID *big.Int) (*big.Int, error)
 }
 
 // pdpMetricsSource reads what the PDP gauges report from the database.
@@ -105,11 +119,13 @@ type saveCacheBacklog struct {
 	oldest time.Duration
 }
 
-// dbMetricsSource is pdpMetricsSource over the harmony database.
+// dbMetricsSource is pdpMetricsSource over the harmony database, plus
+// PDPVerifier for each proof set's last proven epoch.
 type dbMetricsSource struct {
-	db      *harmonydb.DB
-	service string
-	host    string
+	db       *harmonydb.DB
+	verifier lastProvenReader
+	service  string
+	host     string
 
 	mu sync.Mutex
 	// since is where the next task history read starts; zero until the
@@ -120,13 +136,14 @@ type dbMetricsSource struct {
 	now  func() time.Time
 }
 
-func newDBMetricsSource(db *harmonydb.DB, service, host string) *dbMetricsSource {
+func newDBMetricsSource(db *harmonydb.DB, service, host string, verifier lastProvenReader) *dbMetricsSource {
 	return &dbMetricsSource{
-		db:      db,
-		service: service,
-		host:    host,
-		last:    map[string]time.Time{},
-		now:     time.Now,
+		db:       db,
+		verifier: verifier,
+		service:  service,
+		host:     host,
+		last:     map[string]time.Time{},
+		now:      time.Now,
 	}
 }
 
@@ -141,6 +158,18 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 		WHERE d.service = $1
 		ORDER BY d.id`, s.service); err != nil {
 		return nil, fmt.Errorf("reading proof sets: %w", err)
+	}
+	for i := range rows {
+		if rows[i].UnrecoverableEpoch != nil {
+			continue
+		}
+		epoch, err := s.verifier.GetDataSetLastProvenEpoch(contract.EthCallOpts(ctx), big.NewInt(rows[i].ID))
+		if err != nil {
+			log.Warnw("reading proof set's last proven epoch", "proof_set", rows[i].ID, "error", err)
+			continue
+		}
+		e := epoch.Int64()
+		rows[i].LastProvenEpoch = &e
 	}
 	return rows, nil
 }
@@ -280,6 +309,14 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create unrecoverable proof sets gauge: %w", err)
 	}
+	lastProven, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_last_proven_epoch",
+		metric.WithDescription("Epoch at which PDPVerifier last accepted a proof for the proof set, read from the chain on each collection (getDataSetLastProvenEpoch). It advances once per proving period while proving works; a value more than a proving period behind the chain head means proofs are not landing, whatever the cause"),
+		metric.WithUnit("{epoch}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create last proven epoch gauge: %w", err)
+	}
 	drainQueued, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofset_deletion_drain_queued_timestamp_seconds",
 		metric.WithDescription("When the proof set was queued to drain its scheduled piece removals with processPieceDeletions (unix seconds; pdpv0_deletion_drain.created_at); absent when no drain is queued. PDPVerifier 3.5.0 rejects nextProvingPeriod until the drain finishes, so an old value means proving is blocked on it"),
@@ -390,6 +427,9 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 						continue
 					}
 					attrs := metric.WithAttributes(attribute.String("proof_set", strconv.FormatInt(ps.ID, 10)))
+					if ps.LastProvenEpoch != nil {
+						o.ObserveInt64(lastProven, *ps.LastProvenEpoch, attrs)
+					}
 					if ps.DrainQueuedAt != nil {
 						o.ObserveInt64(drainQueued, ps.DrainQueuedAt.Unix(), attrs)
 					}
@@ -444,6 +484,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		challengeWindow,
 		provingPeriod,
 		unrecoverable,
+		lastProven,
 		drainQueued,
 		taskLastSuccess,
 		poolConns,
@@ -475,12 +516,16 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 // serve command configures before wiring. Task history is filtered to the
 // engine's own host-and-port, which is how harmonytask records the node that
 // completed a task.
-func registerPDPMetrics(lc fx.Lifecycle, db *harmonydb.DB, cs *chainsched.CurioChainSched, eng *harmonytask.TaskEngine) error {
+func registerPDPMetrics(lc fx.Lifecycle, db *harmonydb.DB, ec ethchain.EthClient, cs *chainsched.CurioChainSched, eng *harmonytask.TaskEngine) error {
 	head := &chainHead{}
 	if err := cs.AddHandler(head.update); err != nil {
 		return fmt.Errorf("registering chain head metrics handler: %w", err)
 	}
-	src := newDBMetricsSource(db, pdpServiceLabel, eng.Host())
+	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ec)
+	if err != nil {
+		return fmt.Errorf("binding PDPVerifier for metrics: %w", err)
+	}
+	src := newDBMetricsSource(db, pdpServiceLabel, eng.Host(), verifier)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lc.Append(fx.Hook{

@@ -87,6 +87,7 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_chain_head_timestamp_seconds` | When the chain head the PDP pipeline last saw was produced |
 | `piri_pdp_proofset_next_challenge_epoch` | The challenge epoch Curio scheduled for each proof set |
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
+| `piri_pdp_proofset_last_proven_epoch` | When PDPVerifier last accepted a proof for each proof set |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | When each proof set was queued to drain scheduled piece removals, which must finish before its next proving period |
 | `piri_pdp_save_cache_pending_pieces`, `piri_pdp_save_cache_pending_oldest_seconds` | Pieces still waiting for the proof cache layer they need to be proven, and how long the oldest has waited |
 | `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
@@ -113,10 +114,11 @@ Send metrics to Prometheus, Grafana, or any OTLP-compatible backend.
 ### PDP Proving Health
 
 These gauges let an alert tell a node whose chain view has stopped advancing,
-or whose proving is failing, from a healthy one. Piri reports the chain head
-and what Curio has recorded in its database, and leaves the judgement to the
-alert. None of it is read back from the chain, so none of it confirms that a
-proof landed.
+or whose proving is failing, from a healthy one. Piri reports the chain head,
+what Curio has recorded in its database, and the epoch each proof set was last
+proven on chain, and leaves the judgement to the alert. Only
+`piri_pdp_proofset_last_proven_epoch` is read back from the chain, so it is the
+one that confirms a proof landed.
 
 | Metric | Unit | Labels | What It Tells You |
 |--------|------|--------|-------------------|
@@ -126,6 +128,7 @@ proof landed.
 | `piri_pdp_proofset_challenge_window_epochs` | epochs | `proof_set` | Length of the proof set's challenge window |
 | `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
+| `piri_pdp_proofset_last_proven_epoch` | epoch | `proof_set` | The epoch at which PDPVerifier last accepted a proof for the proof set (`getDataSetLastProvenEpoch`), read from the chain on each collection, so it is what landed rather than what Curio sent. It advances once per proving period while proving works. Before a set's first proof it holds the epoch the set was created, so judge it only for sets with a scheduled challenge. Absent when the chain read fails |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | unix seconds | `proof_set` | When the proof set was queued to drain its scheduled piece removals with `processPieceDeletions` (`pdpv0_deletion_drain.created_at`). PDPVerifier 3.5.0 rejects `nextProvingPeriod` while removals are queued, so a drain still queued after a proving period means proving is blocked on it. Absent when no drain is queued |
 | `piri_pdp_save_cache_pending_pieces` | count | | Parked pieces above 32 MiB padded whose proof cache layer the `PDPv0_SaveCache` task has not built yet. Curio proves a sub-piece of that size only from its layer, so a piece in a proof set without one fails every proof |
 | `piri_pdp_save_cache_pending_oldest_seconds` | seconds | | How long the oldest piece counted above has been parked. A layer is normally built within minutes of parking; 0 when none is waiting |
@@ -195,6 +198,24 @@ time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"}) > 3
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
+# Proving is failing: a proof set with a scheduled challenge has not had a
+# proof accepted on chain for longer than a proving period plus its challenge
+# window. It catches every reason proofs stop landing, whatever Piri reports:
+# rejected proofs, proofs that could not be built, a stopped task engine, a
+# stuck deletion drain. Requiring the schedule leaves out sets that have not
+# started proving, whose last proven epoch is their creation epoch.
+(
+    max by (node) (piri_chain_head_epoch{job="forge/piri"})
+  + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
+)
+- on (node) group_right()
+piri_pdp_proofset_last_proven_epoch{job="forge/piri"}
+> on (node, proof_set)
+(
+    piri_pdp_proofset_proving_period_epochs{job="forge/piri"}
+  + piri_pdp_proofset_challenge_window_epochs{job="forge/piri"}
+)
+
 # Deletion drain stuck: a proof set has had scheduled piece removals queued for
 # longer than a proving period. PDPVerifier 3.5.0 rejects nextProvingPeriod
 # until they are drained, so its proving periods stop advancing. Check logs for
@@ -226,11 +247,11 @@ piri_pdp_save_cache_pending_oldest_seconds{job="forge/piri"} > 1800
 )
 ```
 
-What these alerts do not catch: a proof transaction that Curio sent but that
-then failed on chain, and a prove task that woke after its challenge window
-had closed (Curio only logs this). Both are recorded as successful task runs
-and leave the failure count unchanged. The last alert is also per node: with
-several proof sets, proving one keeps it quiet.
+A proof transaction that failed on chain, and a prove task that woke after
+its challenge window had closed (Curio only logs this), are both recorded as
+successful task runs, so only the proving-failure alert catches them. The
+prove-task alert is also per node: with several proof sets, proving one keeps
+it quiet.
 
 ### Aggregation Pipeline Health
 
@@ -345,6 +366,7 @@ Recommended alerts:
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
+| Proof set not proven on chain for over a proving period (`piri_pdp_proofset_last_proven_epoch`) | Critical | Check logs for the `PDPv0_Prove` and `PDPv0_ProvPeriod` tasks, and the proof set with `piri client pdp proofset state` |
 | Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
 | A piece has waited over 30 minutes for its proof cache layer (`piri_pdp_save_cache_pending_oldest_seconds`) | Warning | Check logs for the `PDPv0_SaveCache` task and its blobstore reads |
 | Disk space <10% free | Warning | Expand storage or clean up |

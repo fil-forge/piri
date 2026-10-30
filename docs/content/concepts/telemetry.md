@@ -50,10 +50,11 @@ separate scheduler inside Piri, reported by the PDP metrics below.
 
 ### PDP Metrics
 
-The chain head the PDP pipeline last saw, the proving schedule and recorded
-proving failures of the node's proof sets, and when the proving tasks last
-ran. They come from Curio's database, not the chain, so they do not confirm
-that a proof landed. See
+The chain head the PDP pipeline last saw, the proving schedule of the node's
+proof sets, the epoch each was last proven, and when the proving tasks last
+ran. Only `piri_pdp_proofset_last_proven_epoch` is read from the chain, so it
+is the one that confirms a proof landed; the rest come from Curio's database.
+See
 [Monitoring > PDP Proving Health](../operator-guide/monitoring.md#pdp-proving-health)
 for example alerts.
 
@@ -65,6 +66,7 @@ for example alerts.
 | <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
 | <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
+| <nobr>`piri_pdp_proofset_last_proven_epoch`</nobr> | Gauge | epoch | Epoch PDPVerifier last accepted a proof for the proof set, read from the chain on each collection |
 | <nobr>`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`</nobr> | Gauge | s | Unix time the proof set was queued to drain its scheduled piece removals; absent when none is queued. PDPVerifier 3.5.0 rejects `nextProvingPeriod` until the drain finishes |
 | <nobr>`piri_pdp_save_cache_pending_pieces`</nobr> | Gauge | count | Parked pieces above 32 MiB padded with no proof cache layer yet. Curio proves such a piece only from its layer |
 | <nobr>`piri_pdp_save_cache_pending_oldest_seconds`</nobr> | Gauge | s | How long the oldest of those pieces has been parked; 0 when none is waiting |
