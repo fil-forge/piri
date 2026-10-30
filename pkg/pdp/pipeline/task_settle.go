@@ -62,9 +62,7 @@ func (t *SettleTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	})
 }
 
-func (t *SettleTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
-	ctx := context.Background()
-
+func (t *SettleTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	var rows []struct {
 		Blob []byte `db:"digest"`
 	}

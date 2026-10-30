@@ -64,9 +64,8 @@ for example alerts.
 | <nobr>`piri_pdp_proofset_next_challenge_epoch`</nobr>        | Gauge | epoch | Challenge epoch Curio scheduled for the current proving period (written when the scheduling transaction is sent; mid-window for the first period) |
 | <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
 | <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
-| <nobr>`piri_pdp_proofset_consecutive_prove_failures`</nobr>  | Gauge | count | Proving transactions Curio has handled as contract reverts since the last successful prove send, which alone resets it |
-| <nobr>`piri_pdp_proofset_next_prove_attempt_epoch`</nobr>    | Gauge | epoch | Backoff deadline Curio set after the last proving failure; Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send |
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
+| <nobr>`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`</nobr> | Gauge | s | Unix time the proof set was queued to drain its scheduled piece removals; absent when none is queued. PDPVerifier 3.5.0 rejects `nextProvingPeriod` until the drain finishes |
 | <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |
 
 **Labels:**
@@ -74,7 +73,7 @@ for example alerts.
 | Label | Description |
 |-------|-------------|
 | `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
-| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
+| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
 ### PDP Database Pool Metrics
 
