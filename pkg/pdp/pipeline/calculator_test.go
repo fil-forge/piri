@@ -183,7 +183,7 @@ func seedLivePiece(t *testing.T, db *harmonydb.DB, blob multihash.Multihash, v2,
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
 		VALUES ($1, 1024, 1000, TRUE, TRUE) RETURNING id
-	`, v2).Scan(&pieceID))
+	`, v1).Scan(&pieceID))
 	var refID int64
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO parked_piece_refs (piece_id, data_url, long_term, data_headers)
@@ -193,7 +193,7 @@ func seedLivePiece(t *testing.T, db *harmonydb.DB, blob multihash.Multihash, v2,
 	require.NoError(t, db.QueryRow(ctx, `
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref)
 		VALUES ('storacha', $1, $2) RETURNING id
-	`, v2, refID).Scan(&pieceRefID))
+	`, v1, refID).Scan(&pieceRefID))
 
 	_, err = db.Exec(ctx, `
 		INSERT INTO pdp_data_set_pieces

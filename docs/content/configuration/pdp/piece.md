@@ -46,13 +46,14 @@ An operator may accept more than the default, never less.
 ## The ceiling
 
 The maximum accepted value is **1 GiB** (`1073741824`), and it is not adjustable.
+It is Curio's `MaxMemtreeSize`, the largest merkle tree Curio builds in memory.
 
-Proving builds a full in-memory merkle tree over the challenged sub-piece, and Curio's prove task cannot build one larger than this.
-Exceeding it would not fail at ingest — it would fail later, at proving time, as a **registered fault**.
+How a proof uses memory depends on the padded size of the challenged sub-piece:
 
-Peak memory during a proof is roughly **3× the padded size**, and Curio budgets 3 GiB for the prove task.
-Piri currently has no proof cache, so *every* proof takes this path; there is no cached fast path to fall back on.
-Raise this knob only if the node has memory to match.
+- **Up to 32 MiB:** the proof builds the sub-piece's full merkle tree in memory, peaking at roughly **3× the padded size**. Curio budgets 100 MiB for the prove task on this basis.
+- **Above 32 MiB:** the proof uses the proof cache. After a piece is parked, the `PDPv0_SaveCache` task reads it once and stores one hash per 4 MiB of padded data. Each proof then reads only the challenged 4 MiB section, so its memory does not grow with the piece. Until a piece's layer is built, its proofs fail.
+
+Building a layer streams the piece once, so raising this knob costs read time after a piece is parked, not proving memory.
 
 ## Relationship to aggregation
 

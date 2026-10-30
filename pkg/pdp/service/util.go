@@ -20,10 +20,10 @@ func asPieceCIDv1(pieceCid cid.Cid) (cid.Cid, error) {
 }
 
 // pieceCIDv1String derives the v1 CommP string for a v2 piece CID string —
-// the form the pdpv0 tables (pdp_data_set_pieces, pdp_data_set_piece_adds)
-// are keyed by. v1 is derivable from v2, never the reverse (v1 lacks the
-// size), which is why piri stores only the v2 form and converts at the
-// pdpv0 boundary.
+// the form the pdpv0 tables (parked_pieces, pdp_piecerefs,
+// pdp_data_set_pieces, pdp_data_set_piece_adds) are keyed by. v1 is derivable
+// from v2, never the reverse (v1 lacks the size), which is why piri's own
+// tables store the v2 form and convert at the pdpv0 boundary.
 func pieceCIDv1String(commp string) (string, error) {
 	c, err := cid.Parse(commp)
 	if err != nil {

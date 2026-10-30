@@ -127,12 +127,15 @@ func (w *removalWorld) seedMapping(t *testing.T, blob multihash.Multihash, commp
 }
 
 // seedParkedChain creates the pdp_services → parked_pieces →
-// parked_piece_refs → pdp_piecerefs chain as ParkPiece leaves it, returning
-// the pdp_piecerefs id (needed by data-set piece rows).
+// parked_piece_refs → pdp_piecerefs chain as ParkPiece leaves it, under the
+// piece's v1 CID, returning the pdp_piecerefs id (needed by data-set piece
+// rows).
 func (w *removalWorld) seedParkedChain(t *testing.T, commpV2 string) int64 {
 	t.Helper()
 	ctx := t.Context()
-	_, err := w.db.Exec(ctx, `
+	commpV1, err := pieceCIDv1String(commpV2)
+	require.NoError(t, err)
+	_, err = w.db.Exec(ctx, `
 		INSERT INTO pdp_services (id, pubkey, service_label)
 		VALUES (1, $1, 'storacha') ON CONFLICT DO NOTHING
 	`, []byte{1})
@@ -142,7 +145,7 @@ func (w *removalWorld) seedParkedChain(t *testing.T, commpV2 string) int64 {
 	require.NoError(t, w.db.QueryRow(ctx, `
 		INSERT INTO parked_pieces (piece_cid, piece_padded_size, piece_raw_size, long_term, complete)
 		VALUES ($1, 1024, 1000, TRUE, TRUE) RETURNING id
-	`, commpV2).Scan(&pieceID))
+	`, commpV1).Scan(&pieceID))
 
 	var refID int64
 	require.NoError(t, w.db.QueryRow(ctx, `
@@ -154,7 +157,7 @@ func (w *removalWorld) seedParkedChain(t *testing.T, commpV2 string) int64 {
 	require.NoError(t, w.db.QueryRow(ctx, `
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref)
 		VALUES ('storacha', $1, $2) RETURNING id
-	`, commpV2, refID).Scan(&pieceRefID))
+	`, commpV1, refID).Scan(&pieceRefID))
 	return pieceRefID
 }
 

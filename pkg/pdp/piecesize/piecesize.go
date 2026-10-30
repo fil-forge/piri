@@ -18,25 +18,21 @@
 //
 // # Where the ceiling comes from
 //
-// Proving is done by Curio's vendored pdpv0 tasks. For each challenge the
-// prove task builds a full in-memory merkle tree over the challenged
-// *sub-piece* (tasks/pdpv0/task_prove.go genSubPieceMemtree ->
-// lib/proof.BuildSha254Memtree), which hard-errors above
-// lib/proof.MaxMemtreeSize. Peak RSS is roughly 3x the padded size (the
-// unpadded read buffer plus the ~2x tree buffer during fr32.Pad); Curio
-// declares Ram: 3<<30 for that task on exactly this basis.
+// Proving is done by Curio's vendored pdpv0 tasks. A challenged *sub-piece*
+// up to proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE (32 MiB padded) is proven from
+// a full in-memory merkle tree (tasks/pdpv0/task_prove.go genSubPieceMemtree
+// -> lib/proof.BuildSha254Memtree), peaking at roughly 3x the padded size;
+// Curio declares Ram: 100<<20 for the prove task on that basis. A larger
+// sub-piece is proven only from its proof cache layer (GenerateCachedProof),
+// which reads one 4 MiB section per challenge. A cache miss fails the proof;
+// there is no fallback to the full tree.
 //
-// A proof cache does not lift this. GenerateCachedProof reads only a small
-// section, so a cached piece above the ceiling would prove — but any cache
-// miss falls back to the full memtree, which fails, and after MaxFailures the
-// challenge window is missed and a fault is registered. The ceiling is
-// therefore hard regardless of caching.
-//
-// CurioMaxPaddedSize is derived from Curio's own symbol so that bumping the
-// Curio dependency moves this limit here and nowhere else. Note that the
-// ceiling constrains sub-pieces only: aggregates are assembled from sub-piece
-// commitments without touching bulk data, and are bounded instead by the
-// on-chain MAX_PIECE_SIZE_LOG2 (see pkg/pdp/service/roots_add.go).
+// The ceiling is lib/proof.MaxMemtreeSize, the largest tree Curio builds in
+// memory. CurioMaxPaddedSize is derived from Curio's own symbol so that
+// bumping the Curio dependency moves this limit here and nowhere else. Note
+// that the ceiling constrains sub-pieces only: aggregates are assembled from
+// sub-piece commitments without touching bulk data, and are bounded instead
+// by the on-chain MAX_PIECE_SIZE_LOG2 (see pkg/pdp/service/roots_add.go).
 package piecesize
 
 import (
@@ -51,8 +47,8 @@ import (
 
 const (
 	// CurioMaxPaddedSize is the hard ceiling on the padded size of a single
-	// sub-piece, above which Curio's prove task cannot build a memtree. No
-	// configured limit may exceed it.
+	// sub-piece: Curio's MaxMemtreeSize, the largest tree it builds in
+	// memory. No configured limit may exceed it.
 	CurioMaxPaddedSize uint64 = proof.MaxMemtreeSize
 
 	// MinPaddedSize is the smallest configurable maximum, equal to

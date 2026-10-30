@@ -10,6 +10,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/harmony/resources"
 	"github.com/filecoin-project/curio/harmony/taskhelp"
+	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/multiformats/go-multihash"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
@@ -106,11 +107,16 @@ func (t *CommPTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwne
 		log.Infow("calculated commp", "blob", blob.String(), "piece", res.PieceCID.String())
 
 		// Park once: a retried task (or a revived blob whose bytes are still
-		// parked) must not double-insert the parked-piece chain.
+		// parked) must not double-insert the parked-piece chain. ParkPiece
+		// records the piece under its v1 CID.
+		pieceCIDv1, _, err := commcid.PieceCidV1FromV2(res.PieceCID)
+		if err != nil {
+			return false, fmt.Errorf("deriving v1 piece cid from %s: %w", res.PieceCID, err)
+		}
 		var parked bool
 		if err := t.db.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM pdp_piecerefs WHERE piece_cid = $1)
-		`, res.PieceCID.String()).Scan(&parked); err != nil {
+		`, pieceCIDv1.String()).Scan(&parked); err != nil {
 			return false, fmt.Errorf("checking piece refs: %w", err)
 		}
 		if !parked {

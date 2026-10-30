@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
+	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
 	"go.opentelemetry.io/otel"
@@ -92,6 +93,16 @@ type pdpMetricsSource interface {
 	lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error)
 	// poolStat returns a snapshot of the database connection pool.
 	poolStat() harmonyquery.PoolStat
+	// saveCacheBacklog returns the pieces still waiting for the proof cache
+	// layer they need to be proven.
+	saveCacheBacklog(ctx context.Context) (saveCacheBacklog, error)
+}
+
+// saveCacheBacklog is how many parked pieces above Curio's cache threshold
+// have no proof cache layer yet, and how long the oldest has waited.
+type saveCacheBacklog struct {
+	pieces int64
+	oldest time.Duration
 }
 
 // dbMetricsSource is pdpMetricsSource over the harmony database.
@@ -146,6 +157,26 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 // failure themselves; see the metric's description.
 func (s *dbMetricsSource) poolStat() harmonyquery.PoolStat {
 	return s.db.Stat()
+}
+
+func (s *dbMetricsSource) saveCacheBacklog(ctx context.Context) (saveCacheBacklog, error) {
+	var rows []struct {
+		N   int64   `db:"n"`
+		Age float64 `db:"age"`
+	}
+	// Pieces at or below the threshold are proven without a cache, and
+	// pdpv0 clears their flag without building one.
+	if err := s.db.Select(ctx, &rows, `
+		SELECT count(*) AS n,
+		       coalesce(extract(epoch FROM now() - min(pr.created_at)), 0)::double precision AS age
+		FROM pdp_piecerefs pr
+		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
+		JOIN parked_pieces pp ON pp.id = pprf.piece_id
+		WHERE pr.needs_save_cache = TRUE AND pp.piece_padded_size > $1`,
+		int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)); err != nil {
+		return saveCacheBacklog{}, fmt.Errorf("reading save-cache backlog: %w", err)
+	}
+	return saveCacheBacklog{pieces: rows[0].N, oldest: time.Duration(rows[0].Age * float64(time.Second))}, nil
 }
 
 func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error) {
@@ -322,6 +353,23 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		return fmt.Errorf("create pool acquires cancelled counter: %w", err)
 	}
 
+	saveCachePending, err := meter.Int64ObservableGauge(
+		"piri_pdp_save_cache_pending_pieces",
+		metric.WithDescription("Parked pieces above 32 MiB padded with no proof cache layer yet; Curio proves such a piece only from its layer"),
+		metric.WithUnit("{piece}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create save-cache pending gauge: %w", err)
+	}
+	saveCacheOldest, err := meter.Float64ObservableGauge(
+		"piri_pdp_save_cache_pending_oldest_seconds",
+		metric.WithDescription("How long the oldest piece counted by piri_pdp_save_cache_pending_pieces has been parked"),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return fmt.Errorf("create save-cache oldest gauge: %w", err)
+	}
+
 	reg, err := meter.RegisterCallback(
 		func(ctx context.Context, o metric.Observer) error {
 			if epoch, ts, ok := head.load(); ok {
@@ -370,6 +418,16 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 			o.ObserveFloat64(poolAcquireWaitSeconds, pool.EmptyAcquireWaitTime.Seconds())
 			o.ObserveInt64(poolAcquiresCancelled, pool.CanceledAcquireCount)
 
+			qctx, cancel = context.WithTimeout(ctx, metricsQueryTimeout)
+			backlog, err := src.saveCacheBacklog(qctx)
+			cancel()
+			if err != nil {
+				log.Warnw("measuring save-cache backlog", "error", err)
+			} else {
+				o.ObserveInt64(saveCachePending, backlog.pieces)
+				o.ObserveFloat64(saveCacheOldest, backlog.oldest.Seconds())
+			}
+
 			// lastTaskSuccesses times out each of its queries itself.
 			if last, err := src.lastTaskSuccesses(ctx); err != nil {
 				log.Warnw("measuring PDP task history", "error", err)
@@ -395,6 +453,8 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		poolAcquiresWaited,
 		poolAcquireWaitSeconds,
 		poolAcquiresCancelled,
+		saveCachePending,
+		saveCacheOldest,
 	)
 	if err != nil {
 		return fmt.Errorf("register PDP metrics callback: %w", err)
