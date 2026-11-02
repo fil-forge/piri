@@ -76,54 +76,6 @@ for example alerts.
 | `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
 | `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
-### PDP Database Pool Metrics
-
-Every PDP task and every `blob/accept` shares one Postgres connection pool,
-sized by the `pool_max_conns` parameter on the Postgres URL (see
-[Database configuration](../configuration/repo/database.md)). These report
-pgx's own counters for that pool, read in memory at each collection. See
-[Monitoring > PDP Database Pool](../operator-guide/monitoring.md#pdp-database-pool)
-for how to read them.
-
-| Metric                                                       | Type    | Unit  | Description                                                  |
-|--------------------------------------------------------------|---------|-------|--------------------------------------------------------------|
-| <nobr>`piri_pdp_db_pool_connections`</nobr>                  | Gauge   | count | Open connections, by `state`: held by a caller (`acquired`) or waiting unused (`idle`) |
-| <nobr>`piri_pdp_db_pool_max_connections`</nobr>              | Gauge   | count | Configured maximum size of the pool                          |
-| <nobr>`piri_pdp_db_pool_acquires`</nobr>                     | Counter | count | Connections handed out by the pool                           |
-| <nobr>`piri_pdp_db_pool_acquire_seconds`</nobr>              | Counter | s     | Time callers spent obtaining a connection, waiting or not    |
-| <nobr>`piri_pdp_db_pool_acquires_waited`</nobr>              | Counter | count | Acquires that waited for a connection to be released or opened because none was free |
-| <nobr>`piri_pdp_db_pool_acquire_wait_seconds`</nobr>         | Counter | s     | Time those acquires spent waiting                            |
-| <nobr>`piri_pdp_db_pool_acquires_cancelled`</nobr>           | Counter | count | Acquires abandoned because the caller's context ended before a connection was free |
-
-**Labels:**
-
-| Label | Description |
-|-------|-------------|
-| `state` | `acquired` or `idle` (`piri_pdp_db_pool_connections`) |
-
-### Aggregation Pipeline Metrics
-
-The entry of the aggregation pipeline. An accepted blob waits out
-[`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
-before a CommP task claims it; the removal sweep cancels the blob's pipeline
-row if the blob is released before it is aggregated. See
-[Monitoring > Aggregation Pipeline Health](../operator-guide/monitoring.md#aggregation-pipeline-health)
-for an example alert.
-
-| Metric                                                    | Type      | Unit  | Description                                                  |
-|-----------------------------------------------------------|-----------|-------|--------------------------------------------------------------|
-| <nobr>`piri_pdp_commp_held_blobs`</nobr>                  | Gauge     | count | Accepted blobs waiting out the CommP delay                   |
-| <nobr>`piri_pdp_commp_due_blobs`</nobr>                   | Gauge     | count | Accepted blobs past the delay that no CommP task has claimed yet |
-| <nobr>`piri_pdp_commp_due_blobs_oldest_seconds`</nobr>    | Gauge     | s     | How long the oldest unclaimed blob has been past the delay   |
-| <nobr>`piri_pdp_pipeline_cancelled`</nobr>                | Counter   | count | Pipeline rows the removal sweep cancelled before aggregation |
-| <nobr>`piri_pdp_pipeline_cancelled_age_seconds`</nobr>    | Histogram | s     | Age of a cancelled row since the blob's acceptance; buckets at 1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d and 7d |
-
-**Labels:**
-
-| Label | Description |
-|-------|-------------|
-| `stage` | `before_commp` when the blob's CommP was never computed (the delay saved it), `after_commp` when it was computed but not yet aggregated (`piri_pdp_pipeline_cancelled*`) |
-
 ### IPNI Publishing Metrics
 
 The advertisement queue's backlog. Publishing is asynchronous, so the
@@ -145,21 +97,6 @@ Standard OpenTelemetry HTTP instrumentation:
 | <nobr>`http.server.request.duration`</nobr>   | Histogram | Request latency    |
 | <nobr>`http.server.request.body.size`</nobr>  | Histogram | Request body size  |
 | <nobr>`http.server.response.body.size`</nobr> | Histogram | Response body size |
-
-The [echo-otel](https://github.com/labstack/echo-otel) middleware records these under the
-instrumentation scope `github.com/labstack/echo-otel/v5`, following the OpenTelemetry HTTP
-semantic conventions.
-
-**Labels:**
-
-| Label | Description |
-|-------|-------------|
-| `http.request.method` | Request method, or `_OTHER` for a method outside the standard set |
-| `http.route` | Matched route pattern, such as `/pdp/proof-sets/:proofSetID` |
-| `http.response.status_code` | Status code sent to the client |
-| `error.type` | Set on a 5xx response: the status code, or the Go type of the error the handler returned, or `panic`. Absent on 1xx–4xx |
-| `url.scheme` | `http` or `https` |
-| `network.protocol.name`, `network.protocol.version` | Usually `http` and `1.1` |
 
 ### Server Info
 
@@ -196,15 +133,10 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`blob.reject`</nobr>     | Rejecting an allocation                         |
 | <nobr>`blob.release`</nobr>    | Releasing a previously accepted blob            |
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
-| <nobr>`ipni.publish_batch`</nobr> | Building and committing a batch of IPNI advertisements |
-| <nobr>`ipni.put_adverts`</nobr> | Writing a batch's adverts to the blob store, as `objectstore.put` spans with `objectstore.name=ipni` |
-| <nobr>`ipni.announce`</nobr> | Announcing a new head to the configured indexers once its batch commits, with one `HTTP PUT` client span per indexer. A failed announce gets an error status; indexers still find the head when they next poll |
 
-HTTP requests are also traced by the echo-otel middleware, which names its spans after the
-method and matched route (for example `GET /pdp/proof-sets/:proofSetID`), so those appear
-alongside the operation spans above. A request that ends in a 5xx response or a panic gets an
-error span status and the `error.type` attribute. Health checks (`/healthz`, `/livez` and
-`/readyz`) are left out of both these traces and the HTTP server metrics: container
+HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
+matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,
+`/livez` and `/readyz`) are left out of both these traces and the HTTP server metrics: container
 healthchecks poll them every few seconds.
 
 Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header

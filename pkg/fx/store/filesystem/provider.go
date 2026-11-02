@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/fil-forge/go-ipni-tools/pkg/metadata"
+	"github.com/fil-forge/go-ipni-tools/pkg/store"
+	"github.com/ipfs/go-datastore"
 	leveldb "github.com/ipfs/go-ds-leveldb"
 	"go.uber.org/fx"
 
@@ -13,7 +16,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
-	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
 )
 
@@ -24,8 +26,18 @@ var Module = fx.Module("filesystem-store",
 	fx.Provide(
 		ProvideConfigs,
 		fx.Annotate(
-			NewIPNIObjectStore,
-			fx.ResultTags(`name:"ipni_objectstore"`),
+			NewAggregatorDatastore,
+			// tagged as aggregator_datastore since this returns a datastore.Datastore which is too generic to
+			// safely provide as is.
+			fx.ResultTags(`name:"aggregator_datastore"`),
+		),
+		fx.Annotate(
+			NewPublisherStore,
+			// provide as FullStore (self)
+			fx.As(fx.Self()),
+			// provide sub-interfaces of Full Store
+			fx.As(new(store.PublisherStore)),
+			fx.As(new(store.EncodeableStore)),
 		),
 		NewRetrievalJournal,
 		NewKeyStore,
@@ -41,6 +53,8 @@ var KeyStoreModule = fx.Module("filesystem-keystore",
 
 // LocalOnlyModule provides stores that must always be local (filesystem-based).
 // These stores cannot be backed by S3 due to their usage patterns:
+// - AggregatorDatastore: high-frequency state for PDP aggregation
+// - PublisherStore: IPNI advertisement chain state
 // - RetrievalJournal: periodic filesystem-based journal with GC
 // - KeyStore: private keys must never leave disk
 //
@@ -48,6 +62,16 @@ var KeyStoreModule = fx.Module("filesystem-keystore",
 var LocalOnlyModule = fx.Module("local-only-store",
 	fx.Provide(
 		ProvideLocalOnlyConfigs,
+		fx.Annotate(
+			NewAggregatorDatastore,
+			fx.ResultTags(`name:"aggregator_datastore"`),
+		),
+		fx.Annotate(
+			NewPublisherStore,
+			fx.As(fx.Self()),
+			fx.As(new(store.PublisherStore)),
+			fx.As(new(store.EncodeableStore)),
+		),
 		NewRetrievalJournal,
 		NewKeyStore,
 	),
@@ -56,6 +80,8 @@ var LocalOnlyModule = fx.Module("local-only-store",
 // LocalOnlyConfigs provides configs needed by LocalOnlyModule stores.
 type LocalOnlyConfigs struct {
 	fx.Out
+	Aggregator    app.AggregatorStorageConfig
+	Publisher     app.PublisherStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
 	KeyStore      app.KeyStoreConfig
 }
@@ -63,6 +89,8 @@ type LocalOnlyConfigs struct {
 // ProvideLocalOnlyConfigs extracts configs for local-only stores.
 func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 	return LocalOnlyConfigs{
+		Aggregator:    cfg.Aggregator,
+		Publisher:     cfg.Publisher,
 		EgressTracker: cfg.EgressTracker,
 		KeyStore:      cfg.KeyStore,
 	}
@@ -70,6 +98,7 @@ func ProvideLocalOnlyConfigs(cfg app.StorageConfig) LocalOnlyConfigs {
 
 type Configs struct {
 	fx.Out
+	Aggregator    app.AggregatorStorageConfig
 	Publisher     app.PublisherStorageConfig
 	Blob          app.BlobStorageConfig
 	EgressTracker app.EgressTrackerStorageConfig
@@ -81,6 +110,7 @@ type Configs struct {
 // ProvideConfigs provides the fields of a storage config
 func ProvideConfigs(cfg app.StorageConfig) Configs {
 	return Configs{
+		Aggregator:    cfg.Aggregator,
 		Publisher:     cfg.Publisher,
 		Blob:          cfg.Blobs,
 		EgressTracker: cfg.EgressTracker,
@@ -90,26 +120,40 @@ func ProvideConfigs(cfg app.StorageConfig) Configs {
 	}
 }
 
-// NewIPNIObjectStore provides the flatfs directory holding the node's IPNI
-// adverts, one file per advert named by its CID. postgres.Module keeps the
-// rest of the advertisement chain.
-func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (objectstore.Store, error) {
+func NewAggregatorDatastore(cfg app.AggregatorStorageConfig, lc fx.Lifecycle) (datastore.Datastore, error) {
 	if cfg.Dir == "" {
-		return nil, fmt.Errorf("no data dir provided for IPNI object store")
+		return nil, fmt.Errorf("no data dir provided for aggregator store")
 	}
-	if _, err := mkdirp(cfg.Dir); err != nil {
-		return nil, fmt.Errorf("creating IPNI object store: %w", err)
-	}
-	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
+
+	ds, err := newDs(cfg.Dir)
 	if err != nil {
-		return nil, fmt.Errorf("creating IPNI object store: %w", err)
+		return nil, fmt.Errorf("creating aggregator store: %w", err)
 	}
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
-			return objStore.Close()
+			return ds.Close()
 		},
 	})
-	return objectstore.Traced("ipni", objStore), nil
+
+	return ds, nil
+}
+
+func NewPublisherStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (store.FullStore, error) {
+	if cfg.Dir == "" {
+		return nil, fmt.Errorf("no data dir provided for publisher store")
+	}
+
+	ds, err := newDs(cfg.Dir)
+	if err != nil {
+		return nil, fmt.Errorf("creating publisher store: %w", err)
+	}
+	lc.Append(fx.Hook{
+		OnStop: func(ctx context.Context) error {
+			return ds.Close()
+		},
+	})
+
+	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext)), nil
 }
 
 func NewRetrievalJournal(storeCfg app.EgressTrackerStorageConfig, svcCfg app.UCANServiceConfig, lc fx.Lifecycle) (retrievaljournal.Journal, error) {

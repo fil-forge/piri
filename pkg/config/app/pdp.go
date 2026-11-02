@@ -11,7 +11,6 @@ import (
 	signerclient "github.com/fil-forge/piri-signing-service/pkg/client"
 
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator"
-	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
 )
 
 type ContractAddresses struct {
@@ -96,9 +95,6 @@ type AggregationConfig struct {
 }
 
 type CommpConfig struct {
-	// Delay is how long an accepted blob waits before its commP is computed
-	// and it enters aggregation. Zero means no delay.
-	Delay    time.Duration
 	JobQueue JobQueueConfig
 }
 
@@ -150,7 +146,7 @@ func DefaultAggregateManagerConfig() AggregateManagerConfig {
 // DefaultAggregationConfig returns an AggregationConfig with sensible defaults.
 func DefaultAggregationConfig() AggregationConfig {
 	return AggregationConfig{
-		CommP: CommpConfig{Delay: commp.DefaultDelay, JobQueue: DefaultJobQueueConfig()},
+		CommP: CommpConfig{JobQueue: DefaultJobQueueConfig()},
 		Aggregator: AggregatorConfig{
 			MinAggregateSize: aggregator.DefaultMinAggregateSize,
 			JobQueue:         DefaultJobQueueConfig(),

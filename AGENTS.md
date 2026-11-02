@@ -55,6 +55,7 @@ pkg/pdp/              # PDP pipeline: aggregation (commp, aggregator, manager),
 pkg/config/           # config structs, validation, repo handling, presets glue
 pkg/store/            # store implementations behind pkg/fx/store
 lib/jobqueue/         # SQL-backed job queue (async work: replication, etc.)
+internal/ipldstore/   # IPLD store internals
 deploy/full-node/     # deployment assets; Dockerfile at repo root
 docs/                 # mkdocs operator documentation (content/ + mkdocs.yml)
 ```
@@ -127,7 +128,7 @@ fil-forge/infra-central. Skip it for changes nothing operational depends on.
 - Go files: snake_case. Tests: testify (`assert`/`require`).
 - Logging: `github.com/ipfs/go-log/v2` (`log.Infow`, `log.Warnw`); fx event
   logs go through zap.
-- HTTP: echo v5. Observability: OpenTelemetry (traces + metrics, echo-otel
+- HTTP: echo v4. Observability: OpenTelemetry (traces + metrics, otelecho
   middleware); per-package `telemetry.go` files add handler instrumentation.
 - Persistence: gorm with SQLite and Postgres drivers; job queues in
   `lib/jobqueue` back async processing.
