@@ -7,18 +7,15 @@
 -- pdpv0's SaveCache task fills it for every pdp_piecerefs row with
 -- needs_save_cache set.
 CREATE TABLE pdp_proof_cache_layers (
-    -- Curio keys the cache by the sized (v2) piece CID.
-    piece_cid_v2 bytea NOT NULL,
-    -- The same piece as pdp_piecerefs.piece_cid holds it (v1), so the layer
-    -- can be dropped with the piece's last ref.
+    -- Curio keys the cache by the v2 piece CID, the form Piri parks in
+    -- pdp_piecerefs.piece_cid, so the layer can be dropped with the piece's
+    -- last ref.
     piece_cid text NOT NULL,
     layer_index integer NOT NULL,
     -- The layer's 32-byte nodes in index order: node i is at byte 32*i.
     nodes bytea NOT NULL,
-    PRIMARY KEY (piece_cid_v2, layer_index)
+    PRIMARY KEY (piece_cid, layer_index)
 );
-
-CREATE INDEX pdp_proof_cache_layers_piece_cid_idx ON pdp_proof_cache_layers (piece_cid);
 
 -- Piri's piece removal and Curio's piece GC both delete pdp_piecerefs rows;
 -- a piece's layers go once no ref to it is left.

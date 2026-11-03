@@ -19,17 +19,17 @@ import (
 	"github.com/fil-forge/piri/pkg/internal/testutil"
 )
 
-// anyPiece is a piece of rawSize bytes that tests can cache layers for without
+// anyPiece is the v2 CID of a piece of rawSize bytes that tests can cache layers for without
 // reading its data.
-func anyPiece(t *testing.T, seed byte, rawSize uint64) (v1, v2 cid.Cid) {
+func anyPiece(t *testing.T, seed byte, rawSize uint64) cid.Cid {
 	t.Helper()
 	commitment := bytes.Repeat([]byte{seed}, 32)
 	commitment[31] &= 0x3f // a valid commitment is a field element
 	v1, err := commcid.DataCommitmentV1ToCID(commitment)
 	require.NoError(t, err)
-	v2, err = commcid.PieceCidV2FromV1(v1, rawSize)
+	v2, err := commcid.PieceCidV2FromV1(v1, rawSize)
 	require.NoError(t, err)
-	return v1, v2
+	return v2
 }
 
 func layerOf(layer int, hashes ...byte) []indexstore.NodeDigest {
@@ -73,7 +73,7 @@ func parkSizedPiece(t *testing.T, db *harmonydb.DB, pieceCid cid.Cid, rawSize, p
 func TestProofCacheStore_ReturnsTheLayerItWasGiven(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	layer := layerOf(7, 0xa0, 0xa1, 0xa2)
 
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layer))
@@ -86,7 +86,7 @@ func TestProofCacheStore_ReturnsTheLayerItWasGiven(t *testing.T) {
 func TestProofCacheStore_ReportsTheIndexOfTheCachedLayer(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0)))
 
 	has, layerIdx, err := store.GetPDPLayerIndex(ctx, v2)
@@ -97,7 +97,7 @@ func TestProofCacheStore_ReportsTheIndexOfTheCachedLayer(t *testing.T) {
 func TestProofCacheStore_ReadsASingleNodeByIndex(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0, 0xa1, 0xa2)))
 
 	has, node, err := store.GetPDPNode(ctx, v2, 7, 2)
@@ -109,8 +109,8 @@ func TestProofCacheStore_ReadsASingleNodeByIndex(t *testing.T) {
 func TestProofCacheStore_FindsNothingForAPieceWithNoLayer(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, cached := anyPiece(t, 1, 1<<20)
-	_, uncached := anyPiece(t, 2, 1<<20)
+	cached := anyPiece(t, 1, 1<<20)
+	uncached := anyPiece(t, 2, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, cached, layerOf(7, 0xa0)))
 
 	hasLayer, _, err := store.GetPDPLayerIndex(ctx, uncached)
@@ -127,7 +127,7 @@ func TestProofCacheStore_FindsNothingForAPieceWithNoLayer(t *testing.T) {
 func TestProofCacheStore_FindsNoNodePastTheEndOfTheLayer(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0, 0xa1)))
 
 	has, node, err := store.GetPDPNode(ctx, v2, 7, 2)
@@ -138,7 +138,7 @@ func TestProofCacheStore_FindsNoNodePastTheEndOfTheLayer(t *testing.T) {
 func TestProofCacheStore_ReplacesALayerSavedAgain(t *testing.T) {
 	ctx := context.Background()
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0, 0xa1)))
 
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xb0, 0xb1)))
@@ -150,7 +150,7 @@ func TestProofCacheStore_ReplacesALayerSavedAgain(t *testing.T) {
 
 func TestProofCacheStore_RefusesNodesOutOfOrder(t *testing.T) {
 	store := newProofCacheStore(testutil.NewHarmonyDB(t))
-	_, v2 := anyPiece(t, 1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
 	layer := layerOf(7, 0xa0, 0xa1)
 	layer[0], layer[1] = layer[1], layer[0] // node 1 comes first
 
@@ -162,11 +162,11 @@ func TestProofCacheStore_DropsAPiecesLayerWithItsLastRef(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewHarmonyDB(t)
 	store := newProofCacheStore(db)
-	v1, v2 := anyPiece(t, 1, 1<<20)
-	parkPiece(t, db, v1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
+	parkPiece(t, db, v2, 1<<20)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0)))
 
-	_, err := db.Exec(ctx, `DELETE FROM pdp_piecerefs WHERE piece_cid = $1`, v1.String())
+	_, err := db.Exec(ctx, `DELETE FROM pdp_piecerefs WHERE piece_cid = $1`, v2.String())
 	require.NoError(t, err)
 
 	has, _, err := store.GetPDPLayerIndex(ctx, v2)
@@ -178,8 +178,8 @@ func TestProofCacheStore_KeepsAPiecesLayerWhileAnotherRefRemains(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewHarmonyDB(t)
 	store := newProofCacheStore(db)
-	v1, v2 := anyPiece(t, 1, 1<<20)
-	first := parkPiece(t, db, v1, 1<<20)
+	v2 := anyPiece(t, 1, 1<<20)
+	first := parkPiece(t, db, v2, 1<<20)
 	_, err := db.Exec(ctx, `
 		WITH second_ref AS (
 			INSERT INTO parked_piece_refs (piece_id, data_url, long_term, data_headers)
@@ -189,7 +189,7 @@ func TestProofCacheStore_KeepsAPiecesLayerWhileAnotherRefRemains(t *testing.T) {
 			RETURNING ref_id
 		)
 		INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref)
-		SELECT 'any-service', $2, ref_id FROM second_ref`, first, v1.String())
+		SELECT 'any-service', $2, ref_id FROM second_ref`, first, v2.String())
 	require.NoError(t, err)
 	require.NoError(t, store.AddPDPLayer(ctx, v2, layerOf(7, 0xa0)))
 
@@ -264,7 +264,7 @@ func TestProofCacheStore_ProvesAPieceAboveTheCacheThresholdFromTheLayerSaveCache
 	v2, err := commcid.PieceCidV2FromV1(v1, uint64(len(data)))
 	require.NoError(t, err)
 
-	pieceRefID := parkPiece(t, db, v1, uint64(len(data)))
+	pieceRefID := parkPiece(t, db, v2, uint64(len(data)))
 	const taskID = 1
 	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = $1 WHERE id = $2`, taskID, pieceRefID)
 	require.NoError(t, err)
@@ -293,8 +293,8 @@ func saveCacheTaskID(t *testing.T, db *harmonydb.DB, pieceRefID int64) *int64 {
 func TestReclaimOrphanedSaveCaches_FreesAPieceWhoseTaskTheEngineDeleted(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewHarmonyDB(t)
-	v1, _ := anyPiece(t, 1, 1<<20)
-	pieceRefID := parkPiece(t, db, v1, 1<<20)
+	piece := anyPiece(t, 1, 1<<20)
+	pieceRefID := parkPiece(t, db, piece, 1<<20)
 	// Task 8 failed MaxFailures times; the engine deleted it from harmony_task.
 	_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 8 WHERE id = $1`, pieceRefID)
 	require.NoError(t, err)
@@ -308,8 +308,8 @@ func TestReclaimOrphanedSaveCaches_FreesAPieceWhoseTaskTheEngineDeleted(t *testi
 func TestReclaimOrphanedSaveCaches_KeepsAPieceWhoseTaskIsStillQueued(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewHarmonyDB(t)
-	v1, _ := anyPiece(t, 1, 1<<20)
-	pieceRefID := parkPiece(t, db, v1, 1<<20)
+	piece := anyPiece(t, 1, 1<<20)
+	pieceRefID := parkPiece(t, db, piece, 1<<20)
 	_, err := db.Exec(ctx, `INSERT INTO harmony_task (id, posted_time, added_by, name) VALUES (7, now(), 1, 'PDPv0_SaveCache')`)
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 7 WHERE id = $1`, pieceRefID)

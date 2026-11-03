@@ -10,7 +10,6 @@ import (
 	"github.com/filecoin-project/curio/lib/proof"
 	"github.com/filecoin-project/curio/market/indexstore"
 	"github.com/filecoin-project/curio/tasks/pdpv0"
-	commcid "github.com/filecoin-project/go-fil-commcid"
 	"github.com/ipfs/go-cid"
 )
 
@@ -38,15 +37,11 @@ func (s *proofCacheStore) AddPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, l
 		}
 		nodes = append(nodes, node.Hash[:]...)
 	}
-	pieceCidV1, _, err := commcid.PieceCidV1FromV2(pieceCidV2)
-	if err != nil {
-		return fmt.Errorf("decoding piece %s: %w", pieceCidV2, err)
-	}
 	if _, err := s.db.Exec(ctx, `
-		INSERT INTO pdp_proof_cache_layers (piece_cid_v2, piece_cid, layer_index, nodes)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (piece_cid_v2, layer_index) DO UPDATE SET nodes = EXCLUDED.nodes`,
-		pieceCidV2.Bytes(), pieceCidV1.String(), layerIdx, nodes); err != nil {
+		INSERT INTO pdp_proof_cache_layers (piece_cid, layer_index, nodes)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (piece_cid, layer_index) DO UPDATE SET nodes = EXCLUDED.nodes`,
+		pieceCidV2.String(), layerIdx, nodes); err != nil {
 		return fmt.Errorf("saving layer %d of piece %s: %w", layerIdx, pieceCidV2, err)
 	}
 	return nil
@@ -56,7 +51,7 @@ func (s *proofCacheStore) GetPDPLayerIndex(ctx context.Context, pieceCidV2 cid.C
 	var rows []int
 	if err := s.db.Select(ctx, &rows, `
 		SELECT layer_index FROM pdp_proof_cache_layers
-		WHERE piece_cid_v2 = $1 ORDER BY layer_index LIMIT 1`, pieceCidV2.Bytes()); err != nil {
+		WHERE piece_cid = $1 ORDER BY layer_index LIMIT 1`, pieceCidV2.String()); err != nil {
 		return false, 0, fmt.Errorf("finding the cached layer of piece %s: %w", pieceCidV2, err)
 	}
 	if len(rows) == 0 {
@@ -70,7 +65,7 @@ func (s *proofCacheStore) GetPDPLayer(ctx context.Context, pieceCidV2 cid.Cid, l
 	var rows [][]byte
 	if err := s.db.Select(ctx, &rows, `
 		SELECT nodes FROM pdp_proof_cache_layers
-		WHERE piece_cid_v2 = $1 AND layer_index = $2`, pieceCidV2.Bytes(), layerIdx); err != nil {
+		WHERE piece_cid = $1 AND layer_index = $2`, pieceCidV2.String(), layerIdx); err != nil {
 		return nil, fmt.Errorf("reading layer %d of piece %s: %w", layerIdx, pieceCidV2, err)
 	}
 	if len(rows) == 0 {
@@ -96,7 +91,7 @@ func (s *proofCacheStore) GetPDPNode(ctx context.Context, pieceCidV2 cid.Cid, la
 	// substring counts bytes from 1, and yields fewer than 32 past the layer's end.
 	if err := s.db.Select(ctx, &rows, `
 		SELECT substring(nodes FROM $3::integer * 32 + 1 FOR 32) FROM pdp_proof_cache_layers
-		WHERE piece_cid_v2 = $1 AND layer_index = $2`, pieceCidV2.Bytes(), layerIdx, index); err != nil {
+		WHERE piece_cid = $1 AND layer_index = $2`, pieceCidV2.String(), layerIdx, index); err != nil {
 		return false, nil, fmt.Errorf("reading node %d of layer %d of piece %s: %w", index, layerIdx, pieceCidV2, err)
 	}
 	if len(rows) == 0 || len(rows[0]) != proof.NODE_SIZE {

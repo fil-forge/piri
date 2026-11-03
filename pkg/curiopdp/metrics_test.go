@@ -363,10 +363,10 @@ func TestDBMetricsSource_ReportsTheOldestUnclaimedPieceAboveTheCacheThreshold(t 
 		_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET created_at = now() - make_interval(hours => $2) WHERE id = $1`, pieceRefID, hours)
 		require.NoError(t, err)
 	}
-	waiting, _ := anyPiece(t, 1, 40<<20)
-	small, _ := anyPiece(t, 2, 1<<20)
-	cached, _ := anyPiece(t, 3, 40<<20)
-	claimed, _ := anyPiece(t, 4, 40<<20)
+	waiting := anyPiece(t, 1, 40<<20)
+	small := anyPiece(t, 2, 1<<20)
+	cached := anyPiece(t, 3, 40<<20)
+	claimed := anyPiece(t, 4, 40<<20)
 	age(parkSizedPiece(t, db, waiting, 40<<20, 64<<20), 1)
 	age(parkSizedPiece(t, db, small, 1<<20, 1<<20), 5) // below 32 MiB padded: never cached
 	cachedRef := parkSizedPiece(t, db, cached, 40<<20, 64<<20)
