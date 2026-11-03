@@ -154,19 +154,35 @@ func (s *dbMetricsSource) poolStat() harmonyquery.PoolStat {
 
 func (s *dbMetricsSource) oldestPendingProofCache(ctx context.Context) (time.Duration, error) {
 	var ages []float64
-	// Walks idx_pdp_piecerefs_save_cache_pending, oldest first, and stops at
-	// the first piece above Curio's cache threshold; pdpv0 clears the flag on
-	// smaller pieces without building a layer. A piece a task has claimed is
-	// left out while the task runs; Piri's reclaim releases it if the task is
-	// dropped.
+	// A piece waits until its layer is built, whether or not a task has
+	// claimed it: a task that hangs or keeps failing holds its claim until the
+	// engine drops it. Each branch stops at the first piece above Curio's
+	// cache threshold; pdpv0 clears the flag on smaller pieces without building
+	// a layer. Unclaimed pieces walk idx_pdp_piecerefs_save_cache_pending,
+	// oldest first; claimed ones come from idx_pdp_piecerefs_save_cache_task,
+	// which holds at most one row per running task.
 	if err := s.db.Select(ctx, &ages, `
-		SELECT extract(epoch FROM now() - pr.created_at)::double precision
-		FROM pdp_piecerefs pr
-		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
-		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		WHERE pr.needs_save_cache = TRUE AND pr.save_cache_task_id IS NULL
-		  AND pp.piece_padded_size > $1
-		ORDER BY pr.created_at
+		SELECT extract(epoch FROM now() - created_at)::double precision
+		FROM (
+			(SELECT pr.created_at
+			 FROM pdp_piecerefs pr
+			 JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
+			 JOIN parked_pieces pp ON pp.id = pprf.piece_id
+			 WHERE pr.needs_save_cache = TRUE AND pr.save_cache_task_id IS NULL
+			   AND pp.piece_padded_size > $1
+			 ORDER BY pr.created_at
+			 LIMIT 1)
+			UNION ALL
+			(SELECT pr.created_at
+			 FROM pdp_piecerefs pr
+			 JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
+			 JOIN parked_pieces pp ON pp.id = pprf.piece_id
+			 WHERE pr.needs_save_cache = TRUE AND pr.save_cache_task_id IS NOT NULL
+			   AND pp.piece_padded_size > $1
+			 ORDER BY pr.created_at
+			 LIMIT 1)
+		) pending
+		ORDER BY created_at
 		LIMIT 1`, int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)); err != nil {
 		return 0, fmt.Errorf("reading the oldest piece waiting for its proof cache layer: %w", err)
 	}

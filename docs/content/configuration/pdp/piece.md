@@ -73,7 +73,7 @@ Values that are not a power of two, are below the 256 MiB default, or exceed 1 G
 An upload already in flight when the limit is lowered is re-checked against the new limit and refused.
 
 Lowering the limit bounds **future ingest only**.
-Pieces accepted under a higher limit remain stored, keep proving, and keep their ~3× memory cost at proving time for as long as they are in a data set — raising the limit temporarily does not shed the obligation when it is lowered again.
+Pieces accepted under a higher limit remain stored and keep proving for as long as they are in a data set, from their proof cache layer like any piece above 32 MiB — raising the limit temporarily does not shed the obligation when it is lowered again.
 
 ## TOML
 
