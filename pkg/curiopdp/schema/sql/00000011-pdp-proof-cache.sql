@@ -34,3 +34,12 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER pdp_proof_cache_layers_drop_unreferenced
     AFTER DELETE ON pdp_piecerefs
     FOR EACH ROW EXECUTE FUNCTION pdp_proof_cache_layers_drop_unreferenced();
+
+-- Curio's indexes for pdpv0's save-cache task (its
+-- 20260624-db-scale-indexes.sql). Its scheduler claims the oldest unclaimed
+-- piece every few seconds, and Piri's reclaim looks pieces up by task id.
+CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_save_cache_pending
+    ON pdp_piecerefs (created_at) WHERE save_cache_task_id IS NULL AND needs_save_cache = TRUE;
+
+CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_save_cache_task
+    ON pdp_piecerefs (save_cache_task_id) WHERE save_cache_task_id IS NOT NULL;

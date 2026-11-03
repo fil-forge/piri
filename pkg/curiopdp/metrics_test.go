@@ -19,16 +19,16 @@ import (
 )
 
 type fakeSource struct {
-	sets      []proofSetState
-	setsErr   error
-	last      map[string]time.Time
-	lastErr   error
-	pool      harmonyquery.PoolStat
-	saveCache saveCacheBacklog
+	sets             []proofSetState
+	setsErr          error
+	last             map[string]time.Time
+	lastErr          error
+	pool             harmonyquery.PoolStat
+	proofCacheOldest time.Duration
 }
 
-func (f *fakeSource) saveCacheBacklog(context.Context) (saveCacheBacklog, error) {
-	return f.saveCache, nil
+func (f *fakeSource) oldestPendingProofCache(context.Context) (time.Duration, error) {
+	return f.proofCacheOldest, nil
 }
 
 func (f *fakeSource) poolStat() harmonyquery.PoolStat {
@@ -350,32 +350,45 @@ func floatGauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]float6
 	return out
 }
 
-func TestSaveCacheGauges_ReportThePiecesWaitingForAProofCache(t *testing.T) {
-	reader := startTestMetrics(t, &chainHead{}, &fakeSource{
-		saveCache: saveCacheBacklog{pieces: 3, oldest: 90 * time.Second},
-	})
+func TestProofCacheGauge_ReportsHowLongTheOldestPieceHasWaited(t *testing.T) {
+	reader := startTestMetrics(t, &chainHead{}, &fakeSource{proofCacheOldest: 90 * time.Second})
 
-	require.Equal(t, map[string]int64{"": 3}, gauges(t, reader)["piri_pdp_save_cache_pending_pieces"])
-	require.Equal(t, 90.0, floatGauges(t, reader)["piri_pdp_save_cache_pending_oldest_seconds"])
+	require.Equal(t, 90.0, floatGauges(t, reader)["piri_pdp_proof_cache_pending_oldest_seconds"])
 }
 
-func TestDBMetricsSource_CountsOnlyPiecesAboveTheCacheThresholdStillWaiting(t *testing.T) {
+func TestDBMetricsSource_ReportsTheOldestUnclaimedPieceAboveTheCacheThreshold(t *testing.T) {
 	ctx := context.Background()
 	db := testutil.NewHarmonyDB(t)
+	age := func(pieceRefID int64, hours int) {
+		_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET created_at = now() - make_interval(hours => $2) WHERE id = $1`, pieceRefID, hours)
+		require.NoError(t, err)
+	}
 	waiting, _ := anyPiece(t, 1, 40<<20)
 	small, _ := anyPiece(t, 2, 1<<20)
 	cached, _ := anyPiece(t, 3, 40<<20)
-	waitingRef := parkSizedPiece(t, db, waiting, 40<<20, 64<<20)
-	parkSizedPiece(t, db, small, 1<<20, 1<<20) // below 32 MiB padded: never cached
+	claimed, _ := anyPiece(t, 4, 40<<20)
+	age(parkSizedPiece(t, db, waiting, 40<<20, 64<<20), 1)
+	age(parkSizedPiece(t, db, small, 1<<20, 1<<20), 5) // below 32 MiB padded: never cached
 	cachedRef := parkSizedPiece(t, db, cached, 40<<20, 64<<20)
+	claimedRef := parkSizedPiece(t, db, claimed, 40<<20, 64<<20)
 	_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE WHERE id = $1`, cachedRef)
 	require.NoError(t, err)
-	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET created_at = now() - interval '1 hour' WHERE id = $1`, waitingRef)
+	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 7 WHERE id = $1`, claimedRef)
+	require.NoError(t, err)
+	age(cachedRef, 5)
+	age(claimedRef, 5)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(ctx)
 	require.NoError(t, err)
 
-	got, err := newDBMetricsSource(db, "any-service", "any-host").saveCacheBacklog(ctx)
+	require.InDelta(t, time.Hour.Seconds(), got.Seconds(), 60)
+}
+
+func TestDBMetricsSource_ReportsZeroWhenNoPieceWaitsForAProofCache(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
 	require.NoError(t, err)
 
-	require.Equal(t, int64(1), got.pieces)
-	require.InDelta(t, time.Hour.Seconds(), got.oldest.Seconds(), 60)
+	require.Zero(t, got)
 }
