@@ -455,3 +455,55 @@ insecure = true
 	_, err := loadBaseConfig(path)
 	require.ErrorContains(t, err, "endpoint")
 }
+
+func TestWriteFileAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "piri-config.toml")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o644))
+
+	require.NoError(t, writeFileAtomic(path, []byte("new"), 0o600))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "new", string(data))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "temporary file left behind")
+
+	// A failure is returned rather than swallowed.
+	require.Error(t, writeFileAtomic(filepath.Join(dir, "missing", "piri-config.toml"), []byte("x"), 0o600))
+}
+
+// A symlinked config keeps its link: the file it points to is replaced.
+func TestWriteFileAtomicSymlink(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "real"), 0o700))
+	target := filepath.Join(dir, "real", "piri-config.toml")
+	require.NoError(t, os.WriteFile(target, []byte("old"), 0o644))
+	link := filepath.Join(dir, "piri-config.toml")
+	require.NoError(t, os.Symlink(filepath.Join("real", "piri-config.toml"), link))
+
+	require.NoError(t, writeFileAtomic(link, []byte("new"), 0o600))
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	require.NotZero(t, info.Mode()&os.ModeSymlink, "link replaced by a regular file")
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, "new", string(data))
+	info, err = os.Stat(target)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+
+	for _, d := range []string{dir, filepath.Dir(target)} {
+		entries, err := os.ReadDir(d)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.NotContains(t, e.Name(), ".tmp-", "temporary file left behind")
+		}
+	}
+}
