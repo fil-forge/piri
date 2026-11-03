@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -94,4 +95,38 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 		_, err := cfg.ToAppConfig()
 		assert.Error(t, err)
 	})
+}
+
+func TestRepoConfig_ToAppConfig_EgressJournalDir(t *testing.T) {
+	dataDir := t.TempDir()
+	journalDir := filepath.Join(t.TempDir(), "journal")
+
+	testCases := []struct {
+		desc             string
+		egressJournalDir string
+		expected         app.EgressTrackerStorageConfig
+	}{
+		{
+			desc:     "unset defaults to the data dir",
+			expected: app.EgressTrackerStorageConfig{Dir: filepath.Join(dataDir, "egress_tracker", "journal")},
+		},
+		{
+			desc:             "set overrides the data dir",
+			egressJournalDir: journalDir,
+			expected:         app.EgressTrackerStorageConfig{Dir: journalDir},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			cfg := RepoConfig{
+				DataDir:          dataDir,
+				TempDir:          t.TempDir(),
+				EgressJournalDir: tc.egressJournalDir,
+			}
+			result, err := cfg.ToAppConfig()
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, result.EgressTracker)
+		})
+	}
 }

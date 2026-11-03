@@ -16,6 +16,7 @@ piri [command] [flags]
 | `--log-level <level>` | Logging level (debug, info, warn, error) |
 | `--data-dir <path>` | Storage service data directory |
 | `--temp-dir <path>` | Storage service temp directory |
+| `--egress-journal-dir <path>` | Egress tracker journal directory. Defaults to `<data-dir>/egress_tracker/journal` |
 | `--key-file <path>` | Path to PEM file containing ed25519 private key |
 
 ## Subcommands
