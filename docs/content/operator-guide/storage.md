@@ -89,10 +89,8 @@ Piri manages several categories of data:
 
 - **Blobs**: User data and location claims
 - **Aggregation state**: CommP calculations and pending aggregates
-- **IPNI advertisement chain**: the chain head and the map of published content live in Postgres; each advertisement is one small object, under `ipni/` in the S3 bucket or in `data_dir/ipni` on a local volume
+- **Publisher metadata**: IPNI publication records
 - **Receipts**: UCAN receipt journals for egress tracking
-
-Nodes from earlier releases kept the advertisement chain in `data_dir/publisher`. Piri no longer reads that directory, and you can delete it.
 
 The storage backend handles persistence. Configure storage paths during initialization or via the `repo.data_dir` configuration option.
 
