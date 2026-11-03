@@ -16,7 +16,7 @@ require (
 	github.com/fil-forge/libforge v0.0.0-20261012140631-fbc83e2e745b
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
 	github.com/fil-forge/ucantone v0.0.0-20261103134646-342e8488c56a
-	github.com/filecoin-project/curio v1.29.1-0.20261026124158-5910e6d3ea34
+	github.com/filecoin-project/curio v1.29.1-0.20261103163827-61948eefcbb5
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
@@ -153,7 +153,7 @@ require (
 	github.com/gbrlsnchs/jwt/v3 v3.0.1 // indirect
 	github.com/georgysavva/scany/v2 v2.1.4 // indirect
 	github.com/getsentry/sentry-go v0.35.1 // indirect
-	github.com/go-chi/chi/v5 v5.3.2 // indirect
+	github.com/go-chi/chi/v5 v5.4.0 // indirect
 	github.com/go-chi/httprate v0.16.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
