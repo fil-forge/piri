@@ -167,12 +167,15 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		DataDir:  r.DataDir,
 		TempDir:  r.TempDir,
 		Database: dbCfg,
+		Aggregator: app.AggregatorStorageConfig{
+			Dir: filepath.Join(r.DataDir, "aggregator", "datastore"),
+		},
 		Blobs: app.BlobStorageConfig{
 			Dir:    filepath.Join(r.DataDir, "blobs"),
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
 		Publisher: app.PublisherStorageConfig{
-			Dir: filepath.Join(r.DataDir, "ipni"),
+			Dir: filepath.Join(r.DataDir, "publisher"),
 		},
 		EgressTracker: app.EgressTrackerStorageConfig{
 			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),

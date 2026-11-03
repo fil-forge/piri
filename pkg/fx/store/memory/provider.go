@@ -18,7 +18,6 @@ import (
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/store/consolidationstore"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
-	"github.com/fil-forge/piri/pkg/store/ipnistore"
 	"github.com/fil-forge/piri/pkg/store/local/keystore"
 	"github.com/fil-forge/piri/pkg/store/local/retrievaljournal"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
@@ -26,6 +25,12 @@ import (
 
 var Module = fx.Module("memory-store",
 	fx.Provide(
+		fx.Annotate(
+			NewAggregatorDatastore,
+			// tagged as aggregator_datastore since this returns a datastore.Datastore which is too generic to
+			// safely provide as is.
+			fx.ResultTags(`name:"aggregator_datastore"`),
+		),
 		fx.Annotate(
 			NewPublisherStore,
 			// provide as FullStore (self)
@@ -46,6 +51,10 @@ var Module = fx.Module("memory-store",
 	),
 )
 
+func NewAggregatorDatastore() datastore.Datastore {
+	return sync.MutexWrap(datastore.NewMapDatastore())
+}
+
 func NewAllocationStore() allocationstore.AllocationStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
 	return allocationstore.NewDatastoreStore(ds)
@@ -63,7 +72,7 @@ func NewClaimStore() invocationstore.InvocationStore {
 
 func NewPublisherStore() store.FullStore {
 	ds := sync.MutexWrap(datastore.NewMapDatastore())
-	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext), store.WithIdentityEntries(ipnistore.MaxIdentityEntries))
+	return store.FromDatastore(ds, store.WithMetadataContext(metadata.MetadataContext))
 }
 
 func NewReceiptStore() receiptstore.ReceiptStore {
