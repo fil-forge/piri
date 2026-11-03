@@ -15,7 +15,7 @@ require (
 	github.com/fil-forge/go-ipni-tools v0.0.0-20261023132922-7d9dcd4e2d96
 	github.com/fil-forge/libforge v0.0.0-20261012140631-fbc83e2e745b
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
-	github.com/fil-forge/ucantone v0.0.0-20260924160040-c31dec73d9b3
+	github.com/fil-forge/ucantone v0.0.0-20261103134646-342e8488c56a
 	github.com/filecoin-project/curio v1.28.3-0.20260717015646-38ca280c43a2
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
