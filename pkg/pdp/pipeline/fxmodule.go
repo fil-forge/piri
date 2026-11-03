@@ -6,8 +6,8 @@ import (
 
 	aggregatorpolicy "github.com/fil-forge/piri/pkg/pdp/aggregation/aggregator/policy"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
-	commppolicy "github.com/fil-forge/piri/pkg/pdp/aggregation/commp/policy"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/manager"
+	aggtypes "github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 )
@@ -18,8 +18,8 @@ import (
 // aggregation fold.
 var Module = fx.Module("pdp/pipeline",
 	fx.Provide(
+		aggtypes.NewStore,
 		aggregatorpolicy.New,
-		commppolicy.New,
 		manager.NewConfigProvider,
 		manager.NewPieceAccepter,
 
@@ -44,7 +44,6 @@ var Module = fx.Module("pdp/pipeline",
 		fx.Annotate(asTask[*ExpireAllocationsTask], fx.ResultTags(taskGroup)),
 	),
 	fx.Invoke(registerSettleMetrics),
-	fx.Invoke(registerCommPMetrics),
 )
 
 func asTask[T harmonytask.TaskInterface](t T) harmonytask.TaskInterface { return t }

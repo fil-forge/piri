@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	logging "github.com/ipfs/go-log/v2"
-	"github.com/labstack/echo/v5"
-	echomiddleware "github.com/labstack/echo/v5/middleware"
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
 )
 
@@ -21,7 +21,8 @@ func RequestLogger(logger *logging.ZapEventLogger) echo.MiddlewareFunc {
 		LogContentLength: true,
 		LogResponseSize:  true,
 		LogHeaders:       []string{"X-Agent-Message"},
-		LogValuesFunc: func(c *echo.Context, v echomiddleware.RequestLoggerValues) error {
+		LogError:         true,
+		LogValuesFunc: func(c echo.Context, v echomiddleware.RequestLoggerValues) error {
 			fields := []zap.Field{
 				zap.Int("status", v.Status),
 				zap.String("method", v.Method),

@@ -13,7 +13,6 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	filtypes "github.com/filecoin-project/lotus/chain/types"
 	logging "github.com/ipfs/go-log/v2"
-	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/singleflight"
 
 	// curio infra
@@ -71,10 +70,6 @@ type PDPService struct {
 	// PDP table (pipeline + piece/commP mapping + parked pieces).
 	db *harmonydb.DB
 
-	// cancels counts the pipeline rows the removal sweep cancels; nil records
-	// nothing.
-	cancels *pipelineCancelMetrics
-
 	name string
 
 	pieceResolver types.PieceResolverAPI
@@ -127,17 +122,12 @@ func New(
 	registryContract smartcontracts.Registry,
 	pieceSize piecesize.Policy,
 ) (*PDPService, error) {
-	cancels, err := newPipelineCancelMetrics(otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/service"))
-	if err != nil {
-		return nil, err
-	}
 	return &PDPService{
 		cfg:              cfg,
 		id:               id,
 		endpoint:         endpoint,
 		address:          cfg.OwnerAddress,
 		db:               db,
-		cancels:          cancels,
 		name:             "storacha",
 		pieceResolver:    resolver,
 		pieceReader:      reader,

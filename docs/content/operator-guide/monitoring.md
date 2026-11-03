@@ -77,10 +77,6 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `job_duration` | How long jobs take |
 | `ipni_pending_adverts` | IPNI advertisements queued and not yet published |
 | `ipni_pending_adverts_oldest_seconds` | Age of the oldest queued advertisement |
-| `piri_pdp_commp_held_blobs` | Accepted blobs waiting out the CommP delay |
-| `piri_pdp_commp_due_blobs` | Blobs past the delay that no CommP task has picked up (should stay near zero) |
-| `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |
-| `piri_pdp_pipeline_cancelled` | Blobs removed before aggregation, by whether their CommP had been computed |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
@@ -89,8 +85,6 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_proofset_consecutive_prove_failures` | Proving failures Curio has recorded for each proof set since its last successful prove send |
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
 | `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
-| `piri_pdp_db_pool_acquires_waited` | PDP database acquires that waited for a free connection (rising share means the pool is too small) |
-| `piri_pdp_db_pool_acquire_wait_seconds` | Time those acquires spent waiting |
 
 ### Setting Up Metrics Collection
 
@@ -204,13 +198,9 @@ unless on (node, proof_set)
 # `piri_pdp_proofset_consecutive_prove_failures` for the current state.
 increase(piri_pdp_proofset_consecutive_prove_failures{job="forge/piri"}[1h]) > 0
 
-# Proof set unrecoverable: Curio has given up proving a proof set. It does so
-# either because the set's payment has ended or been terminated, or after five
-# consecutive rejected proving transactions, all but the last of which
-# "Proving failing" above has already alerted on if you alert on it as
-# recommended. So it calls for finding out why Curio gave up rather than an
-# urgent response. Piri does not run Curio's data set deletion, so the count
-# does not go down on its own; to alert only when a new one appears, use
+# Proof set unrecoverable: Curio has given up proving a proof set. Piri does not
+# run Curio's data set deletion, so the count does not go down on its own; to
+# alert only when a new one appears, use
 # `increase(piri_pdp_proofsets_unrecoverable{job="forge/piri"}[1h]) > 0`.
 piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 
@@ -232,73 +222,6 @@ had closed (Curio only logs this). Both are recorded as successful task runs
 and leave the failure count unchanged. The last alert is also per node: with
 several proof sets, proving one keeps it quiet.
 
-### Aggregation Pipeline Health
-
-An accepted blob waits out
-[`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
-before a CommP task claims it. `piri_pdp_commp_held_blobs` is that queue
-working as configured: it tracks the ingest rate times the delay. Once a blob
-is past the delay the task engine claims it within a poll, so
-`piri_pdp_commp_due_blobs` sits near zero and
-`piri_pdp_commp_due_blobs_oldest_seconds` near the poll interval. A due count
-that keeps growing, or an oldest age of minutes, means claims have stopped:
-the task engine is down, or every poll finds other work first.
-
-| Metric | Unit | Labels | What It Tells You |
-|--------|------|--------|-------------------|
-| `piri_pdp_commp_held_blobs` | count | | Accepted blobs still inside the CommP delay |
-| `piri_pdp_commp_due_blobs` | count | | Accepted blobs past the delay with no CommP task yet |
-| `piri_pdp_commp_due_blobs_oldest_seconds` | seconds | | How long the oldest of those has been past the delay |
-| `piri_pdp_pipeline_cancelled` | count | `stage` | Blobs released before aggregation. `before_commp` ones cost no CommP and no on-chain root; `after_commp` ones had their CommP computed and piece parked, and finalization cleans that up |
-| `piri_pdp_pipeline_cancelled_age_seconds` | seconds | `stage` | Age of each cancelled blob since acceptance. The share of `before_commp` cancellations under the delay is what the delay is saving; the histogram's shape says whether a shorter or longer delay would save more |
-
-```promql
-# CommP claims stalled: a blob has been past the delay for 10 minutes without a
-# CommP task claiming it. The engine claims due blobs on each poll (seconds),
-# so this is the task engine down or saturated, not a slow CommP.
-max by (node) (piri_pdp_commp_due_blobs_oldest_seconds{job="forge/piri"}) > 600
-```
-
-### PDP Database Pool
-
-Every PDP task and every `blob/accept` shares one Postgres connection pool,
-sized by the `pool_max_conns` parameter on the Postgres URL (see
-[Database configuration](../configuration/repo/database.md)). Each accept makes
-several short queries on it, and a burst of accepts and the PDP tasks slow each
-other down when the pool is too small. The pool counters say whether that is
-happening: the share of acquires that waited for a connection, and how long
-they waited on average. Raise `pool_max_conns` while either is high, within
-what Postgres's `max_connections` leaves for the other services on the host.
-
-| Metric | Unit | Labels | What It Tells You |
-|--------|------|--------|-------------------|
-| `piri_pdp_db_pool_connections` | count | `state` | Open connections held by a caller (`acquired`) or waiting unused (`idle`). Acquired at the maximum for sustained periods is the pool saturated |
-| `piri_pdp_db_pool_max_connections` | count | | The configured pool size, for the panel and the ratio |
-| `piri_pdp_db_pool_acquires` | count | | Connections handed out |
-| `piri_pdp_db_pool_acquire_seconds` | seconds | | Time spent obtaining a connection, waiting or not |
-| `piri_pdp_db_pool_acquires_waited` | count | | Acquires that waited because no connection was free |
-| `piri_pdp_db_pool_acquire_wait_seconds` | seconds | | Time those acquires spent waiting |
-| `piri_pdp_db_pool_acquires_cancelled` | count | | Acquires given up because the request ended first, such as an accept timing out in the queue |
-
-The counters are cumulative, so Prometheus sees them with a `_total` suffix
-(`piri_pdp_db_pool_acquires_total`, `piri_pdp_db_pool_acquire_wait_seconds_total`).
-
-```promql
-# Share of acquires that waited for a connection over the last 5 minutes.
-sum by (node) (rate(piri_pdp_db_pool_acquires_waited_total{job="forge/piri"}[5m]))
-/ sum by (node) (rate(piri_pdp_db_pool_acquires_total{job="forge/piri"}[5m]))
-
-# Mean wait of the acquires that waited, in seconds.
-sum by (node) (rate(piri_pdp_db_pool_acquire_wait_seconds_total{job="forge/piri"}[5m]))
-/ sum by (node) (rate(piri_pdp_db_pool_acquires_waited_total{job="forge/piri"}[5m]))
-
-# Pool saturated: a tenth of acquires waited for a connection over 15 minutes.
-# Occasional waits during a burst are fine; a sustained share means blob/accept
-# and the PDP tasks are queueing for the pool. Raise pool_max_conns.
-sum by (node) (rate(piri_pdp_db_pool_acquires_waited_total{job="forge/piri"}[15m]))
-/ sum by (node) (rate(piri_pdp_db_pool_acquires_total{job="forge/piri"}[15m])) > 0.1
-```
-
 ## Logs
 
 Piri logs operational events. Adjust log levels dynamically:
@@ -312,18 +235,6 @@ piri client admin log list
 ```
 
 When troubleshooting, increase verbosity for the relevant subsystem, reproduce the issue, then review logs.
-
-The HTTP server logs under the `fx/echo` subsystem: one entry per request, plus the messages of
-the HTTP framework and of Go's HTTP server, such as TLS handshake failures. A request whose
-handler panicked is logged at error level as `server error`, with the panic message and the stack
-trace in the `error` field. The client receives a 500 response that says only
-`Internal Server Error`.
-
-The request log's `remote_ip` field and the HTTP spans' `client.address` attribute hold the
-client's address. When the request arrives from a loopback, link-local or private address, such
-as the nginx proxy in front of Piri, Piri reads the client address from `X-Forwarded-For`.
-Otherwise it uses the address of the connection, so a client connecting directly cannot set its
-own. A proxy on a public address is not trusted: its own address is recorded instead.
 
 ## Health Endpoint
 
@@ -345,12 +256,11 @@ Recommended alerts:
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Proving period not advanced, outside a failure backoff (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | New proving failure for a proof set (`piri_pdp_proofset_consecutive_prove_failures` rising) | Critical | Check logs for the rejected proving transaction |
-| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
+| Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Critical | Check logs for why Curio gave up on the proof set |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
 | No `PDPv0_Prove` run finished in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
-| A tenth of PDP database acquires waited for a connection over 15 minutes (`piri_pdp_db_pool_acquires_waited`) | Warning | Raise `pool_max_conns` on the Postgres URL |
 
 ## Regular Checks
 

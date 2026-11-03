@@ -8,7 +8,7 @@ import (
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
-	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v4"
 	"go.uber.org/fx"
 )
 

@@ -54,9 +54,7 @@ func (s DurationSchema) ParseAndValidate(raw any) (any, error) {
 		}
 	}
 
-	// A negative duration is never valid, whatever the bounds: a zero Min
-	// means "no lower bound above zero", not "negatives allowed".
-	if d < 0 || (s.Min > 0 && d < s.Min) {
+	if s.Min > 0 && d < s.Min {
 		return nil, &RangeError[time.Duration]{Value: d, Min: s.Min, Max: s.Max}
 	}
 	if s.Max > 0 && d > s.Max {
