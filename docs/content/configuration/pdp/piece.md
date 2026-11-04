@@ -17,12 +17,12 @@ The raw limit is derived from it and is always smaller.
 ## Why padded, and why a power of two
 
 A padded tree size is always a power of two, so raw sizes round *up* to the next one.
-That makes a raw limit a trap: the difference between two adjacent raw values can double the memory a proof costs.
+That makes a raw limit a trap: the difference between two adjacent raw values can double the size of the piece's tree.
 
-| Raw bytes | Pads to | Memtree peak |
-|-----------|---------|--------------|
-| `266338304` | 256 MiB | ~768 MiB |
-| `266338305` | **512 MiB** | **~1.5 GiB** |
+| Raw bytes | Pads to |
+|-----------|---------|
+| `266338304` | 256 MiB |
+| `266338305` | **512 MiB** |
 
 Configuring the padded size makes that impossible to get wrong.
 Non-powers-of-two are rejected rather than silently rounded, because a limit of 384 MiB would otherwise behave exactly as 256 MiB with no indication why.
@@ -30,11 +30,11 @@ Non-powers-of-two are rejected rather than silently rounded, because a limit of 
 To convert: `max_raw = max_padded / 128 * 127`.
 So the 256 MiB default admits raw blobs up to `266338304` bytes.
 
-| `max_padded_size` | Raw limit | Memtree peak |
-|-------------------|-----------|--------------|
-| `268435456` (256 MiB) | `266338304` | ~768 MiB |
-| `536870912` (512 MiB) | `532676608` | ~1.5 GiB |
-| `1073741824` (1 GiB) | `1065353216` | ~3 GiB |
+| `max_padded_size` | Raw limit |
+|-------------------|-----------|
+| `268435456` (256 MiB) | `266338304` |
+| `536870912` (512 MiB) | `532676608` |
+| `1073741824` (1 GiB) | `1065353216` |
 
 ## The floor
 

@@ -40,3 +40,10 @@ CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_save_cache_pending
 
 CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_save_cache_task
     ON pdp_piecerefs (save_cache_task_id) WHERE save_cache_task_id IS NOT NULL;
+
+-- NB(piri): not Curio's. piri_pdp_proof_cache_pending_oldest_seconds reads
+-- the oldest piece still waiting for its layer, claimed by a task or not, and
+-- stops at the first one; Curio's pending index holds only unclaimed pieces,
+-- which its scheduler claims within seconds.
+CREATE INDEX IF NOT EXISTS idx_pdp_piecerefs_needs_save_cache
+    ON pdp_piecerefs (created_at) WHERE needs_save_cache = TRUE;

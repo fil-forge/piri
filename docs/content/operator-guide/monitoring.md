@@ -127,7 +127,7 @@ proof landed.
 | `piri_pdp_proofset_proving_period_epochs` | epochs | `proof_set` | Length of the proof set's proving period |
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | unix seconds | `proof_set` | When the proof set was queued to drain its scheduled piece removals with `processPieceDeletions` (`pdpv0_deletion_drain.created_at`). PDPVerifier 3.5.0 rejects `nextProvingPeriod` while removals are queued, so a drain still queued after a proving period means proving is blocked on it. Absent when no drain is queued |
-| `piri_pdp_proof_cache_pending_oldest_seconds` | seconds | | How long the oldest parked piece above 32 MiB padded has waited for the `PDPv0_SaveCache` task to build its proof cache layer, including while a task that hangs or keeps failing holds it. Curio proves a sub-piece of that size only from its layer, so a piece in a proof set without one fails every proof. A layer is normally built within minutes of parking; 0 when none waits |
+| `piri_pdp_proof_cache_pending_oldest_seconds` | seconds | | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer was parked, whether or not a `PDPv0_SaveCache` task has claimed it. Curio proves a sub-piece of that size only from its layer, so a piece in a proof set without one fails every proof. A layer is normally built within minutes of parking; 0 when none waits. The age counts from parking, not from when the piece was queued, so when Curio queues an older piece to rebuild a layer that failed validation, the gauge jumps to that piece's age until the rebuild finishes |
 | `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
 The names above are what Prometheus sees when the OTLP metrics pass through a
@@ -210,7 +210,9 @@ piri_pdp_proofsets_unrecoverable{job="forge/piri"} > 0
 # minutes for its proof cache layer. Curio proves such a piece only from the
 # layer, so once it is in a proof set and challenged, the proof fails. Check
 # logs for the PDPv0_SaveCache task and its reads from the blobstore. Expect it
-# to fire after the upgrade that adds the cache, until the backlog drains.
+# to fire after the upgrade that adds the cache, until the backlog drains. Give
+# the rule a `for` of several minutes: a layer Curio rebuilds after it failed
+# validation reads as the piece's full age from the start.
 piri_pdp_proof_cache_pending_oldest_seconds{job="forge/piri"} > 1800
 
 # Prove task not running: no PDPv0_Prove run has finished in 1.5 proving

@@ -59,11 +59,10 @@ const (
 	MinPaddedSize uint64 = 1 << 28
 
 	// DefaultMaxPaddedSize is the shipped default, 256 MiB, which yields a
-	// raw cap of 266338304 and a memtree peak around 768 MiB. It is
-	// deliberately well under CurioMaxPaddedSize: with no proof cache every
-	// proof builds a full memtree, so a 1 GiB piece would cost ~3 GiB of RSS
-	// per concurrent prove. Raising the default is gated on a real proof
-	// cache; operators who have the memory can raise the limit by config.
+	// raw cap of 266338304. It is the network-wide constant clients shard
+	// against (see MinPaddedSize), not a memory bound: a piece this large is
+	// proven from its proof cache layer, whose SaveCache task streams the
+	// piece once. Operators can raise the limit by config.
 	DefaultMaxPaddedSize uint64 = 1 << 28
 )
 
