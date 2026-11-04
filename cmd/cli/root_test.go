@@ -10,22 +10,22 @@ import (
 	"github.com/fil-forge/piri/pkg/config"
 )
 
-func TestEgressJournalDirFromEnv(t *testing.T) {
-	t.Setenv("PIRI_REPO_EGRESS_JOURNAL_DIR", "/fast/egress-journal")
+func TestBlobDirFromEnv(t *testing.T) {
+	t.Setenv("PIRI_REPO_BLOB_DIR", "/mnt/blobs")
 
 	var cfg config.FullServerConfig
 	require.NoError(t, viper.Unmarshal(&cfg))
 
-	assert.Equal(t, "/fast/egress-journal", cfg.Repo.EgressJournalDir)
+	assert.Equal(t, "/mnt/blobs", cfg.Repo.BlobDir)
 }
 
-func TestEgressJournalDirFromFlag(t *testing.T) {
-	flag := rootCmd.PersistentFlags().Lookup("egress-journal-dir")
-	require.NoError(t, flag.Value.Set("/fast/egress-journal"))
+func TestBlobDirFromFlag(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("blob-dir")
+	require.NoError(t, flag.Value.Set("/mnt/blobs"))
 	t.Cleanup(func() { _ = flag.Value.Set("") })
 
 	var cfg config.FullServerConfig
 	require.NoError(t, viper.Unmarshal(&cfg))
 
-	assert.Equal(t, "/fast/egress-journal", cfg.Repo.EgressJournalDir)
+	assert.Equal(t, "/mnt/blobs", cfg.Repo.BlobDir)
 }

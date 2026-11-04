@@ -6,7 +6,7 @@ Storage directory configuration.
 |-----|-------------------|-----|---------|
 | `repo.data_dir` | `$HOME/.storacha/` | `PIRI_REPO_DATA_DIR` | No |
 | `repo.temp_dir` | -                 | `PIRI_REPO_TEMP_DIR` | No |
-| `repo.egress_journal_dir` | `<data_dir>/egress_tracker/journal` | `PIRI_REPO_EGRESS_JOURNAL_DIR` | No |
+| `repo.blob_dir` | `data_dir`        | `PIRI_REPO_BLOB_DIR` | No |
 
 ## Fields
 
@@ -18,17 +18,17 @@ Directory for persistent data (databases, blobs, claims).
 
 Directory for temporary files during processing.
 
-### `egress_journal_dir`
+### `blob_dir`
 
-Directory for the egress tracker's journal: the batches of retrieval receipts
-that Piri has not yet reported to the egress tracker. The journal stays on
-local disk even when blobs go to S3. Set it to keep the journal on a faster or
-separately backed-up volume than `data_dir`. Also settable with
-`--egress-journal-dir`.
+Directory for blob bytes and IPNI adverts when blobs are stored on the
+filesystem. These are the data the S3 backend keeps in its bucket.
+Piri keeps them in `blob_dir/pdp/datastore` and `blob_dir/ipni`, the same
+layout as under `data_dir`. Everything else stays in `data_dir`. Use it to put
+blobs on a large storage array and the rest of Piri's state on faster drives.
+Ignored when S3 is configured.
 
-Piri does not move an existing journal. Before changing the directory on a
-running node, stop Piri and move the contents of the old directory to the new
-one; receipts left behind are never reported.
+To split an existing node, stop Piri, set `blob_dir` to the old `data_dir`,
+and move everything except `pdp/datastore` and `ipni` to the new `data_dir`.
 
 ## TOML
 
@@ -36,6 +36,6 @@ one; receipts left behind are never reported.
 [repo]
 data_dir = "/data/piri"
 temp_dir = "/tmp/piri"
-egress_journal_dir = "/fast/piri/egress-journal"
+blob_dir = "/mnt/array/piri"
 ```
 

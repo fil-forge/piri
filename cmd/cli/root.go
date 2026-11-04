@@ -64,9 +64,9 @@ func init() {
 	// backwards compatibility
 	cobra.CheckErr(viper.BindEnv("repo.temp_dir", "PIRI_TEMP_DIR"))
 
-	rootCmd.PersistentFlags().String("egress-journal-dir", "", "Egress tracker journal directory (default <data-dir>/egress_tracker/journal)")
-	cobra.CheckErr(viper.BindPFlag("repo.egress_journal_dir", rootCmd.PersistentFlags().Lookup("egress-journal-dir")))
-	cobra.CheckErr(viper.BindEnv("repo.egress_journal_dir", "PIRI_REPO_EGRESS_JOURNAL_DIR"))
+	rootCmd.PersistentFlags().String("blob-dir", "", "Directory for blob bytes and IPNI adverts when blobs are stored on the filesystem (default: the data directory)")
+	cobra.CheckErr(viper.BindPFlag("repo.blob_dir", rootCmd.PersistentFlags().Lookup("blob-dir")))
+	cobra.CheckErr(viper.BindEnv("repo.blob_dir", "PIRI_REPO_BLOB_DIR"))
 
 	rootCmd.PersistentFlags().String("key-file", "", "Path to a PEM file containing ed25519 private key")
 	cobra.CheckErr(rootCmd.MarkPersistentFlagFilename("key-file", "pem"))

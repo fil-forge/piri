@@ -97,36 +97,50 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 	})
 }
 
-func TestRepoConfig_ToAppConfig_EgressJournalDir(t *testing.T) {
+func TestRepoConfig_ToAppConfig_BlobDir(t *testing.T) {
+	type blobPaths struct {
+		PDPStore  string
+		Publisher string
+	}
+
 	dataDir := t.TempDir()
-	journalDir := filepath.Join(t.TempDir(), "journal")
+	blobDir := t.TempDir()
 
 	testCases := []struct {
-		desc             string
-		egressJournalDir string
-		expected         app.EgressTrackerStorageConfig
+		desc     string
+		blobDir  string
+		expected blobPaths
 	}{
 		{
-			desc:     "unset defaults to the data dir",
-			expected: app.EgressTrackerStorageConfig{Dir: filepath.Join(dataDir, "egress_tracker", "journal")},
+			desc: "unset keeps blobs in the data dir",
+			expected: blobPaths{
+				PDPStore:  filepath.Join(dataDir, "pdp", "datastore"),
+				Publisher: filepath.Join(dataDir, "ipni"),
+			},
 		},
 		{
-			desc:             "set overrides the data dir",
-			egressJournalDir: journalDir,
-			expected:         app.EgressTrackerStorageConfig{Dir: journalDir},
+			desc:    "set moves blobs to the blob dir",
+			blobDir: blobDir,
+			expected: blobPaths{
+				PDPStore:  filepath.Join(blobDir, "pdp", "datastore"),
+				Publisher: filepath.Join(blobDir, "ipni"),
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.desc, func(t *testing.T) {
 			cfg := RepoConfig{
-				DataDir:          dataDir,
-				TempDir:          t.TempDir(),
-				EgressJournalDir: tc.egressJournalDir,
+				DataDir: dataDir,
+				TempDir: t.TempDir(),
+				BlobDir: tc.blobDir,
 			}
 			result, err := cfg.ToAppConfig()
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, result.EgressTracker)
+			assert.Equal(t, tc.expected, blobPaths{
+				PDPStore:  result.PDPStore.Dir,
+				Publisher: result.Publisher.Dir,
+			})
 		})
 	}
 }

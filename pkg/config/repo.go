@@ -126,11 +126,11 @@ func (c PostgresConfig) ToAppConfig() (app.PostgresConfig, error) {
 }
 
 type RepoConfig struct {
-	DataDir          string         `mapstructure:"data_dir" validate:"required" flag:"data-dir" toml:"data_dir"`
-	TempDir          string         `mapstructure:"temp_dir" validate:"required" flag:"temp-dir" toml:"temp_dir"`
-	EgressJournalDir string         `mapstructure:"egress_journal_dir" flag:"egress-journal-dir" toml:"egress_journal_dir,omitempty"`
-	Database         DatabaseConfig `mapstructure:"database" validate:"omitempty" toml:"database,omitempty"`
-	S3               *S3Config      `mapstructure:"s3" validate:"omitempty" toml:"s3,omitempty"`
+	DataDir  string         `mapstructure:"data_dir" validate:"required" flag:"data-dir" toml:"data_dir"`
+	TempDir  string         `mapstructure:"temp_dir" validate:"required" flag:"temp-dir" toml:"temp_dir"`
+	BlobDir  string         `mapstructure:"blob_dir" flag:"blob-dir" toml:"blob_dir,omitempty"`
+	Database DatabaseConfig `mapstructure:"database" validate:"omitempty" toml:"database,omitempty"`
+	S3       *S3Config      `mapstructure:"s3" validate:"omitempty" toml:"s3,omitempty"`
 }
 
 func (r RepoConfig) Validate() error {
@@ -173,10 +173,10 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
 		Publisher: app.PublisherStorageConfig{
-			Dir: filepath.Join(r.DataDir, "ipni"),
+			Dir: filepath.Join(r.blobDir(), "ipni"),
 		},
 		EgressTracker: app.EgressTrackerStorageConfig{
-			Dir: r.egressJournalDir(),
+			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),
 		},
 		Replicator: app.ReplicatorStorageConfig{},
 		KeyStore: app.KeyStoreConfig{
@@ -187,7 +187,7 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		},
 		SchedulerStorage: app.SchedulerConfig{},
 		PDPStore: app.PDPStoreConfig{
-			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
+			Dir: filepath.Join(r.blobDir(), "pdp", "datastore"),
 		},
 	}
 
@@ -207,9 +207,11 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 	return out, nil
 }
 
-func (r RepoConfig) egressJournalDir() string {
-	if r.EgressJournalDir != "" {
-		return r.EgressJournalDir
+// blobDir is where the filesystem backend keeps blob bytes and IPNI adverts,
+// the data that the S3 backend keeps in its bucket.
+func (r RepoConfig) blobDir() string {
+	if r.BlobDir != "" {
+		return r.BlobDir
 	}
-	return filepath.Join(r.DataDir, "egress_tracker", "journal")
+	return r.DataDir
 }
