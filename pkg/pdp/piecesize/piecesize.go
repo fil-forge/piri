@@ -121,7 +121,7 @@ func ValidatePaddedSize(padded uint64) error {
 	}
 	if padded > CurioMaxPaddedSize {
 		return fmt.Errorf(
-			"max padded piece size %d exceeds the proving limit %d: the prove task builds a full memtree per challenged sub-piece and cannot exceed it",
+			"max padded piece size %d exceeds the proving limit %d (Curio's proof.MaxMemtreeSize)",
 			padded, CurioMaxPaddedSize,
 		)
 	}

@@ -32,6 +32,22 @@ CREATE TRIGGER pdp_proof_cache_layers_drop_unreferenced
     AFTER DELETE ON pdp_piecerefs
     FOR EACH ROW EXECUTE FUNCTION pdp_proof_cache_layers_drop_unreferenced();
 
+-- NB(piri): every piece parked before this release has needs_save_cache at its
+-- default, TRUE. pdpv0's scheduler would queue a SaveCache task for each,
+-- small ones included, and its cleanup clears only unclaimed rows. Clear the
+-- flag here on pieces at or below the cache threshold
+-- (proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE, 32 MiB padded), which are proven
+-- from a full tree; ParkPiece sets it from the size for new pieces.
+UPDATE pdp_piecerefs pr SET needs_save_cache = FALSE
+WHERE pr.needs_save_cache = TRUE
+  AND pr.save_cache_task_id IS NULL
+  AND EXISTS (
+      SELECT 1 FROM parked_piece_refs pprf
+      JOIN parked_pieces pp ON pp.id = pprf.piece_id
+      WHERE pprf.ref_id = pr.piece_ref
+        AND pp.piece_padded_size <= 33554432
+  );
+
 -- Curio's indexes for pdpv0's save-cache task (its
 -- 20260624-db-scale-indexes.sql). Its scheduler claims the oldest unclaimed
 -- piece every few seconds, and Piri's reclaim looks pieces up by task id.
