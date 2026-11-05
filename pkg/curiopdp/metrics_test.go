@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/curiostorage/harmonyquery"
+	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
@@ -19,11 +20,16 @@ import (
 )
 
 type fakeSource struct {
-	sets    []proofSetState
-	setsErr error
-	last    map[string]time.Time
-	lastErr error
-	pool    harmonyquery.PoolStat
+	sets             []proofSetState
+	setsErr          error
+	last             map[string]time.Time
+	lastErr          error
+	pool             harmonyquery.PoolStat
+	proofCacheOldest time.Duration
+}
+
+func (f *fakeSource) oldestPendingProofCache(context.Context) (time.Duration, error) {
+	return f.proofCacheOldest, nil
 }
 
 func (f *fakeSource) poolStat() harmonyquery.PoolStat {
@@ -327,4 +333,84 @@ func requireSameTimes(t *testing.T, want, got map[string]time.Time) {
 		require.True(t, ok, "missing %s", k)
 		require.True(t, w.Equal(g), "%s: want %s, got %s", k, w, g)
 	}
+}
+
+// floatGauges collects every float64 gauge without attributes as name -> value.
+func floatGauges(t *testing.T, reader *sdkmetric.ManualReader) map[string]float64 {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(context.Background(), &rm))
+	out := map[string]float64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if g, ok := m.Data.(metricdata.Gauge[float64]); ok && len(g.DataPoints) == 1 {
+				out[m.Name] = g.DataPoints[0].Value
+			}
+		}
+	}
+	return out
+}
+
+func TestProofCacheGauge_ReportsHowLongTheOldestPieceHasWaited(t *testing.T) {
+	reader := startTestMetrics(t, &chainHead{}, &fakeSource{proofCacheOldest: 90 * time.Second})
+
+	require.Equal(t, 90.0, floatGauges(t, reader)["piri_pdp_proof_cache_pending_oldest_seconds"])
+}
+
+// parkPendingProofCaches parks a piece above the cache threshold waiting for
+// its layer, aged by unclaimedHours, and one a save-cache task has claimed,
+// aged by claimedHours, beside an older small piece and an older cached piece
+// that are not waiting.
+func parkPendingProofCaches(t *testing.T, db *harmonydb.DB, unclaimedHours, claimedHours int) {
+	t.Helper()
+	ctx := context.Background()
+	age := func(pieceRefID int64, hours int) {
+		_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET created_at = now() - make_interval(hours => $2) WHERE id = $1`, pieceRefID, hours)
+		require.NoError(t, err)
+	}
+	waiting := anyPiece(t, 1, 40<<20)
+	small := anyPiece(t, 2, 1<<20)
+	cached := anyPiece(t, 3, 40<<20)
+	claimed := anyPiece(t, 4, 40<<20)
+	age(parkSizedPiece(t, db, waiting, 40<<20, 64<<20), unclaimedHours)
+	age(parkSizedPiece(t, db, small, 1<<20, 1<<20), 9) // below 32 MiB padded: never cached
+	cachedRef := parkSizedPiece(t, db, cached, 40<<20, 64<<20)
+	claimedRef := parkSizedPiece(t, db, claimed, 40<<20, 64<<20)
+	_, err := db.Exec(ctx, `UPDATE pdp_piecerefs SET needs_save_cache = FALSE WHERE id = $1`, cachedRef)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `UPDATE pdp_piecerefs SET save_cache_task_id = 7 WHERE id = $1`, claimedRef)
+	require.NoError(t, err)
+	age(cachedRef, 9)
+	age(claimedRef, claimedHours)
+}
+
+func TestDBMetricsSource_ReportsTheOldestUnclaimedPieceAboveTheCacheThreshold(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	parkPendingProofCaches(t, db, 3, 1)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	require.NoError(t, err)
+
+	require.InDelta(t, (3 * time.Hour).Seconds(), got.Seconds(), 60)
+}
+
+// A task that hangs or keeps failing holds its claim, and its piece still
+// cannot be proven.
+func TestDBMetricsSource_CountsAClaimedPieceAsWaiting(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	parkPendingProofCaches(t, db, 1, 3)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	require.NoError(t, err)
+
+	require.InDelta(t, (3 * time.Hour).Seconds(), got.Seconds(), 60)
+}
+
+func TestDBMetricsSource_ReportsZeroWhenNoPieceWaitsForAProofCache(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+
+	got, err := newDBMetricsSource(db, "any-service", "any-host").oldestPendingProofCache(context.Background())
+	require.NoError(t, err)
+
+	require.Zero(t, got)
 }
