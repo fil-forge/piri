@@ -338,14 +338,6 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		}
 	}
 
-	// Map to store subrootCID -> [pieceInfo, pdp_pieceref.id, subrootOffset, rawSize]
-	type SubrootInfo struct {
-		PieceInfo     abi.PieceInfo
-		PDPPieceRefID int64
-		SubrootOffset uint64
-		RawSize       uint64 // Actual unpadded data size (not derived from padded size)
-	}
-
 	type subrootRow struct {
 		PieceCID        string `db:"piece_cid"`
 		PDPPieceRefID   int64  `db:"pdp_piece_ref_id"`
@@ -371,7 +363,7 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		return common.Hash{}, err
 	}
 
-	subrootInfoMap := make(map[cid.Cid]*SubrootInfo)
+	subrootInfoMap := make(map[cid.Cid]*subrootPiece)
 	currentSubroots := cid.NewSet()
 	for _, r := range rows {
 		// Decode the piece CID.
@@ -379,7 +371,7 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 		if err != nil {
 			return common.Hash{}, fmt.Errorf("invalid piece CID in database: %s", r.PieceCID)
 		}
-		subrootInfoMap[decodedCID] = &SubrootInfo{
+		subrootInfoMap[decodedCID] = &subrootPiece{
 			PieceInfo: abi.PieceInfo{
 				Size:     abi.PaddedPieceSize(r.PiecePaddedSize),
 				PieceCID: decodedCID,
@@ -599,74 +591,9 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 	// Use lowercased tx hash to match Curio's storage convention.
 	txHashLower := strings.ToLower(txHash.Hex())
 	comm, err := p.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
-		// Insert into message_waits_eth
-		n, err := tx.Exec(`
-            INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
-            VALUES ($1, $2)
-        `, txHashLower, "pending")
-		if err != nil {
+		if err := recordPieceAdds(tx, id, txHashLower, request, subrootInfoMap); err != nil {
 			return false, err
 		}
-		if n != 1 {
-			return false, fmt.Errorf("expected 1 row in message_waits_eth, got %d", n)
-		}
-
-		// Update proof set for initialization upon first add (idempotent)
-		if _, err := tx.Exec(`
-			UPDATE pdp_data_sets SET init_ready = true
-			WHERE id = $1
-			  AND prev_challenge_request_epoch IS NULL
-			  AND challenge_request_msg_hash IS NULL
-			  AND prove_at_epoch IS NULL
-		`, id); err != nil {
-			return false, err
-		}
-
-		// Insert into pdp_data_set_piece_adds — mirror Curio insertPieceAdds.
-		// add_message_index = piece index (outer loop). data_set = id (known, non-null).
-		// piece/sub_piece are stored as v1 CommP CIDs (Curio's convention; the
-		// prove task's CIDToPieceCommitmentV1 rejects v2 piece CIDs).
-		for addMessageIndex, addReq := range request {
-			rootV1, err := asPieceCIDv1(addReq.Root)
-			if err != nil {
-				return false, fmt.Errorf("converting root %s to v1 piece CID: %w", addReq.Root, err)
-			}
-			for _, subrootEntry := range addReq.SubRoots {
-				subInfo := subrootInfoMap[subrootEntry]
-				subV1, err := asPieceCIDv1(subrootEntry)
-				if err != nil {
-					return false, fmt.Errorf("converting subroot %s to v1 piece CID: %w", subrootEntry, err)
-				}
-				n, err := tx.Exec(`
-                    INSERT INTO pdp_data_set_piece_adds (
-                        data_set,
-                        piece,
-                        add_message_hash,
-                        add_message_index,
-                        sub_piece,
-                        sub_piece_offset,
-                        sub_piece_size,
-                        pdp_pieceref
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                `,
-					id,
-					rootV1.String(),
-					txHashLower,
-					addMessageIndex,
-					subV1.String(),
-					subInfo.SubrootOffset,
-					uint64(subInfo.PieceInfo.Size), // sub_piece_size = padded size, matches Curio
-					subInfo.PDPPieceRefID,
-				)
-				if err != nil {
-					return false, err
-				}
-				if n != 1 {
-					return false, fmt.Errorf("expected 1 row in pdp_data_set_piece_adds, got %d", n)
-				}
-			}
-		}
-
 		return true, nil
 	}, harmonydb.OptionRetry())
 	if err != nil {
@@ -690,6 +617,79 @@ func (p *PDPService) AddRoots(ctx context.Context, id uint64, request []types.Ro
 
 	log.Infow("AddRoots transaction confirmed successfully", "txHash", txHashLower, "proofSetID", id)
 	return confirmHash, nil
+}
+
+// subrootPiece is a sub-piece of a root being added: its parked piece, its
+// pdp_piecerefs id and its offset within the root.
+type subrootPiece struct {
+	PieceInfo     abi.PieceInfo
+	PDPPieceRefID int64
+	SubrootOffset uint64
+	RawSize       uint64 // Actual unpadded data size (not derived from padded size)
+}
+
+// recordPieceAdds writes the rows that track a sent addPieces transaction:
+// its message_waits_eth row and one pdp_data_set_piece_adds row per
+// sub-piece, mirroring Curio's handleAddPieceToDataSet and insertPieceAdds.
+// piece and sub_piece are stored as v1 CommP CIDs, Curio's convention: the
+// prove task's CIDToPieceCommitmentV1 rejects v2 piece CIDs.
+//
+// It leaves pdp_data_sets.init_ready alone. Curio's add-piece watcher sets
+// it once the receipt is parsed and the piece rows exist, so proving never
+// starts on a data set with no pieces recorded.
+func recordPieceAdds(tx *harmonydb.Tx, dataSet uint64, txHash string, request []types.RootAdd, subroots map[cid.Cid]*subrootPiece) error {
+	n, err := tx.Exec(`
+		INSERT INTO message_waits_eth (signed_tx_hash, tx_status)
+		VALUES ($1, $2)
+	`, txHash, "pending")
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("expected 1 row in message_waits_eth, got %d", n)
+	}
+
+	for addMessageIndex, addReq := range request {
+		rootV1, err := asPieceCIDv1(addReq.Root)
+		if err != nil {
+			return fmt.Errorf("converting root %s to v1 piece CID: %w", addReq.Root, err)
+		}
+		for _, subrootEntry := range addReq.SubRoots {
+			subInfo := subroots[subrootEntry]
+			subV1, err := asPieceCIDv1(subrootEntry)
+			if err != nil {
+				return fmt.Errorf("converting subroot %s to v1 piece CID: %w", subrootEntry, err)
+			}
+			n, err := tx.Exec(`
+				INSERT INTO pdp_data_set_piece_adds (
+					data_set,
+					piece,
+					add_message_hash,
+					add_message_index,
+					sub_piece,
+					sub_piece_offset,
+					sub_piece_size,
+					pdp_pieceref
+				) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`,
+				dataSet,
+				rootV1.String(),
+				txHash,
+				addMessageIndex,
+				subV1.String(),
+				subInfo.SubrootOffset,
+				uint64(subInfo.PieceInfo.Size), // sub_piece_size = padded size, matches Curio
+				subInfo.PDPPieceRefID,
+			)
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return fmt.Errorf("expected 1 row in pdp_data_set_piece_adds, got %d", n)
+			}
+		}
+	}
+	return nil
 }
 
 // TODO(phase 5a): the proof-bundling helper that lived here built per-piece
