@@ -155,7 +155,7 @@ func (p *postgresPublisher) publishClaims(t *testing.T, n int) {
 // publish runs the task on the claimed batch.
 func (p *postgresPublisher) publish(t *testing.T) error {
 	t.Helper()
-	_, err := p.task.Do(testBatchID, func() bool { return true })
+	_, err := p.task.Do(t.Context(), testBatchID, func() bool { return true })
 	return err
 }
 

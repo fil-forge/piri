@@ -34,11 +34,11 @@ func NewExpireAllocationsTask(expirer AllocationExpirer) *ExpireAllocationsTask 
 	return &ExpireAllocationsTask{expirer: expirer}
 }
 
-func (t *ExpireAllocationsTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *ExpireAllocationsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := t.expirer.ProcessExpiredAllocations(context.Background()); err != nil {
+	if err := t.expirer.ProcessExpiredAllocations(ctx); err != nil {
 		return false, err
 	}
 	return true, nil

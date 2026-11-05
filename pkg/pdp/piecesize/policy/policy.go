@@ -37,9 +37,7 @@ func New(registry *dynamic.Registry, cfg app.PieceConfig) (piecesize.Policy, err
 		config.PieceMaxPaddedSize: {
 			Value: uint(fallback),
 			// The schema is what stops an operator raising the limit past
-			// what Curio can prove: above CurioMaxPaddedSize the prove task
-			// cannot build a memtree, and a piece that large would fault
-			// rather than fail loudly at ingest.
+			// CurioMaxPaddedSize (see piecesize).
 			Schema: dynamic.PowerOfTwoSchema{
 				Min: uint(piecesize.MinPaddedSize),
 				Max: uint(piecesize.CurioMaxPaddedSize),

@@ -5,7 +5,6 @@ import (
 
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/ucan/retrieval"
-	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/server/middleware"
 	"github.com/fil-forge/ucantone/ucan"
@@ -88,7 +87,7 @@ func NewRetrieval(p RetrievalParams) (*RetrievalHandler, error) {
 
 // handleRegistrar is satisfied by both *server.HTTPServer and *retrieval.Server.
 type handleRegistrar interface {
-	Handle(ucan.Command, execution.HandlerFunc)
+	HandleRoute(server.Route)
 }
 
 func register(svr handleRegistrar, handlers []server.Route) error {
@@ -98,7 +97,7 @@ func register(svr handleRegistrar, handlers []server.Route) error {
 		if _, ok := seen[h.Command]; ok {
 			return fmt.Errorf("duplicate capability %q", h.Command)
 		}
-		svr.Handle(h.Command, h.Handler)
+		svr.HandleRoute(h)
 		seen[h.Command] = struct{}{}
 	}
 	return nil

@@ -62,7 +62,7 @@ func foldAll(t *testing.T, db *harmonydb.DB, pieces []libpiece.Piece) aggtypes.A
 	require.Len(t, want, 1)
 
 	submitter := &recordingSubmitter{}
-	done, err := NewAggregateTask(db, submitter, policy).Do(1, func() bool { return true })
+	done, err := NewAggregateTask(db, submitter, policy).Do(t.Context(), 1, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 	require.Equal(t, []cid.Cid{want[0].Root}, submitter.roots)
@@ -101,7 +101,7 @@ func TestAggregate_RepeatedRoot(t *testing.T) {
 	// A single-piece aggregate has an empty proof path, which CBOR decodes
 	// as nil.
 	want.Pieces[0].InclusionProof.Path = nil
-	done, err := NewAggregateTask(db, &recordingSubmitter{}, policy).Do(1, func() bool { return true })
+	done, err := NewAggregateTask(db, &recordingSubmitter{}, policy).Do(t.Context(), 1, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 
@@ -214,7 +214,7 @@ func TestAddRoots_RetireRemovesAggregate(t *testing.T) {
 // after the 00000009 migration, completes without doing anything.
 func TestAddRoots_NoSubmissionRows(t *testing.T) {
 	db := testutil.NewHarmonyDB(t)
-	done, err := (&AddRootsTask{db: db}).Do(7, func() bool { return true })
+	done, err := (&AddRootsTask{db: db}).Do(t.Context(), 7, func() bool { return true })
 	require.NoError(t, err)
 	require.True(t, done)
 }
