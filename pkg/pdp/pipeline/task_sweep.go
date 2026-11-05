@@ -33,11 +33,11 @@ func NewRemoveSweepTask(sweeper RemovalSweeper) *RemoveSweepTask {
 	return &RemoveSweepTask{sweeper: sweeper}
 }
 
-func (t *RemoveSweepTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *RemoveSweepTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
 	if !stillOwned() {
 		return false, nil
 	}
-	if err := t.sweeper.ProcessPendingRemovals(context.Background()); err != nil {
+	if err := t.sweeper.ProcessPendingRemovals(ctx); err != nil {
 		// Surface partial failures through task history; the singleton
 		// re-arms on the next interval regardless.
 		return false, err
