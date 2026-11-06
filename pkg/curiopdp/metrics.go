@@ -150,7 +150,7 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 	// Curio's trigger on message_waits_eth sets add_message_ok once an add
 	// succeeds on chain, and the receipt watcher sets pieces_added once it
 	// has recorded the pieces from the receipt, normally on the next chain
-	// head. The unrecorded adds are read through
+	// head. The untracked adds are read through
 	// idx_pdp_data_set_piece_adds_unprocessed.
 	if err := s.db.Select(ctx, &rows, `
 		SELECT d.id, d.prove_at_epoch, d.challenge_window, d.proving_period,

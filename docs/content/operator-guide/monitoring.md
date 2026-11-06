@@ -154,7 +154,7 @@ The proof set gauges are read from the database at each collection:
   while a drain is queued. A queued drain the task finds empty is dropped on
   its next run, so a short-lived series after removals or an upgrade is normal.
 - `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` is reported only while
-  an add is confirmed but unrecorded, which is normally for less than a
+  an add is confirmed but untracked, which is normally for less than a
   minute after each add lands.
 - After the upgrade that adds the proof cache, every piece already parked
   above 32 MiB waits for its layer, so `piri_pdp_proof_cache_pending_oldest_seconds`
@@ -232,7 +232,7 @@ piri_pdp_proofset_last_proven_epoch{job="forge/piri"}
   30 * piri_pdp_proofset_proving_period_epochs{job="forge/piri"}
 )
 
-# Piece adds unrecorded: an addPieces transaction for a proof set succeeded on
+# Untracked add pieces: an addPieces transaction for a proof set succeeded on
 # chain more than 20 epochs (10 minutes) ago, and Curio has still not recorded
 # its pieces. Curio retries the receipt on every chain head without reporting a
 # failure, so the set never starts proving and the schedule-based alerts above
@@ -387,7 +387,7 @@ Recommended alerts:
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Proof set not proven on chain for over a proving period (`piri_pdp_proofset_last_proven_epoch`) | Critical | Check logs for the `PDPv0_Prove` and `PDPv0_ProvPeriod` tasks, and the proof set with `piri client pdp proofset state` |
 | Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
-| A successful piece addition unrecorded for over 20 epochs (`piri_pdp_proofset_untracked_add_pieces_confirmed_epoch`) | Warning | Check logs for warnings about extracting pieces from the `addPieces` receipt |
+| Untracked add pieces for over 20 epochs (`piri_pdp_proofset_untracked_add_pieces_confirmed_epoch`) | Warning | Check logs for warnings about extracting pieces from the `addPieces` receipt |
 | A piece has waited over 30 minutes for its proof cache layer (`piri_pdp_proof_cache_pending_oldest_seconds`) | Warning | Check logs for the `PDPv0_SaveCache` task and its blobstore reads |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |

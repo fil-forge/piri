@@ -220,7 +220,7 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 		sets: []proofSetState{
 			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), LastProvenEpoch: ptr(900)},
 			// 8: window and period unknown; 9: no schedule, drain queued, an
-			// unrecorded add; 10 and 11: unrecoverable.
+			// untracked add; 10 and 11: unrecoverable.
 			{ID: 8, ProveAtEpoch: ptr(2000)},
 			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(950), UntrackedAddPiecesEpoch: ptr(940)},
 			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(100), UntrackedAddPiecesEpoch: ptr(90)},
@@ -240,7 +240,7 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	require.Equal(t, map[string]int64{"9": drainQueued.Unix()}, got["piri_pdp_proofset_deletion_drain_queued_timestamp_seconds"])
 	// The last proven epoch is reported whenever it was read, schedule or not.
 	require.Equal(t, map[string]int64{"7": 900, "9": 950}, got["piri_pdp_proofset_last_proven_epoch"])
-	// An unrecorded add is reported whether or not a schedule is set, since
+	// An untracked add is reported whether or not a schedule is set, since
 	// it is what keeps a new set from getting one.
 	require.Equal(t, map[string]int64{"9": 940}, got["piri_pdp_proofset_untracked_add_pieces_confirmed_epoch"])
 	require.Equal(t, map[string]int64{"PDPv0_Prove": proveAt.Unix()}, got["piri_pdp_task_last_success_timestamp_seconds"])
