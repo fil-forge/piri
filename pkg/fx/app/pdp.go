@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -104,17 +105,27 @@ func ProvideLotusClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (api.FullNode
 	return lotusAPI, nil
 }
 
+// redialTimeout bounds the handshake redactDialError repeats to read a
+// refused handshake's status.
+const redialTimeout = 10 * time.Second
+
 // redactDialError rewrites a failed chain RPC dial's error without the
 // endpoint's query string or userinfo, which carry the API key for providers
 // such as Chain.Love (?token=). go-jsonrpc prints the full address and drops
-// the HTTP status of a refused handshake, so for a WebSocket endpoint the
+// the HTTP status of a refused handshake, so when the endpoint refused it, the
 // handshake is tried once more to read the status, which is appended the way
-// go-ethereum reports it. The result does not wrap err: the wrapped error would
-// still print the full address.
+// go-ethereum reports it. Only a refusal is retried: the endpoint answered it
+// at once, where a timeout would make start-up wait out a second one. The
+// result does not wrap err: the wrapped error would still print the full
+// address.
 func redactDialError(ctx context.Context, endpoint *url.URL, header http.Header, err error) error {
 	msg := strings.ReplaceAll(err.Error(), endpoint.String(), redactEndpoint(endpoint).String())
-	if status := getHandshakeStatus(ctx, endpoint, header); status != "" {
-		msg += " (HTTP status " + status + ")"
+	if errors.Is(err, websocket.ErrBadHandshake) {
+		redialCtx, cancel := context.WithTimeout(ctx, redialTimeout)
+		defer cancel()
+		if status := getHandshakeStatus(redialCtx, endpoint, header); status != "" {
+			msg += " (HTTP status " + status + ")"
+		}
 	}
 	return errors.New(msg)
 }

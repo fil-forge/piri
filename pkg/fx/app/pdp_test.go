@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx/fxtest"
@@ -70,5 +74,42 @@ func TestRedactEndpoint(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "wss://chain.example.com/ws/rpc/v1", redactEndpoint(endpoint).String())
+	})
+}
+
+// silentEndpoint accepts TCP connections and never answers, the way an
+// endpoint that hangs mid-handshake does.
+func silentEndpoint(t *testing.T) *url.URL {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+		}
+	}()
+	u, err := url.Parse("ws://" + ln.Addr().String() + "/ws?token=any-token")
+	require.NoError(t, err)
+	return u
+}
+
+func TestRedactDialError_SilentEndpoint(t *testing.T) {
+	t.Run("returns at once without redialling when the dial failed for a reason other than a refused handshake", func(t *testing.T) {
+		endpoint := silentEndpoint(t)
+		done := make(chan error, 1)
+		go func() {
+			done <- redactDialError(context.Background(), endpoint, nil, errors.New("cannot dial address "+endpoint.String()+" for i/o timeout"))
+		}()
+		select {
+		case err := <-done:
+			require.EqualError(t, err, "cannot dial address "+redactEndpoint(endpoint).String()+" for i/o timeout")
+		case <-time.After(3 * time.Second):
+			t.Fatal("redactDialError was still dialling the endpoint after 3s")
+		}
 	})
 }
