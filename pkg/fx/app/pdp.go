@@ -12,33 +12,41 @@ import (
 	"github.com/fil-forge/piri/pkg/pdp/pipeline"
 	"github.com/fil-forge/piri/pkg/pdp/smartcontracts"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/ethchain"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/curiopdp"
 	"github.com/fil-forge/piri/pkg/fx/pdp"
+	"github.com/fil-forge/piri/pkg/pdp/chainrpc"
 	"github.com/fil-forge/piri/pkg/pdp/service"
 	"github.com/fil-forge/piri/pkg/store/blobstore"
 	"github.com/fil-forge/piri/pkg/wallet"
 )
 
 var PDPModule = fx.Module("pdp",
+	// Every consumer gets the chain clients through chainrpc's wrappers, as the
+	// interfaces it needs, so each call is counted (piri_chain_rpc_calls). The
+	// raw clients stay provided only for the wrappers to take.
 	fx.Provide(
-		ProvideEthClient, // provides concrete *ethclient.Client
+		ProvideEthClient,
+		ProvideLotusClient,
+		provideChainRPCMetrics,
 		fx.Annotate(
-			provideEthClientAsInterfaces,
-			// provide as interface required by service(s)
+			provideInstrumentedEthClient,
+			fx.As(new(ethchain.EthClient)),
 			fx.As(new(service.EthClient)),
 			fx.As(new(bind.ContractBackend)),
 		),
 		fx.Annotate(
-			ProvideLotusClient,
-			// provide as interface required by service(s)
+			provideInstrumentedLotusClient,
 			fx.As(new(service.ChainClient)),
 		),
 	),
+	fx.Invoke(startChainRPCProbe),
 	// Blobs received without their digest are staged until the settle task
 	// moves them to their digest's key, so the blobstore every reader gets is
 	// the staging store, reading through the staging index.
@@ -56,9 +64,34 @@ var PDPModule = fx.Module("pdp",
 	wallet.Module,
 )
 
-// provideEthClientAsInterfaces is a helper for fx.As to provide the concrete type as interfaces
-func provideEthClientAsInterfaces(c *ethclient.Client) *ethclient.Client {
-	return c
+// provideChainRPCMetrics creates the chain RPC instruments on the global meter,
+// which the serve command configures before wiring.
+func provideChainRPCMetrics() (*chainrpc.Metrics, error) {
+	return chainrpc.NewMetrics(otel.GetMeterProvider().Meter("github.com/fil-forge/piri/pkg/pdp/chainrpc"))
+}
+
+func provideInstrumentedEthClient(c *ethclient.Client, m *chainrpc.Metrics) *chainrpc.EthClient {
+	return chainrpc.NewEthClient(c, m)
+}
+
+func provideInstrumentedLotusClient(n api.FullNode, m *chainrpc.Metrics) *chainrpc.LotusClient {
+	return chainrpc.NewLotusClient(n, m)
+}
+
+// startChainRPCProbe probes the endpoint through both instrumented clients for
+// the life of the app, so an idle Piri still reports whether it can reach it.
+func startChainRPCProbe(lc fx.Lifecycle, m *chainrpc.Metrics, eth ethchain.EthClient, lotus service.ChainClient) {
+	ctx, cancel := context.WithCancel(context.Background())
+	lc.Append(fx.Hook{
+		OnStart: func(context.Context) error {
+			chainrpc.StartProbe(ctx, m, eth, lotus)
+			return nil
+		},
+		OnStop: func(context.Context) error {
+			cancel()
+			return nil
+		},
+	})
 }
 
 func ProvideEthClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (*ethclient.Client, error) {
