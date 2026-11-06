@@ -219,10 +219,11 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	src := &fakeSource{
 		sets: []proofSetState{
 			{ID: 7, ProveAtEpoch: ptr(1000), ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), LastProvenEpoch: ptr(900)},
-			// 8: window and period unknown; 9: no schedule, drain queued; 10 and 11: unrecoverable.
+			// 8: window and period unknown; 9: no schedule, drain queued, an
+			// unrecorded add; 10 and 11: unrecoverable.
 			{ID: 8, ProveAtEpoch: ptr(2000)},
-			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(950)},
-			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(100)},
+			{ID: 9, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(950), UnrecordedAddEpoch: ptr(940)},
+			{ID: 10, ChallengeWindow: ptr(60), ProvingPeriod: ptr(2880), UnrecoverableEpoch: ptr(400), DrainQueuedAt: &drainQueued, LastProvenEpoch: ptr(100), UnrecordedAddEpoch: ptr(90)},
 			{ID: 11, UnrecoverableEpoch: ptr(450)},
 		},
 		last: map[string]time.Time{"PDPv0_Prove": proveAt},
@@ -239,6 +240,9 @@ func TestProofSetAndTaskGauges(t *testing.T) {
 	require.Equal(t, map[string]int64{"9": drainQueued.Unix()}, got["piri_pdp_proofset_deletion_drain_queued_timestamp_seconds"])
 	// The last proven epoch is reported whenever it was read, schedule or not.
 	require.Equal(t, map[string]int64{"7": 900, "9": 950}, got["piri_pdp_proofset_last_proven_epoch"])
+	// An unrecorded add is reported whether or not a schedule is set, since
+	// it is what keeps a new set from getting one.
+	require.Equal(t, map[string]int64{"9": 940}, got["piri_pdp_proofset_unrecorded_add_confirmed_epoch"])
 	require.Equal(t, map[string]int64{"PDPv0_Prove": proveAt.Unix()}, got["piri_pdp_task_last_success_timestamp_seconds"])
 }
 
@@ -340,6 +344,58 @@ func TestDBMetricsSource(t *testing.T) {
 		"PDPv0_ProcDel":    t0,
 		"PDPv0_ProvPeriod": t0.Add(5*time.Hour - time.Minute),
 	}, last)
+}
+
+// insertPieceAdd records an addPieces transaction for a proof set the way
+// Piri's AddRoots and Curio's receipt trigger leave it: txStatus and
+// txSuccess on message_waits_eth, addOK and recorded on the piece add row.
+func insertPieceAdd(t *testing.T, db *harmonydb.DB, pieceRef, dataSet int64, txHash string, confirmedEpoch *int64, txStatus string, txSuccess, addOK *bool, recorded bool) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := db.Exec(ctx, `
+		INSERT INTO message_waits_eth (signed_tx_hash, confirmed_block_number, tx_status, tx_success)
+		VALUES ($1, $2, $3, $4)`, txHash, confirmedEpoch, txStatus, txSuccess)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_data_set_piece_adds (data_set, piece, add_message_hash, add_message_ok, add_message_index,
+		                                     sub_piece, sub_piece_offset, sub_piece_size, pdp_pieceref, pieces_added)
+		VALUES ($1, 'any-piece', $2, $3, 0, 'any-sub-piece', 0, 128, $4, $5)`,
+		dataSet, txHash, addOK, pieceRef, recorded)
+	require.NoError(t, err)
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func TestDBMetricsSource_ReportsTheOldestConfirmedAddCurioHasNotRecorded(t *testing.T) {
+	db := testutil.NewHarmonyDB(t)
+	ctx := context.Background()
+	pieceRef := parkSizedPiece(t, db, anyPiece(t, 1, 40<<20), 40<<20, 64<<20)
+	_, err := db.Exec(ctx, `INSERT INTO pdp_services (pubkey, service_label) VALUES ($1, $2), ($3, 'other')`,
+		[]byte{2}, pdpServiceLabel, []byte{3})
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `
+		INSERT INTO pdp_data_sets (id, create_message_hash, service) VALUES
+			(1, '0x1', $1), (2, '0x2', $1), (3, '0x3', 'other')`, pdpServiceLabel)
+	require.NoError(t, err)
+
+	yes, no := boolPtr(true), boolPtr(false)
+	// Proof set 1: two confirmed adds Curio has not recorded, and an older one it has.
+	insertPieceAdd(t, db, pieceRef, 1, "0xa1", ptr(520), "confirmed", yes, yes, false)
+	insertPieceAdd(t, db, pieceRef, 1, "0xa2", ptr(500), "confirmed", yes, yes, false)
+	insertPieceAdd(t, db, pieceRef, 1, "0xa3", ptr(400), "confirmed", yes, yes, true)
+	// Proof set 2: an add still pending, and one whose transaction failed.
+	insertPieceAdd(t, db, pieceRef, 2, "0xb1", nil, "pending", nil, nil, false)
+	insertPieceAdd(t, db, pieceRef, 2, "0xb2", ptr(450), "confirmed", no, no, false)
+	// Proof set 3 belongs to another service.
+	insertPieceAdd(t, db, pieceRef, 3, "0xc1", ptr(300), "confirmed", yes, yes, false)
+
+	sets, err := newDBMetricsSource(db, pdpServiceLabel, "any-host", fakeVerifier{}).proofSets(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, []proofSetState{
+		{ID: 1, UnrecordedAddEpoch: ptr(500)},
+		{ID: 2},
+	}, sets)
 }
 
 func requireSameTimes(t *testing.T, want, got map[string]time.Time) {
