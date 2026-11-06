@@ -89,7 +89,7 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
 | `piri_pdp_proofset_last_proven_epoch` | When PDPVerifier last accepted a proof for each proof set |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | When each proof set was queued to drain scheduled piece removals, which must finish before its next proving period |
-| `piri_pdp_proofset_unrecorded_add_confirmed_epoch` | When each proof set's oldest piece addition that Curio has not recorded was confirmed on chain |
+| `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` | When each proof set's oldest piece addition that Curio has not recorded was confirmed on chain |
 | `piri_pdp_proof_cache_pending_oldest_seconds` | How long the oldest piece still waiting for the proof cache layer it needs to be proven has waited |
 | `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
 | `piri_pdp_db_pool_acquires_waited` | PDP database acquires that waited for a free connection (rising share means the pool is too small) |
@@ -131,7 +131,7 @@ one that confirms a proof landed.
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
 | `piri_pdp_proofset_last_proven_epoch` | epoch | `proof_set` | The epoch at which PDPVerifier last accepted a proof for the proof set (`getDataSetLastProvenEpoch`), read from the chain on each collection, so it is what landed rather than what Curio sent. It advances once per proving period while proving works. Before a set's first proof it holds the epoch the set was created, so judge it only for sets with a scheduled challenge. Absent when the chain read fails |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | unix seconds | `proof_set` | When the proof set was queued to drain its scheduled piece removals with `processPieceDeletions` (`pdpv0_deletion_drain.created_at`). PDPVerifier 3.5.0 rejects `nextProvingPeriod` while removals are queued, so a drain still queued after a proving period means proving is blocked on it. Absent when no drain is queued |
-| `piri_pdp_proofset_unrecorded_add_confirmed_epoch` | epoch | `proof_set` | The epoch at which the proof set's oldest `addPieces` transaction that succeeded on chain, but whose pieces Curio has not recorded from its receipt, was confirmed (`pdp_data_set_piece_adds` with `add_message_ok` true and `pieces_added` false). Curio records an add on the next chain head, so a value more than a few epochs behind the head means it cannot read the receipt, for example after a contract upgrade adds an event its parser does not know. A new proof set is not scheduled for proving until its first add is recorded, so none of the schedule-based alerts see this. Absent when there is none |
+| `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` | epoch | `proof_set` | The epoch at which the proof set's oldest `addPieces` transaction that succeeded on chain, but whose pieces Curio has not recorded from its receipt, was confirmed (`pdp_data_set_piece_adds` with `add_message_ok` true and `pieces_added` false). Curio records an add on the next chain head, so a value more than a few epochs behind the head means it cannot read the receipt, for example after a contract upgrade adds an event its parser does not know. A new proof set is not scheduled for proving until its first add is recorded, so none of the schedule-based alerts see this. Absent when there is none |
 | `piri_pdp_proof_cache_pending_oldest_seconds` | seconds | | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer was parked, whether or not a `PDPv0_SaveCache` task has claimed it. Curio proves a sub-piece of that size only from its layer, so a piece in a proof set without one fails every proof. A layer is normally built within minutes of parking; 0 when none waits. The age counts from parking, not from when the piece was queued, so when Curio queues an older piece to rebuild a layer that failed validation, the gauge jumps to that piece's age until the rebuild finishes |
 | `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
@@ -153,7 +153,7 @@ The proof set gauges are read from the database at each collection:
 - `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` is reported only
   while a drain is queued. A queued drain the task finds empty is dropped on
   its next run, so a short-lived series after removals or an upgrade is normal.
-- `piri_pdp_proofset_unrecorded_add_confirmed_epoch` is reported only while
+- `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` is reported only while
   an add is confirmed but unrecorded, which is normally for less than a
   minute after each add lands.
 - After the upgrade that adds the proof cache, every piece already parked
@@ -242,7 +242,7 @@ piri_pdp_proofset_last_proven_epoch{job="forge/piri"}
   + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
 )
 - on (node) group_right()
-piri_pdp_proofset_unrecorded_add_confirmed_epoch{job="forge/piri"}
+piri_pdp_proofset_untracked_add_pieces_confirmed_epoch{job="forge/piri"}
 > 20
 
 # Proof cache backlog: a piece above 32 MiB padded has waited more than 30
@@ -387,7 +387,7 @@ Recommended alerts:
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Proof set not proven on chain for over a proving period (`piri_pdp_proofset_last_proven_epoch`) | Critical | Check logs for the `PDPv0_Prove` and `PDPv0_ProvPeriod` tasks, and the proof set with `piri client pdp proofset state` |
 | Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
-| A successful piece addition unrecorded for over 20 epochs (`piri_pdp_proofset_unrecorded_add_confirmed_epoch`) | Warning | Check logs for warnings about extracting pieces from the `addPieces` receipt |
+| A successful piece addition unrecorded for over 20 epochs (`piri_pdp_proofset_untracked_add_pieces_confirmed_epoch`) | Warning | Check logs for warnings about extracting pieces from the `addPieces` receipt |
 | A piece has waited over 30 minutes for its proof cache layer (`piri_pdp_proof_cache_pending_oldest_seconds`) | Warning | Check logs for the `PDPv0_SaveCache` task and its blobstore reads |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |

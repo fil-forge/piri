@@ -89,11 +89,11 @@ type proofSetState struct {
 	// set, read from the chain rather than the database; nil when the read
 	// failed or the set is unrecoverable.
 	LastProvenEpoch *int64 `db:"-"`
-	// UnrecordedAddEpoch is the epoch the set's oldest addPieces transaction
+	// UntrackedAddPiecesEpoch is the epoch the set's oldest addPieces transaction
 	// confirmed at, among those that succeeded on chain but whose pieces
 	// Curio has not recorded (add_message_ok TRUE, pieces_added FALSE); nil
 	// when there are none.
-	UnrecordedAddEpoch *int64 `db:"unrecorded_add_confirmed_epoch"`
+	UntrackedAddPiecesEpoch *int64 `db:"untracked_add_pieces_confirmed_epoch"`
 }
 
 // lastProvenReader reads when PDPVerifier last accepted a proof for a proof
@@ -156,7 +156,7 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 		SELECT d.id, d.prove_at_epoch, d.challenge_window, d.proving_period,
 		       d.unrecoverable_proving_failure_epoch,
 		       dd.created_at AS drain_queued_at,
-		       ua.confirmed_epoch AS unrecorded_add_confirmed_epoch
+		       ua.confirmed_epoch AS untracked_add_pieces_confirmed_epoch
 		FROM pdp_data_sets d
 		LEFT JOIN pdpv0_deletion_drain dd ON dd.data_set = d.id
 		LEFT JOIN (
@@ -342,13 +342,13 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create deletion drain queued gauge: %w", err)
 	}
-	unrecordedAdd, err := meter.Int64ObservableGauge(
-		"piri_pdp_proofset_unrecorded_add_confirmed_epoch",
+	untrackedAddPieces, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_untracked_add_pieces_confirmed_epoch",
 		metric.WithDescription("Epoch at which the proof set's oldest addPieces transaction that succeeded on chain but whose pieces Curio has not recorded was confirmed (pdp_data_set_piece_adds with add_message_ok TRUE and pieces_added FALSE); absent when there is none. Curio records an add on the next chain head, so an old value means it cannot read the receipt, and a new proof set waiting on it never starts proving"),
 		metric.WithUnit("{epoch}"),
 	)
 	if err != nil {
-		return fmt.Errorf("create unrecorded add gauge: %w", err)
+		return fmt.Errorf("create untracked add pieces gauge: %w", err)
 	}
 	taskLastSuccess, err := meter.Int64ObservableGauge(
 		"piri_pdp_task_last_success_timestamp_seconds",
@@ -450,8 +450,8 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 					if ps.DrainQueuedAt != nil {
 						o.ObserveInt64(drainQueued, ps.DrainQueuedAt.Unix(), attrs)
 					}
-					if ps.UnrecordedAddEpoch != nil {
-						o.ObserveInt64(unrecordedAdd, *ps.UnrecordedAddEpoch, attrs)
+					if ps.UntrackedAddPiecesEpoch != nil {
+						o.ObserveInt64(untrackedAddPieces, *ps.UntrackedAddPiecesEpoch, attrs)
 					}
 					// The schedule is only reported while one is set.
 					if ps.ProveAtEpoch == nil {
@@ -505,7 +505,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		unrecoverable,
 		lastProven,
 		drainQueued,
-		unrecordedAdd,
+		untrackedAddPieces,
 		taskLastSuccess,
 		poolConns,
 		poolMaxConns,
