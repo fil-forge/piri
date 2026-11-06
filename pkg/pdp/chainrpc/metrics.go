@@ -1,8 +1,9 @@
 // Package chainrpc records how Piri's calls to its chain RPC endpoint fare:
 // every call through the Lotus and eth clients by method and outcome, the
-// Lotus ChainNotify subscription closing under its reader, and whether a probe
-// call made every interval succeeds, so a Piri with no chain work to do still
-// reports a key that stopped working or an endpoint that went away.
+// Lotus ChainNotify subscription closing under its reader, whether a probe
+// call made every interval succeeds, and how a fresh handshake fares, so a
+// Piri with no chain work to do still reports a key that stopped working or
+// an endpoint that went away.
 package chainrpc
 
 import (
@@ -13,10 +14,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
-// The client attribute: which of Piri's two connections to the endpoint.
+// The client attribute: which of Piri's two connections to the endpoint
+// made the call, or "endpoint" for the handshake probe, made outside both.
 const (
-	ClientLotus = "lotus"
-	ClientEth   = "eth"
+	ClientLotus    = "lotus"
+	ClientEth      = "eth"
+	ClientEndpoint = "endpoint"
 )
 
 // Metrics holds the chain RPC instruments. A nil *Metrics records nothing.

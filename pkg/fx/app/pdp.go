@@ -78,13 +78,20 @@ func provideInstrumentedLotusClient(n api.FullNode, m *chainrpc.Metrics) *chainr
 	return chainrpc.NewLotusClient(n, m)
 }
 
-// startChainRPCProbe probes the endpoint through both instrumented clients for
-// the life of the app, so an idle Piri still reports whether it can reach it.
-func startChainRPCProbe(lc fx.Lifecycle, m *chainrpc.Metrics, eth ethchain.EthClient, lotus service.ChainClient) {
+// startChainRPCProbe probes the endpoint through both instrumented clients,
+// and with a fresh handshake carrying the clients' credentials, for the life
+// of the app, so an idle Piri still reports whether it can reach the endpoint
+// and whether it still accepts the key.
+func startChainRPCProbe(lc fx.Lifecycle, cfg app.PDPServiceConfig, m *chainrpc.Metrics, eth ethchain.EthClient, lotus service.ChainClient) {
+	var header http.Header
+	if cfg.LotusAuthToken != "" {
+		header = http.Header{"Authorization": []string{"Bearer " + cfg.LotusAuthToken}}
+	}
+	endpoint := chainrpc.Endpoint{URL: cfg.LotusEndpoint, Header: header}
 	ctx, cancel := context.WithCancel(context.Background())
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			chainrpc.StartProbe(ctx, m, eth, lotus)
+			chainrpc.StartProbe(ctx, m, eth, lotus, endpoint)
 			return nil
 		},
 		OnStop: func(context.Context) error {

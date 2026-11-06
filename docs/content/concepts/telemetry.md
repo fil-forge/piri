@@ -84,9 +84,12 @@ Piri reaches the chain through two clients on its Lotus endpoint: the Lotus API
 (including the `ChainNotify` subscription the chain scheduler reads) and the
 eth API. Every call through either is counted by its outcome, and a probe makes
 one cheap read through each every 30 seconds (`eth_blockNumber` and
-`Filecoin.ChainHead`), so a node with no chain work to do still reports a key
-that stopped working or an endpoint that went away. The probe's calls are
-counted too. See
+`Filecoin.ChainHead`), so a node with no chain work to do still reports an
+endpoint that went away. The probe's calls are counted too. A WebSocket
+endpoint checks the key only when a connection opens, so every 5 minutes Piri
+also opens and closes a fresh connection with the clients' credentials,
+counted as `client="endpoint"`, `method="Handshake"`: a key the endpoint has
+stopped accepting shows there while the open connections still work. See
 [Monitoring > Chain RPC Health](../operator-guide/monitoring.md#chain-rpc-health)
 for example alerts.
 
@@ -100,14 +103,13 @@ for example alerts.
 
 | Label | Description |
 |-------|-------------|
-| `client` | `lotus` or `eth` |
-| `method` | The Go method called, such as `ChainHead`, `ChainNotify`, `BlockNumber` or `SendTransaction` |
+| `client` | `lotus` or `eth`, or `endpoint` for the handshake probe (`piri_chain_rpc_calls` only) |
+| `method` | The Go method called, such as `ChainHead`, `ChainNotify`, `BlockNumber` or `SendTransaction`, or `Handshake` for the handshake probe |
 | `outcome` | `ok`; `unauthorized` (HTTP 401 or 403: the endpoint refused the key); `rate_limited` (HTTP 429, JSON-RPC error -32005, or an error that names a rate limit); `unavailable` (no answer, a failed or dropped connection, or HTTP 5xx); `timeout`; `canceled` (the caller gave up, which says nothing about the endpoint); `error` (the endpoint answered with an error about the call itself, such as a reverted call) |
 
 A refused reconnect of the Lotus WebSocket shows as `unavailable`, not by its
 HTTP status: the Lotus client does not report it. The eth client dials again on
-each call and does, so the probe's `BlockNumber` call carries a refused key's
-`unauthorized`.
+each call and does, and the handshake probe always does.
 
 ### PDP Database Pool Metrics
 

@@ -266,8 +266,9 @@ the outcomes. The counters are cumulative, so Prometheus sees them with a
 
 ```promql
 # Key refused: the endpoint answered 401 or 403. The key is wrong, revoked or
-# expired, and stays so until it is changed, so one call is enough. The probe
-# makes a call every 30 seconds, so this fires within a minute on an idle node.
+# expired, and stays so until it is changed, so one call is enough. The
+# handshake probe opens a fresh connection every 5 minutes, so this fires
+# within about 5 minutes even while Piri's open connections still work.
 sum by (node, instance) (
   increase(piri_chain_rpc_calls_total{job="forge/piri", outcome="unauthorized"}[10m])
 ) > 0
