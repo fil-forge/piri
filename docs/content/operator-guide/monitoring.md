@@ -275,9 +275,13 @@ sum by (node, instance) (
 
 # Rate limited: more than one call in twenty refused as over a limit. Calls are
 # retried, so this is a delay; check the key's limit and what else shares it.
-sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome="rate_limited"}[15m]))
+# Keep the window no longer than the rule's evaluation interval and give it a
+# `for` of a few intervals: going over a per-minute limit refuses the rest of
+# that minute, and a longer window would hold one such burst over the
+# threshold long after it ended.
+sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome="rate_limited"}[5m]))
 /
-sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome!="canceled"}[15m]))
+sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome!="canceled"}[5m]))
 > 0.05
 
 # Endpoint unreachable: the probe has failed for one client. Give the rule a
@@ -409,7 +413,7 @@ Recommended alerts:
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
 | Chain RPC endpoint refused the key (`piri_chain_rpc_calls{outcome="unauthorized"}`) | Critical | Check the API key in the Lotus endpoint Piri is given |
 | Chain RPC endpoint unreachable for a few minutes (`piri_chain_rpc_reachable`) | Warning | Check the endpoint's status and the node's network |
-| Over 5% of chain RPC calls rate limited for 15 minutes (`piri_chain_rpc_calls{outcome="rate_limited"}`) | Warning | Check the key's request limit and what else shares it |
+| Over 5% of chain RPC calls rate limited in three 5-minute windows in a row (`piri_chain_rpc_calls{outcome="rate_limited"}`) | Warning | Check the key's request limit and what else shares it |
 | Chain RPC WebSocket dropped more than 5 times in an hour (`piri_chain_rpc_subscriptions_closed`) | Warning | Check the endpoint's status and whether every node is affected |
 | Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
