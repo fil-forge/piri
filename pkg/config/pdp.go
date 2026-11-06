@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/bits"
@@ -81,7 +82,13 @@ func (c PDPServiceConfig) ToAppConfig() (app.PDPServiceConfig, error) {
 	}
 	lotusEndpoint, err := url.Parse(c.LotusEndpoint)
 	if err != nil {
-		return app.PDPServiceConfig{}, fmt.Errorf("invalid lotus endpoint: %s: %w", c.LotusEndpoint, err)
+		// url.Parse's error quotes the whole endpoint, and its query or
+		// userinfo can hold the chain RPC key, so report only the reason.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		return app.PDPServiceConfig{}, fmt.Errorf("invalid lotus endpoint: %w", err)
 	}
 	signingServiceConfig, err := c.SigningService.ToAppConfig()
 	if err != nil {
