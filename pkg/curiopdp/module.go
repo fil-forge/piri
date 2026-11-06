@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"go.uber.org/fx"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -35,7 +34,7 @@ const harmonyMachineID = "127.0.0.1:12300"
 // proving-period + prove tasks) into Piri, backed by Piri's S3 blobstore, eth
 // client, and Lotus node. Requires Postgres (see ProvideHarmonyDB).
 //
-// Consumes from Piri's existing graph: *ethclient.Client, api.FullNode,
+// Consumes from Piri's existing graph: ethchain.EthClient, service.ChainClient,
 // blobstore.Blobstore, types.PieceResolverAPI, app.StorageConfig.
 //
 // Deferred to e2e/devnet: provisioning the signing key into eth_keys, a real
@@ -43,7 +42,6 @@ const harmonyMachineID = "127.0.0.1:12300"
 var Module = fx.Module("curio-pdp",
 	fx.Provide(
 		ProvideHarmonyDB,
-		provideEthClient,
 		provideChainSched,
 		provideAlerting,
 		provideWatcher,
@@ -88,9 +86,6 @@ func SetContractAddresses(cfg app.PDPServiceConfig) {
 }
 
 // --- external-dependency adapters (Curio concrete types over Piri's services) ---
-
-// provideEthClient: Piri's go-ethereum client satisfies Curio's EthClient interface.
-func provideEthClient(c *ethclient.Client) ethchain.EthClient { return c }
 
 // provideChainSched: Curio's chain scheduler over Piri's Lotus node. Piri exposes
 // its Lotus client as service.ChainClient (not raw api.FullNode), which carries

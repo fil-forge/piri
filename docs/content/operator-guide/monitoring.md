@@ -85,6 +85,8 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
 | `piri_chain_head_timestamp_seconds` | When the chain head the PDP pipeline last saw was produced |
+| `piri_chain_rpc_reachable` | Whether the last probe call to the chain RPC endpoint succeeded, per client |
+| `piri_chain_rpc_calls` | Calls to the chain RPC endpoint by outcome: `unauthorized` and `rate_limited` name the endpoint's refusals |
 | `piri_pdp_proofset_next_challenge_epoch` | The challenge epoch Curio scheduled for each proof set |
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
 | `piri_pdp_proofset_last_proven_epoch` | When PDPVerifier last accepted a proof for each proof set |
@@ -254,6 +256,50 @@ successful task runs, so only the proving-failure alert catches them. The
 prove-task alert is also per node: with several proof sets, proving one keeps
 it quiet.
 
+### Chain RPC Health
+
+Piri reads the chain and submits proofs through its Lotus endpoint. These
+rules tell why calls to it fail before the chain head goes stale. See
+[Telemetry > Chain RPC Metrics](../concepts/telemetry.md#chain-rpc-metrics) for
+the outcomes. The counters are cumulative, so Prometheus sees them with a
+`_total` suffix.
+
+```promql
+# Key refused: the endpoint answered 401 or 403. The key is wrong, revoked or
+# expired, and stays so until it is changed, so one call is enough. The
+# handshake probe opens a fresh connection every 5 minutes, so this fires
+# within about 5 minutes even while Piri's open connections still work.
+sum by (node, instance) (
+  increase(piri_chain_rpc_calls_total{job="forge/piri", outcome="unauthorized"}[10m])
+) > 0
+
+# Rate limited: more than one call in twenty refused as over a limit. Calls are
+# retried, so this is a delay; check the key's limit and what else shares it.
+# Keep the window no longer than the rule's evaluation interval and give it a
+# `for` of a few intervals: going over a per-minute limit refuses the rest of
+# that minute, and a longer window would hold one such burst over the
+# threshold long after it ended.
+sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome="rate_limited"}[5m]))
+/
+sum by (node, instance) (rate(piri_chain_rpc_calls_total{job="forge/piri", outcome!="canceled"}[5m]))
+> 0.05
+
+# Endpoint unreachable: the probe has failed for one client. Give the rule a
+# `for` of a few minutes; one failed probe can be a blip.
+min by (node, instance, client) (piri_chain_rpc_reachable{job="forge/piri"}) == 0
+
+# WebSocket keeps dropping: the Lotus ChainNotify subscription closed more than
+# five times in an hour. Each drop recovers on its own; many mean a connection
+# that keeps failing.
+sum by (node, instance) (
+  increase(piri_chain_rpc_subscriptions_closed_total{job="forge/piri", method="ChainNotify"}[1h])
+) > 5
+```
+
+A Piri that cannot connect at start-up exits before it exports anything, so
+none of these see it: watch for Piri's metrics going absent, or for its log
+line `providing lotus client` or `providing eth client`.
+
 ### Aggregation Pipeline Health
 
 An accepted blob waits out
@@ -365,6 +411,10 @@ Recommended alerts:
 |-----------|----------|--------|
 | Lotus sync behind by >100 epochs | Critical | Check Lotus node immediately |
 | Chain head not advancing for 5 minutes (`piri_chain_head_timestamp_seconds`) | Critical | Check Lotus and Piri's connection to it |
+| Chain RPC endpoint refused the key (`piri_chain_rpc_calls{outcome="unauthorized"}`) | Critical | Check the API key in the Lotus endpoint Piri is given |
+| Chain RPC endpoint unreachable for a few minutes (`piri_chain_rpc_reachable`) | Warning | Check the endpoint's status and the node's network |
+| Over 5% of chain RPC calls rate limited in three 5-minute windows in a row (`piri_chain_rpc_calls{outcome="rate_limited"}`) | Warning | Check the key's request limit and what else shares it |
+| Chain RPC WebSocket dropped more than 5 times in an hour (`piri_chain_rpc_subscriptions_closed`) | Warning | Check the endpoint's status and whether every node is affected |
 | Proving period not advanced (`piri_pdp_proofset_next_challenge_epoch`) | Critical | Check the chain head and that PDP tasks are running |
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Proof set not proven on chain for over a proving period (`piri_pdp_proofset_last_proven_epoch`) | Critical | Check logs for the `PDPv0_Prove` and `PDPv0_ProvPeriod` tasks, and the proof set with `piri client pdp proofset state` |
