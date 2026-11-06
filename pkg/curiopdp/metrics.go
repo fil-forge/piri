@@ -3,20 +3,14 @@ package curiopdp
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/curiostorage/harmonyquery"
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/curio/harmony/harmonytask"
 	"github.com/filecoin-project/curio/lib/chainsched"
-	"github.com/filecoin-project/curio/lib/ethchain"
-	"github.com/filecoin-project/curio/lib/proof"
-	"github.com/filecoin-project/curio/pdp/contract"
 	"github.com/filecoin-project/curio/tasks/tasknames"
 	chaintypes "github.com/filecoin-project/lotus/chain/types"
 	"go.opentelemetry.io/otel"
@@ -42,7 +36,6 @@ var provingTaskNames = []string{
 	tasknames.PDPv0_Prove,
 	tasknames.PDPv0_ProvPeriod,
 	tasknames.PDPv0_InitPP,
-	tasknames.PDPv0_ProcDel,
 }
 
 // chainHead holds the last tipset the chain scheduler applied. update runs
@@ -71,30 +64,23 @@ func (h *chainHead) load() (epoch, timestamp int64, ok bool) {
 	return h.epoch.Load(), h.timestamp.Load(), true
 }
 
-// proofSetState is one proof set's proving schedule, whether Curio has given
-// up proving it, and whether a scheduled-removal drain is pending for it,
-// from pdp_data_sets and pdpv0_deletion_drain.
+// proofSetState is one proof set's proving schedule and Curio's proving
+// failure state for it, from pdp_data_sets.
 type proofSetState struct {
 	ID              int64  `db:"id"`
 	ProveAtEpoch    *int64 `db:"prove_at_epoch"`
 	ChallengeWindow *int64 `db:"challenge_window"`
 	ProvingPeriod   *int64 `db:"proving_period"`
+	// ConsecutiveProveFailures counts the proving sends (Prove, InitPP,
+	// NextPP) that Curio has handled as contract reverts since the last
+	// successful prove send.
+	ConsecutiveProveFailures int64 `db:"consecutive_prove_failures"`
+	// NextProveAttemptAt is the backoff deadline Curio set after the last
+	// proving failure. It stays once passed; Curio clears it on the next
+	// successful prove send.
+	NextProveAttemptAt *int64 `db:"next_prove_attempt_at"`
 	// UnrecoverableEpoch is set once Curio has given up proving the set.
 	UnrecoverableEpoch *int64 `db:"unrecoverable_proving_failure_epoch"`
-	// DrainQueuedAt is when the set was queued to drain scheduled piece
-	// removals; nil when none is queued. PDPVerifier 3.5.0 rejects
-	// nextProvingPeriod until the drain finishes.
-	DrainQueuedAt *time.Time `db:"drain_queued_at"`
-	// LastProvenEpoch is the epoch PDPVerifier last accepted a proof for the
-	// set, read from the chain rather than the database; nil when the read
-	// failed or the set is unrecoverable.
-	LastProvenEpoch *int64 `db:"-"`
-}
-
-// lastProvenReader reads when PDPVerifier last accepted a proof for a proof
-// set. Curio's PDPVerifier binding implements it.
-type lastProvenReader interface {
-	GetDataSetLastProvenEpoch(opts *bind.CallOpts, setID *big.Int) (*big.Int, error)
 }
 
 // pdpMetricsSource reads what the PDP gauges report from the database.
@@ -105,20 +91,13 @@ type pdpMetricsSource interface {
 	// completed without a retryable error on this node. Names without one
 	// are absent.
 	lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error)
-	// poolStat returns a snapshot of the database connection pool.
-	poolStat() harmonyquery.PoolStat
-	// oldestPendingProofCache returns how long the oldest piece still waiting
-	// for its proof cache layer has been parked, zero when none waits.
-	oldestPendingProofCache(ctx context.Context) (time.Duration, error)
 }
 
-// dbMetricsSource is pdpMetricsSource over the harmony database, plus
-// PDPVerifier for each proof set's last proven epoch.
+// dbMetricsSource is pdpMetricsSource over the harmony database.
 type dbMetricsSource struct {
-	db       *harmonydb.DB
-	verifier lastProvenReader
-	service  string
-	host     string
+	db      *harmonydb.DB
+	service string
+	host    string
 
 	mu sync.Mutex
 	// since is where the next task history read starts; zero until the
@@ -129,40 +108,26 @@ type dbMetricsSource struct {
 	now  func() time.Time
 }
 
-func newDBMetricsSource(db *harmonydb.DB, service, host string, verifier lastProvenReader) *dbMetricsSource {
+func newDBMetricsSource(db *harmonydb.DB, service, host string) *dbMetricsSource {
 	return &dbMetricsSource{
-		db:       db,
-		verifier: verifier,
-		service:  service,
-		host:     host,
-		last:     map[string]time.Time{},
-		now:      time.Now,
+		db:      db,
+		service: service,
+		host:    host,
+		last:    map[string]time.Time{},
+		now:     time.Now,
 	}
 }
 
 func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error) {
 	var rows []proofSetState
 	if err := s.db.Select(ctx, &rows, `
-		SELECT d.id, d.prove_at_epoch, d.challenge_window, d.proving_period,
-		       d.unrecoverable_proving_failure_epoch,
-		       dd.created_at AS drain_queued_at
-		FROM pdp_data_sets d
-		LEFT JOIN pdpv0_deletion_drain dd ON dd.data_set = d.id
-		WHERE d.service = $1
-		ORDER BY d.id`, s.service); err != nil {
+		SELECT id, prove_at_epoch, challenge_window, proving_period,
+		       consecutive_prove_failures, next_prove_attempt_at,
+		       unrecoverable_proving_failure_epoch
+		FROM pdp_data_sets
+		WHERE service = $1
+		ORDER BY id`, s.service); err != nil {
 		return nil, fmt.Errorf("reading proof sets: %w", err)
-	}
-	for i := range rows {
-		if rows[i].UnrecoverableEpoch != nil {
-			continue
-		}
-		epoch, err := s.verifier.GetDataSetLastProvenEpoch(contract.EthCallOpts(ctx), big.NewInt(rows[i].ID))
-		if err != nil {
-			log.Warnw("reading proof set's last proven epoch", "proof_set", rows[i].ID, "error", err)
-			continue
-		}
-		e := epoch.Int64()
-		rows[i].LastProvenEpoch = &e
 	}
 	return rows, nil
 }
@@ -177,36 +142,6 @@ func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error
 // harmonytask records result = TRUE whenever a task's Do returns done with no
 // error, which for the PDP tasks includes runs that gave up or handled a
 // failure themselves; see the metric's description.
-func (s *dbMetricsSource) poolStat() harmonyquery.PoolStat {
-	return s.db.Stat()
-}
-
-func (s *dbMetricsSource) oldestPendingProofCache(ctx context.Context) (time.Duration, error) {
-	var ages []float64
-	// A piece waits until its layer is built, whether or not a task has
-	// claimed it. pdpv0's scheduler claims every waiting piece within seconds,
-	// queuing a task for each however many can run, so most of a backlog is
-	// claimed, and a task that hangs or keeps failing holds its claim until
-	// the engine drops it. Walks idx_pdp_piecerefs_needs_save_cache, oldest
-	// first, and stops at the first piece above Curio's cache threshold;
-	// pdpv0 clears the flag on smaller pieces without building a layer.
-	if err := s.db.Select(ctx, &ages, `
-		SELECT extract(epoch FROM now() - pr.created_at)::double precision
-		FROM pdp_piecerefs pr
-		JOIN parked_piece_refs pprf ON pprf.ref_id = pr.piece_ref
-		JOIN parked_pieces pp ON pp.id = pprf.piece_id
-		WHERE pr.needs_save_cache = TRUE
-		  AND pp.piece_padded_size > $1
-		ORDER BY pr.created_at
-		LIMIT 1`, int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)); err != nil {
-		return 0, fmt.Errorf("reading the oldest piece waiting for its proof cache layer: %w", err)
-	}
-	if len(ages) == 0 {
-		return 0, nil
-	}
-	return time.Duration(ages[0] * float64(time.Second)), nil
-}
-
 func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -254,11 +189,6 @@ func (s *dbMetricsSource) lastTaskSuccesses(ctx context.Context) (map[string]tim
 // is observed for it until the first tipset arrives. The proof set and task
 // gauges are read from src on each collection; a failed read is logged and
 // that collection skips the gauges it feeds.
-//
-// The pool instruments report pgx's own counters for the harmonydb pool every
-// PDP task and blob/accept share, so a pool too small for the load shows up as
-// acquires that waited and the time they spent waiting. They are read from the
-// pool in memory and cannot fail.
 func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, src pdpMetricsSource) error {
 	headEpoch, err := meter.Int64ObservableGauge(
 		"piri_chain_head_epoch",
@@ -300,6 +230,22 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create proving period gauge: %w", err)
 	}
+	proveFailures, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_consecutive_prove_failures",
+		metric.WithDescription("Proving sends Curio has handled as contract reverts since the proof set's last successful prove send (pdp_data_sets.consecutive_prove_failures), which is the only thing that resets it; proof sets marked unrecoverable are not reported"),
+		metric.WithUnit("{failure}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create consecutive prove failures gauge: %w", err)
+	}
+	nextProveAttempt, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_next_prove_attempt_epoch",
+		metric.WithDescription("Backoff deadline Curio set after the proof set's last proving failure (pdp_data_sets.next_prove_attempt_at): Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send"),
+		metric.WithUnit("{epoch}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create next prove attempt gauge: %w", err)
+	}
 	unrecoverable, err := meter.Int64ObservableGauge(
 		"piri_pdp_proofsets_unrecoverable",
 		metric.WithDescription("Number of this node's proof sets Curio has stopped proving after an unrecoverable failure (pdp_data_sets.unrecoverable_proving_failure_epoch set)"),
@@ -308,22 +254,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create unrecoverable proof sets gauge: %w", err)
 	}
-	lastProven, err := meter.Int64ObservableGauge(
-		"piri_pdp_proofset_last_proven_epoch",
-		metric.WithDescription("Epoch at which PDPVerifier last accepted a proof for the proof set, read from the chain on each collection (getDataSetLastProvenEpoch). It advances once per proving period while proving works; a value more than a proving period behind the chain head means proofs are not landing, whatever the cause"),
-		metric.WithUnit("{epoch}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create last proven epoch gauge: %w", err)
-	}
-	drainQueued, err := meter.Int64ObservableGauge(
-		"piri_pdp_proofset_deletion_drain_queued_timestamp_seconds",
-		metric.WithDescription("When the proof set was queued to drain its scheduled piece removals with processPieceDeletions (unix seconds; pdpv0_deletion_drain.created_at); absent when no drain is queued. PDPVerifier 3.5.0 rejects nextProvingPeriod until the drain finishes, so an old value means proving is blocked on it"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		return fmt.Errorf("create deletion drain queued gauge: %w", err)
-	}
 	taskLastSuccess, err := meter.Int64ObservableGauge(
 		"piri_pdp_task_last_success_timestamp_seconds",
 		metric.WithDescription("When a run of a PDP task last finished on this node without a retryable error (unix seconds); for PDPv0_Prove this includes runs that missed the window, found proving disabled or had their proof rejected, so it does not mean a proof landed"),
@@ -331,71 +261,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	)
 	if err != nil {
 		return fmt.Errorf("create task last success gauge: %w", err)
-	}
-	poolConns, err := meter.Int64ObservableGauge(
-		"piri_pdp_db_pool_connections",
-		metric.WithDescription("Open connections in the PDP pipeline's Postgres pool, by whether a caller holds them (acquired) or they wait unused (idle)"),
-		metric.WithUnit("{connection}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool connections gauge: %w", err)
-	}
-	poolMaxConns, err := meter.Int64ObservableGauge(
-		"piri_pdp_db_pool_max_connections",
-		metric.WithDescription("Configured maximum size of the PDP pipeline's Postgres pool"),
-		metric.WithUnit("{connection}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool max connections gauge: %w", err)
-	}
-	poolAcquires, err := meter.Int64ObservableCounter(
-		"piri_pdp_db_pool_acquires",
-		metric.WithDescription("Connections handed out by the PDP pipeline's Postgres pool"),
-		metric.WithUnit("{acquire}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool acquires counter: %w", err)
-	}
-	poolAcquireSeconds, err := meter.Float64ObservableCounter(
-		"piri_pdp_db_pool_acquire_seconds",
-		metric.WithDescription("Time callers spent obtaining a connection from the PDP pipeline's Postgres pool, waiting or not"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool acquire seconds counter: %w", err)
-	}
-	poolAcquiresWaited, err := meter.Int64ObservableCounter(
-		"piri_pdp_db_pool_acquires_waited",
-		metric.WithDescription("Acquires from the PDP pipeline's Postgres pool that waited for a connection to be released or opened because none was free"),
-		metric.WithUnit("{acquire}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool acquires waited counter: %w", err)
-	}
-	poolAcquireWaitSeconds, err := meter.Float64ObservableCounter(
-		"piri_pdp_db_pool_acquire_wait_seconds",
-		metric.WithDescription("Time those acquires spent waiting for a free connection"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool acquire wait seconds counter: %w", err)
-	}
-	poolAcquiresCancelled, err := meter.Int64ObservableCounter(
-		"piri_pdp_db_pool_acquires_cancelled",
-		metric.WithDescription("Acquires from the PDP pipeline's Postgres pool abandoned because the caller's context ended before a connection was free"),
-		metric.WithUnit("{acquire}"),
-	)
-	if err != nil {
-		return fmt.Errorf("create pool acquires cancelled counter: %w", err)
-	}
-
-	proofCacheOldest, err := meter.Float64ObservableGauge(
-		"piri_pdp_proof_cache_pending_oldest_seconds",
-		metric.WithDescription("How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer, which Curio needs to prove it, was parked; 0 when none waits"),
-		metric.WithUnit("s"),
-	)
-	if err != nil {
-		return fmt.Errorf("create proof cache pending gauge: %w", err)
 	}
 
 	reg, err := meter.RegisterCallback(
@@ -418,11 +283,9 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 						continue
 					}
 					attrs := metric.WithAttributes(attribute.String("proof_set", strconv.FormatInt(ps.ID, 10)))
-					if ps.LastProvenEpoch != nil {
-						o.ObserveInt64(lastProven, *ps.LastProvenEpoch, attrs)
-					}
-					if ps.DrainQueuedAt != nil {
-						o.ObserveInt64(drainQueued, ps.DrainQueuedAt.Unix(), attrs)
+					o.ObserveInt64(proveFailures, ps.ConsecutiveProveFailures, attrs)
+					if ps.NextProveAttemptAt != nil {
+						o.ObserveInt64(nextProveAttempt, *ps.NextProveAttemptAt, attrs)
 					}
 					// The schedule is only reported while one is set.
 					if ps.ProveAtEpoch == nil {
@@ -437,25 +300,6 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 					}
 				}
 				o.ObserveInt64(unrecoverable, unrecoverableCount)
-			}
-
-			pool := src.poolStat()
-			o.ObserveInt64(poolConns, int64(pool.AcquiredConns), metric.WithAttributes(attribute.String("state", "acquired")))
-			o.ObserveInt64(poolConns, int64(pool.IdleConns), metric.WithAttributes(attribute.String("state", "idle")))
-			o.ObserveInt64(poolMaxConns, int64(pool.MaxConns))
-			o.ObserveInt64(poolAcquires, pool.AcquireCount)
-			o.ObserveFloat64(poolAcquireSeconds, pool.AcquireDuration.Seconds())
-			o.ObserveInt64(poolAcquiresWaited, pool.EmptyAcquireCount)
-			o.ObserveFloat64(poolAcquireWaitSeconds, pool.EmptyAcquireWaitTime.Seconds())
-			o.ObserveInt64(poolAcquiresCancelled, pool.CanceledAcquireCount)
-
-			qctx, cancel = context.WithTimeout(ctx, metricsQueryTimeout)
-			oldest, err := src.oldestPendingProofCache(qctx)
-			cancel()
-			if err != nil {
-				log.Warnw("measuring the proof cache backlog", "error", err)
-			} else {
-				o.ObserveFloat64(proofCacheOldest, oldest.Seconds())
 			}
 
 			// lastTaskSuccesses times out each of its queries itself.
@@ -473,18 +317,10 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		nextChallenge,
 		challengeWindow,
 		provingPeriod,
+		proveFailures,
+		nextProveAttempt,
 		unrecoverable,
-		lastProven,
-		drainQueued,
 		taskLastSuccess,
-		poolConns,
-		poolMaxConns,
-		poolAcquires,
-		poolAcquireSeconds,
-		poolAcquiresWaited,
-		poolAcquireWaitSeconds,
-		poolAcquiresCancelled,
-		proofCacheOldest,
 	)
 	if err != nil {
 		return fmt.Errorf("register PDP metrics callback: %w", err)
@@ -505,16 +341,12 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 // serve command configures before wiring. Task history is filtered to the
 // engine's own host-and-port, which is how harmonytask records the node that
 // completed a task.
-func registerPDPMetrics(lc fx.Lifecycle, db *harmonydb.DB, ec ethchain.EthClient, cs *chainsched.CurioChainSched, eng *harmonytask.TaskEngine) error {
+func registerPDPMetrics(lc fx.Lifecycle, db *harmonydb.DB, cs *chainsched.CurioChainSched, eng *harmonytask.TaskEngine) error {
 	head := &chainHead{}
 	if err := cs.AddHandler(head.update); err != nil {
 		return fmt.Errorf("registering chain head metrics handler: %w", err)
 	}
-	verifier, err := contract.NewPDPVerifier(contract.ContractAddresses().PDPVerifier, ec)
-	if err != nil {
-		return fmt.Errorf("binding PDPVerifier for metrics: %w", err)
-	}
-	src := newDBMetricsSource(db, pdpServiceLabel, eng.Host(), verifier)
+	src := newDBMetricsSource(db, pdpServiceLabel, eng.Host())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	lc.Append(fx.Hook{

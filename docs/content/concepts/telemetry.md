@@ -50,11 +50,10 @@ separate scheduler inside Piri, reported by the PDP metrics below.
 
 ### PDP Metrics
 
-The chain head the PDP pipeline last saw, the proving schedule of the node's
-proof sets, the epoch each was last proven, and when the proving tasks last
-ran. Only `piri_pdp_proofset_last_proven_epoch` is read from the chain, so it
-is the one that confirms a proof landed; the rest come from Curio's database.
-See
+The chain head the PDP pipeline last saw, the proving schedule and recorded
+proving failures of the node's proof sets, and when the proving tasks last
+ran. They come from Curio's database, not the chain, so they do not confirm
+that a proof landed. See
 [Monitoring > PDP Proving Health](../operator-guide/monitoring.md#pdp-proving-health)
 for example alerts.
 
@@ -65,10 +64,9 @@ for example alerts.
 | <nobr>`piri_pdp_proofset_next_challenge_epoch`</nobr>        | Gauge | epoch | Challenge epoch Curio scheduled for the current proving period (written when the scheduling transaction is sent; mid-window for the first period) |
 | <nobr>`piri_pdp_proofset_challenge_window_epochs`</nobr>     | Gauge | epoch | Length of the proof set's challenge window                   |
 | <nobr>`piri_pdp_proofset_proving_period_epochs`</nobr>       | Gauge | epoch | Length of the proof set's proving period                     |
+| <nobr>`piri_pdp_proofset_consecutive_prove_failures`</nobr>  | Gauge | count | Proving transactions Curio has handled as contract reverts since the last successful prove send, which alone resets it |
+| <nobr>`piri_pdp_proofset_next_prove_attempt_epoch`</nobr>    | Gauge | epoch | Backoff deadline Curio set after the last proving failure; Curio holds back only while it is ahead of the chain head, and clears it on the next successful prove send |
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
-| <nobr>`piri_pdp_proofset_last_proven_epoch`</nobr> | Gauge | epoch | Epoch PDPVerifier last accepted a proof for the proof set, read from the chain on each collection |
-| <nobr>`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`</nobr> | Gauge | s | Unix time the proof set was queued to drain its scheduled piece removals; absent when none is queued. PDPVerifier 3.5.0 rejects `nextProvingPeriod` until the drain finishes |
-| <nobr>`piri_pdp_proof_cache_pending_oldest_seconds`</nobr> | Gauge | s | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer, which Curio needs to prove it, was parked; 0 when none waits |
 | <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |
 
 **Labels:**
@@ -76,32 +74,7 @@ for example alerts.
 | Label | Description |
 |-------|-------------|
 | `proof_set` | Proof set ID (the `piri_pdp_proofset_*` metrics; unrecoverable proof sets are only counted in `piri_pdp_proofsets_unrecoverable`) |
-| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` (`piri_pdp_task_last_success_timestamp_seconds`) |
-
-### PDP Database Pool Metrics
-
-Every PDP task and every `blob/accept` shares one Postgres connection pool,
-sized by the `pool_max_conns` parameter on the Postgres URL (see
-[Database configuration](../configuration/repo/database.md)). These report
-pgx's own counters for that pool, read in memory at each collection. See
-[Monitoring > PDP Database Pool](../operator-guide/monitoring.md#pdp-database-pool)
-for how to read them.
-
-| Metric                                                       | Type    | Unit  | Description                                                  |
-|--------------------------------------------------------------|---------|-------|--------------------------------------------------------------|
-| <nobr>`piri_pdp_db_pool_connections`</nobr>                  | Gauge   | count | Open connections, by `state`: held by a caller (`acquired`) or waiting unused (`idle`) |
-| <nobr>`piri_pdp_db_pool_max_connections`</nobr>              | Gauge   | count | Configured maximum size of the pool                          |
-| <nobr>`piri_pdp_db_pool_acquires`</nobr>                     | Counter | count | Connections handed out by the pool                           |
-| <nobr>`piri_pdp_db_pool_acquire_seconds`</nobr>              | Counter | s     | Time callers spent obtaining a connection, waiting or not    |
-| <nobr>`piri_pdp_db_pool_acquires_waited`</nobr>              | Counter | count | Acquires that waited for a connection to be released or opened because none was free |
-| <nobr>`piri_pdp_db_pool_acquire_wait_seconds`</nobr>         | Counter | s     | Time those acquires spent waiting                            |
-| <nobr>`piri_pdp_db_pool_acquires_cancelled`</nobr>           | Counter | count | Acquires abandoned because the caller's context ended before a connection was free |
-
-**Labels:**
-
-| Label | Description |
-|-------|-------------|
-| `state` | `acquired` or `idle` (`piri_pdp_db_pool_connections`) |
+| `task_name` | `PDPv0_Prove`, `PDPv0_ProvPeriod` or `PDPv0_InitPP` (`piri_pdp_task_last_success_timestamp_seconds`) |
 
 ### Aggregation Pipeline Metrics
 
@@ -148,21 +121,6 @@ Standard OpenTelemetry HTTP instrumentation:
 | <nobr>`http.server.request.body.size`</nobr>  | Histogram | Request body size  |
 | <nobr>`http.server.response.body.size`</nobr> | Histogram | Response body size |
 
-The [echo-otel](https://github.com/labstack/echo-otel) middleware records these under the
-instrumentation scope `github.com/labstack/echo-otel/v5`, following the OpenTelemetry HTTP
-semantic conventions.
-
-**Labels:**
-
-| Label | Description |
-|-------|-------------|
-| `http.request.method` | Request method, or `_OTHER` for a method outside the standard set |
-| `http.route` | Matched route pattern, such as `/pdp/proof-sets/:proofSetID` |
-| `http.response.status_code` | Status code sent to the client |
-| `error.type` | Set on a 5xx response: the status code, or the Go type of the error the handler returned, or `panic`. Absent on 1xx–4xx |
-| `url.scheme` | `http` or `https` |
-| `network.protocol.name`, `network.protocol.version` | Usually `http` and `1.1` |
-
 ### Server Info
 
 Build and runtime information:
@@ -198,15 +156,10 @@ Distributed tracing provides end-to-end visibility into operations:
 | <nobr>`blob.reject`</nobr>     | Rejecting an allocation                         |
 | <nobr>`blob.release`</nobr>    | Releasing a previously accepted blob            |
 | <nobr>`AddRoots`</nobr>        | Adding roots to a PDP proof set                 |
-| <nobr>`ipni.publish_batch`</nobr> | Building and committing a batch of IPNI advertisements |
-| <nobr>`ipni.put_adverts`</nobr> | Writing a batch's adverts to the blob store, as `objectstore.put` spans with `objectstore.name=ipni` |
-| <nobr>`ipni.announce`</nobr> | Announcing a new head to the configured indexers once its batch commits, with one `HTTP PUT` client span per indexer. A failed announce gets an error status; indexers still find the head when they next poll |
 
-HTTP requests are also traced by the echo-otel middleware, which names its spans after the
-method and matched route (for example `GET /pdp/proof-sets/:proofSetID`), so those appear
-alongside the operation spans above. A request that ends in a 5xx response or a panic gets an
-error span status and the `error.type` attribute. Health checks (`/healthz`, `/livez` and
-`/readyz`) are left out of both these traces and the HTTP server metrics: container
+HTTP requests are also traced by the `otelecho` middleware, which names its spans after the
+matched route, so those appear alongside the operation spans above. Health checks (`/healthz`,
+`/livez` and `/readyz`) are left out of both these traces and the HTTP server metrics: container
 healthchecks poll them every few seconds.
 
 Piri traces every request. A request that arrives with a W3C Trace Context `traceparent` header

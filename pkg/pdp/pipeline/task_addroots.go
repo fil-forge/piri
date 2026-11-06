@@ -29,6 +29,7 @@ type AddRootsTask struct {
 	db       *harmonydb.DB
 	api      pdptypes.ProofSetAPI
 	proofSet pdptypes.ProofSetIDProvider
+	store    aggtypes.Store
 	accepter *manager.PieceAcceptor
 	cfg      manager.ConfigProvider
 
@@ -42,13 +43,16 @@ func NewAddRootsTask(
 	db *harmonydb.DB,
 	api pdptypes.ProofSetAPI,
 	proofSet pdptypes.ProofSetIDProvider,
+	store aggtypes.Store,
 	accepter *manager.PieceAcceptor,
 	cfg manager.ConfigProvider,
 ) *AddRootsTask {
-	return &AddRootsTask{db: db, api: api, proofSet: proofSet, accepter: accepter, cfg: cfg}
+	return &AddRootsTask{db: db, api: api, proofSet: proofSet, store: store, accepter: accepter, cfg: cfg}
 }
 
-func (t *AddRootsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *AddRootsTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx := context.Background()
+
 	var rows []struct {
 		Root string `db:"root"`
 	}
@@ -61,20 +65,18 @@ func (t *AddRootsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 		return true, nil
 	}
 
-	aggregates := make([]aggtypes.Aggregate, len(rows))
+	links := make([]cid.Cid, len(rows))
 	rootStrs := make([]string, len(rows))
 	for i, r := range rows {
 		c, err := cid.Parse(r.Root)
 		if err != nil {
 			return false, fmt.Errorf("parsing root cid %s: %w", r.Root, err)
 		}
-		if aggregates[i], err = loadAggregate(ctx, t.db, c); err != nil {
-			return false, fmt.Errorf("reading aggregate %s: %w", c, err)
-		}
+		links[i] = c
 		rootStrs[i] = r.Root
 	}
 
-	if err := t.accepter.AcceptPieces(ctx, aggregates); err != nil {
+	if err := t.accepter.AcceptPieces(ctx, links); err != nil {
 		return false, fmt.Errorf("issuing piece-accept receipts: %w", err)
 	}
 
@@ -83,8 +85,12 @@ func (t *AddRootsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 		return false, fmt.Errorf("getting proof set ID: %w", err)
 	}
 
-	roots := make([]pdptypes.RootAdd, len(aggregates))
-	for i, a := range aggregates {
+	roots := make([]pdptypes.RootAdd, len(links))
+	for i, link := range links {
+		a, err := t.store.Get(ctx, link)
+		if err != nil {
+			return false, fmt.Errorf("reading aggregate %s: %w", link, err)
+		}
 		subRoots := make([]cid.Cid, len(a.Pieces))
 		for j, p := range a.Pieces {
 			subRoots[j] = p.Link
@@ -98,20 +104,12 @@ func (t *AddRootsTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillO
 	}
 	log.Infow("added roots", "count", len(roots), "tx", txHash)
 
-	if err := t.retire(ctx, taskID, rootStrs); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// retire deletes a submitted batch: staged pieces are tracked in the pdpv0
-// tables from here on, so the pipeline rows (with the aggregates stored on
-// them) and the submission buffer rows are done.
-func (t *AddRootsTask) retire(ctx context.Context, taskID harmonytask.TaskID, roots []string) error {
-	_, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
+	// Retire the batch: staged pieces are tracked in the pdpv0 tables from
+	// here on, so the pipeline rows (and the submission buffer rows) are done.
+	if _, err := t.db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
 		if _, err := tx.Exec(`
 			DELETE FROM pdp_blob_pipeline WHERE aggregate_root = ANY($1)
-		`, roots); err != nil {
+		`, rootStrs); err != nil {
 			return false, fmt.Errorf("retiring pipeline rows: %w", err)
 		}
 		if _, err := tx.Exec(`
@@ -120,8 +118,10 @@ func (t *AddRootsTask) retire(ctx context.Context, taskID harmonytask.TaskID, ro
 			return false, fmt.Errorf("retiring submission rows: %w", err)
 		}
 		return true, nil
-	}, harmonydb.OptionRetry())
-	return err
+	}, harmonydb.OptionRetry()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (t *AddRootsTask) CanAccept(ids []harmonytask.TaskID, engine *harmonytask.TaskEngine) ([]harmonytask.TaskID, error) {

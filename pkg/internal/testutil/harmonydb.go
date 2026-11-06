@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -33,8 +32,8 @@ var (
 
 func startHarmonyPostgres() {
 	harmonyPGOnce.Do(func() {
-		if os.Getenv("CI") != "" && runtime.GOOS == "darwin" {
-			harmonyPGErr = fmt.Errorf("skipping postgres-backed tests on darwin in CI")
+		if runtime.GOOS == "darwin" {
+			harmonyPGErr = fmt.Errorf("skipping postgres-backed tests on darwin")
 			return
 		}
 		ctx := context.Background()
@@ -70,7 +69,7 @@ func startHarmonyPostgres() {
 // NewHarmonyDB returns a harmonydb.DB on a fresh database with piri's
 // curated PDP schema applied. Skips the test when Docker/Postgres is
 // unavailable.
-func NewHarmonyDB(t testing.TB) *harmonydb.DB {
+func NewHarmonyDB(t *testing.T) *harmonydb.DB {
 	t.Helper()
 	startHarmonyPostgres()
 	if harmonyPGErr != nil {

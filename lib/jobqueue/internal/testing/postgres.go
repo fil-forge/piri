@@ -27,7 +27,7 @@ var (
 func SetupPostgresContainer(ctx context.Context) error {
 	pgOnce.Do(func() {
 		// Skip on darwin in CI (same pattern as MinIO tests)
-		if os.Getenv("CI") != "" && runtime.GOOS == "darwin" {
+		if runtime.GOOS == "darwin" {
 			pgErr = nil // Not an error, just skip
 			return
 		}
