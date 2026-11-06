@@ -84,6 +84,14 @@ func TestPDPServiceConfig_ToAppConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, got.LotusAuthToken)
 	})
+
+	t.Run("rejects a malformed lotus endpoint without echoing it", func(t *testing.T) {
+		cfg := validConfig()
+		// The trailing DEL is a control character, which url.Parse rejects.
+		cfg.LotusEndpoint = "wss://chain.example.com/ws?token=any-token\x7f"
+		_, err := cfg.ToAppConfig()
+		require.EqualError(t, err, "invalid lotus endpoint: net/url: invalid control character in URL")
+	})
 }
 
 // TestCommpConfig_Delay pins the three states of the delay: absent is the

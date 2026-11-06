@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -14,6 +17,7 @@ import (
 	"github.com/filecoin-project/curio/harmony/harmonydb"
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/api/client"
+	"github.com/gorilla/websocket"
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -88,7 +92,7 @@ func ProvideLotusClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (api.FullNode
 	}
 	lotusAPI, closer, err := client.NewFullNodeRPCV1(context.TODO(), cfg.LotusEndpoint.String(), header)
 	if err != nil {
-		return nil, fmt.Errorf("providing lotus client: %w", err)
+		return nil, fmt.Errorf("providing lotus client: %w", redactDialError(context.TODO(), cfg.LotusEndpoint, header, err))
 	}
 
 	lc.Append(fx.Hook{
@@ -98,4 +102,48 @@ func ProvideLotusClient(lc fx.Lifecycle, cfg app.PDPServiceConfig) (api.FullNode
 		},
 	})
 	return lotusAPI, nil
+}
+
+// redactDialError rewrites a failed chain RPC dial's error without the
+// endpoint's query string or userinfo, which carry the API key for providers
+// such as Chain.Love (?token=). go-jsonrpc prints the full address and drops
+// the HTTP status of a refused handshake, so for a WebSocket endpoint the
+// handshake is tried once more to read the status, which is appended the way
+// go-ethereum reports it. The result does not wrap err: the wrapped error would
+// still print the full address.
+func redactDialError(ctx context.Context, endpoint *url.URL, header http.Header, err error) error {
+	msg := strings.ReplaceAll(err.Error(), endpoint.String(), redactEndpoint(endpoint).String())
+	if status := getHandshakeStatus(ctx, endpoint, header); status != "" {
+		msg += " (HTTP status " + status + ")"
+	}
+	return errors.New(msg)
+}
+
+// redactEndpoint returns endpoint without its userinfo, query and fragment.
+func redactEndpoint(endpoint *url.URL) *url.URL {
+	redacted := *endpoint
+	redacted.User = nil
+	redacted.RawQuery = ""
+	redacted.ForceQuery = false
+	redacted.Fragment = ""
+	redacted.RawFragment = ""
+	return &redacted
+}
+
+// getHandshakeStatus dials a WebSocket endpoint and returns the HTTP status it
+// refused the handshake with, or "" when it accepted the handshake, failed
+// before answering, or is not a WebSocket endpoint.
+func getHandshakeStatus(ctx context.Context, endpoint *url.URL, header http.Header) string {
+	if endpoint.Scheme != "ws" && endpoint.Scheme != "wss" {
+		return ""
+	}
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, endpoint.String(), header)
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if err == nil || resp == nil {
+		return ""
+	}
+	_ = resp.Body.Close()
+	return resp.Status
 }
