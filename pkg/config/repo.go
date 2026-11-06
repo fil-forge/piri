@@ -84,8 +84,6 @@ func (c DatabaseConfig) ToAppConfig() (app.DatabaseConfig, error) {
 type PostgresConfig struct {
 	// URL is the PostgreSQL connection string (only used when type is "postgres")
 	// Format: postgres://user:password@host:port/dbname?sslmode=disable
-	// pgx pool parameters on the query string (pool_max_conns,
-	// pool_max_conn_lifetime, pool_max_conn_idle_time) size the PDP pipeline's pool.
 	URL string `mapstructure:"url" flag:"db-url" toml:"url,omitempty"`
 	// MaxOpenConns is the maximum number of open connections to the database.
 	// Only used for PostgreSQL. Default: 5
@@ -128,7 +126,6 @@ func (c PostgresConfig) ToAppConfig() (app.PostgresConfig, error) {
 type RepoConfig struct {
 	DataDir  string         `mapstructure:"data_dir" validate:"required" flag:"data-dir" toml:"data_dir"`
 	TempDir  string         `mapstructure:"temp_dir" validate:"required" flag:"temp-dir" toml:"temp_dir"`
-	BlobDir  string         `mapstructure:"blob_dir" flag:"blob-dir" toml:"blob_dir,omitempty"`
 	Database DatabaseConfig `mapstructure:"database" validate:"omitempty" toml:"database,omitempty"`
 	S3       *S3Config      `mapstructure:"s3" validate:"omitempty" toml:"s3,omitempty"`
 }
@@ -168,12 +165,15 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		DataDir:  r.DataDir,
 		TempDir:  r.TempDir,
 		Database: dbCfg,
+		Aggregator: app.AggregatorStorageConfig{
+			Dir: filepath.Join(r.DataDir, "aggregator", "datastore"),
+		},
 		Blobs: app.BlobStorageConfig{
 			Dir:    filepath.Join(r.DataDir, "blobs"),
 			TmpDir: filepath.Join(r.TempDir, "storage"),
 		},
 		Publisher: app.PublisherStorageConfig{
-			Dir: filepath.Join(r.blobDir(), "ipni"),
+			Dir: filepath.Join(r.DataDir, "publisher"),
 		},
 		EgressTracker: app.EgressTrackerStorageConfig{
 			Dir: filepath.Join(r.DataDir, "egress_tracker", "journal"),
@@ -187,7 +187,7 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		},
 		SchedulerStorage: app.SchedulerConfig{},
 		PDPStore: app.PDPStoreConfig{
-			Dir: filepath.Join(r.blobDir(), "pdp", "datastore"),
+			Dir: filepath.Join(r.DataDir, "pdp", "datastore"),
 		},
 	}
 
@@ -205,13 +205,4 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 	}
 
 	return out, nil
-}
-
-// blobDir is where the filesystem backend keeps blob bytes and IPNI adverts,
-// the data that the S3 backend keeps in its bucket.
-func (r RepoConfig) blobDir() string {
-	if r.BlobDir != "" {
-		return r.BlobDir
-	}
-	return r.DataDir
 }

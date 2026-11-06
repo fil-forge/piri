@@ -1,7 +1,6 @@
 package config
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -95,52 +94,4 @@ func TestDatabaseConfig_ToAppConfig(t *testing.T) {
 		_, err := cfg.ToAppConfig()
 		assert.Error(t, err)
 	})
-}
-
-func TestRepoConfig_ToAppConfig_BlobDir(t *testing.T) {
-	type blobPaths struct {
-		PDPStore  string
-		Publisher string
-	}
-
-	dataDir := t.TempDir()
-	blobDir := t.TempDir()
-
-	testCases := []struct {
-		desc     string
-		blobDir  string
-		expected blobPaths
-	}{
-		{
-			desc: "unset keeps blobs in the data dir",
-			expected: blobPaths{
-				PDPStore:  filepath.Join(dataDir, "pdp", "datastore"),
-				Publisher: filepath.Join(dataDir, "ipni"),
-			},
-		},
-		{
-			desc:    "set moves blobs to the blob dir",
-			blobDir: blobDir,
-			expected: blobPaths{
-				PDPStore:  filepath.Join(blobDir, "pdp", "datastore"),
-				Publisher: filepath.Join(blobDir, "ipni"),
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.desc, func(t *testing.T) {
-			cfg := RepoConfig{
-				DataDir: dataDir,
-				TempDir: t.TempDir(),
-				BlobDir: tc.blobDir,
-			}
-			result, err := cfg.ToAppConfig()
-			require.NoError(t, err)
-			assert.Equal(t, tc.expected, blobPaths{
-				PDPStore:  result.PDPStore.Dir,
-				Publisher: result.Publisher.Dir,
-			})
-		})
-	}
 }

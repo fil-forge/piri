@@ -78,7 +78,9 @@ func (t *CommPTask) spawn(ctx context.Context, blob multihash.Multihash) {
 	})
 }
 
-func (t *CommPTask) Do(ctx context.Context, taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+func (t *CommPTask) Do(taskID harmonytask.TaskID, stillOwned func() bool) (done bool, err error) {
+	ctx := context.Background()
+
 	var rows []struct {
 		Blob  []byte  `db:"digest"`
 		Commp *string `db:"commp"`

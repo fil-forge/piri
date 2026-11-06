@@ -64,7 +64,6 @@ func init() {
 	InitCmd.Flags().Uint("port", 3000, "Port Piri listens for connections on")
 	InitCmd.Flags().String("data-dir", "", "Path to a data directory Piri will maintain its permanent state in")
 	InitCmd.Flags().String("temp-dir", "", "Path to a temporary directory Piri will maintain ephemeral state in")
-	InitCmd.Flags().String("blob-dir", "", "Path to a directory for blob bytes and IPNI adverts when blobs are stored on the filesystem (default: the data directory)")
 	InitCmd.Flags().String("key-file", "", "Path to a PEM file containing ed25519 private key used as Piri's identity on the Forge network")
 	InitCmd.Flags().String("wallet-file", "", "Path to a file containing a delegated filecoin address private key in hex format")
 	InitCmd.Flags().String("lotus-endpoint", "", "API endpoint of the Lotus node Piri will use to interact with the blockchain")
@@ -133,7 +132,6 @@ type initFlags struct {
 	port           uint
 	dataDir        string
 	tempDir        string
-	blobDir        string
 	keyFile        string
 	publicURL      *url.URL
 	walletPath     string
@@ -410,10 +408,6 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading --temp-dir: %w", err)
 	}
-	blobDir, err := cmd.Flags().GetString("blob-dir")
-	if err != nil {
-		return nil, fmt.Errorf("error reading --blob-dir: %w", err)
-	}
 	keyFile, err := cmd.Flags().GetString("key-file")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --key-file: %w", err)
@@ -615,7 +609,6 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		port:           port,
 		dataDir:        dataDir,
 		tempDir:        tempDir,
-		blobDir:        blobDir,
 		keyFile:        keyFile,
 		publicURL:      parsedURL,
 		walletPath:     walletPath,
@@ -640,7 +633,6 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 	repoConfig := config.RepoConfig{
 		DataDir: flags.dataDir,
 		TempDir: flags.tempDir,
-		BlobDir: flags.blobDir,
 	}
 	if flags.storage != nil {
 		repoConfig.Database = flags.storage.database
@@ -957,7 +949,6 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 	repoConfig := config.RepoConfig{
 		DataDir: cfg.Storage.DataDir,
 		TempDir: cfg.Storage.TempDir,
-		BlobDir: flags.blobDir,
 	}
 	if flags.storage != nil {
 		repoConfig.Database = flags.storage.database

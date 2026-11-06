@@ -16,7 +16,6 @@ piri [command] [flags]
 | `--log-level <level>` | Logging level (debug, info, warn, error) |
 | `--data-dir <path>` | Storage service data directory |
 | `--temp-dir <path>` | Storage service temp directory |
-| `--blob-dir <path>` | Directory for blob bytes and IPNI adverts on the filesystem backend. Defaults to the data directory |
 | `--key-file <path>` | Path to PEM file containing ed25519 private key |
 
 ## Subcommands
