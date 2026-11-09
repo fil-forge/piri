@@ -14,8 +14,9 @@ import (
 // meter: how many blobs are folded into an aggregate whose root has not been
 // added on chain, and how long ago the oldest of them was folded. AddRoots
 // sends a full batch of roots at once and a partial one on the next poll
-// interval, so the oldest age stays under a minute or so. An age that keeps
-// growing means AddRoots has stopped retiring aggregates, or sends them
+// interval, then waits for the transaction to confirm before it retires the
+// rows, so a healthy oldest age stays under about 5 minutes. An age that
+// keeps growing means AddRoots has stopped retiring aggregates, or sends them
 // slower than they are folded.
 func StartAddRootsMetrics(ctx context.Context, meter metric.Meter, task *AddRootsTask) error {
 	blobs, err := meter.Int64ObservableGauge(

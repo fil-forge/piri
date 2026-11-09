@@ -82,7 +82,7 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |
 | `piri_pdp_pipeline_cancelled` | Blobs removed before aggregation, by whether their CommP had been computed |
 | `piri_pdp_aggregated_blobs` | Blobs aggregated but not yet added on chain |
-| `piri_pdp_aggregated_blobs_oldest_seconds` | How long ago the oldest of those was aggregated (should stay under a few poll intervals) |
+| `piri_pdp_aggregated_blobs_oldest_seconds` | How long ago the oldest of those was aggregated (should stay under about 5 minutes) |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
@@ -272,8 +272,10 @@ At the other end, a folded aggregate waits for a `PDPAddRoots` task to add its
 root on chain. A full batch of
 [`pdp.aggregation.manager.batch_size`](../configuration/pdp/aggregation/manager.md#batch_size)
 roots is sent at once and a partial one on the next
-[`poll_interval`](../configuration/pdp/aggregation/manager.md#poll_interval), so
-`piri_pdp_aggregated_blobs_oldest_seconds` stays under a few poll intervals and
+[`poll_interval`](../configuration/pdp/aggregation/manager.md#poll_interval).
+The task then waits for the transaction to confirm, eight epochs (4 minutes),
+before it deletes the batch's rows. So
+`piri_pdp_aggregated_blobs_oldest_seconds` stays under about 5 minutes and
 `piri_pdp_aggregated_blobs` rises and falls with each batch. An age that keeps
 growing means AddRoots has stopped: check the `PDPAddRoots` task's logs and
 Piri's chain RPC. If roots are still landing but the age climbs, aggregates are
@@ -296,8 +298,9 @@ folded faster than AddRoots sends them; raise `batch_size`.
 max by (node) (piri_pdp_commp_due_blobs_oldest_seconds{job="forge/piri"}) > 600
 
 # AddRoots stalled or falling behind: a blob was aggregated 10 minutes ago and
-# its root is still not added on chain. A batch goes out within a poll interval
-# (30s by default), so this is AddRoots failing or too slow for the fold rate.
+# its root is still not added on chain. A healthy batch is sent within a poll
+# interval and confirmed within 4 minutes, so the age stays under about 5
+# minutes; twice that is AddRoots failing or too slow for the fold rate.
 max by (node) (piri_pdp_aggregated_blobs_oldest_seconds{job="forge/piri"}) > 600
 ```
 
