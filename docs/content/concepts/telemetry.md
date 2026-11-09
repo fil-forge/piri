@@ -105,10 +105,12 @@ for how to read them.
 
 ### Aggregation Pipeline Metrics
 
-The entry of the aggregation pipeline. An accepted blob waits out
+The entry and exit of the aggregation pipeline. An accepted blob waits out
 [`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
 before a CommP task claims it; the removal sweep cancels the blob's pipeline
-row if the blob is released before it is aggregated. See
+row if the blob is released before it is aggregated. Once a blob is folded
+into an aggregate it waits for a `PDPAddRoots` task to add the aggregate's root
+on chain, which deletes the blob's pipeline row. See
 [Monitoring > Aggregation Pipeline Health](../operator-guide/monitoring.md#aggregation-pipeline-health)
 for an example alert.
 
@@ -119,6 +121,8 @@ for an example alert.
 | <nobr>`piri_pdp_commp_due_blobs_oldest_seconds`</nobr>    | Gauge     | s     | How long the oldest unclaimed blob has been past the delay   |
 | <nobr>`piri_pdp_pipeline_cancelled`</nobr>                | Counter   | count | Pipeline rows the removal sweep cancelled before aggregation |
 | <nobr>`piri_pdp_pipeline_cancelled_age_seconds`</nobr>    | Histogram | s     | Age of a cancelled row since the blob's acceptance; buckets at 1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d and 7d |
+| <nobr>`piri_pdp_aggregated_blobs`</nobr>                  | Gauge     | count | Blobs folded into an aggregate whose root has not been added on chain |
+| <nobr>`piri_pdp_aggregated_blobs_oldest_seconds`</nobr>   | Gauge     | s     | How long ago the oldest of those blobs was folded into its aggregate; 0 when there are none |
 
 **Labels:**
 

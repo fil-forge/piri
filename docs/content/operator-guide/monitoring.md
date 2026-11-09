@@ -81,6 +81,8 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_commp_due_blobs` | Blobs past the delay that no CommP task has picked up (should stay near zero) |
 | `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |
 | `piri_pdp_pipeline_cancelled` | Blobs removed before aggregation, by whether their CommP had been computed |
+| `piri_pdp_aggregated_blobs` | Blobs aggregated but not yet added on chain |
+| `piri_pdp_aggregated_blobs_oldest_seconds` | How long ago the oldest of those was aggregated (should stay under a few poll intervals) |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
@@ -266,6 +268,17 @@ is past the delay the task engine claims it within a poll, so
 that keeps growing, or an oldest age of minutes, means claims have stopped:
 the task engine is down, or every poll finds other work first.
 
+At the other end, a folded aggregate waits for a `PDPAddRoots` task to add its
+root on chain. A full batch of
+[`pdp.aggregation.manager.batch_size`](../configuration/pdp/aggregation/manager.md#batch_size)
+roots is sent at once and a partial one on the next
+[`poll_interval`](../configuration/pdp/aggregation/manager.md#poll_interval), so
+`piri_pdp_aggregated_blobs_oldest_seconds` stays under a few poll intervals and
+`piri_pdp_aggregated_blobs` rises and falls with each batch. An age that keeps
+growing means AddRoots has stopped: check the `PDPAddRoots` task's logs and
+Piri's chain RPC. If roots are still landing but the age climbs, aggregates are
+folded faster than AddRoots sends them; raise `batch_size`.
+
 | Metric | Unit | Labels | What It Tells You |
 |--------|------|--------|-------------------|
 | `piri_pdp_commp_held_blobs` | count | | Accepted blobs still inside the CommP delay |
@@ -273,12 +286,19 @@ the task engine is down, or every poll finds other work first.
 | `piri_pdp_commp_due_blobs_oldest_seconds` | seconds | | How long the oldest of those has been past the delay |
 | `piri_pdp_pipeline_cancelled` | count | `stage` | Blobs released before aggregation. `before_commp` ones cost no CommP and no on-chain root; `after_commp` ones had their CommP computed and piece parked, and finalization cleans that up |
 | `piri_pdp_pipeline_cancelled_age_seconds` | seconds | `stage` | Age of each cancelled blob since acceptance. The share of `before_commp` cancellations under the delay is what the delay is saving; the histogram's shape says whether a shorter or longer delay would save more |
+| `piri_pdp_aggregated_blobs` | count | | Blobs folded into an aggregate whose root has not been added on chain |
+| `piri_pdp_aggregated_blobs_oldest_seconds` | seconds | | How long ago the oldest of those was folded; 0 when there are none |
 
 ```promql
 # CommP claims stalled: a blob has been past the delay for 10 minutes without a
 # CommP task claiming it. The engine claims due blobs on each poll (seconds),
 # so this is the task engine down or saturated, not a slow CommP.
 max by (node) (piri_pdp_commp_due_blobs_oldest_seconds{job="forge/piri"}) > 600
+
+# AddRoots stalled or falling behind: a blob was aggregated 10 minutes ago and
+# its root is still not added on chain. A batch goes out within a poll interval
+# (30s by default), so this is AddRoots failing or too slow for the fold rate.
+max by (node) (piri_pdp_aggregated_blobs_oldest_seconds{job="forge/piri"}) > 600
 ```
 
 ### PDP Database Pool
@@ -374,6 +394,7 @@ Recommended alerts:
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
 | No `PDPv0_Prove` run finished in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
+| An aggregated blob has waited over 10 minutes to be added on chain (`piri_pdp_aggregated_blobs_oldest_seconds`) | Warning | Check logs for the `PDPAddRoots` task and the chain RPC; raise `batch_size` if roots are landing but too slowly |
 | A tenth of PDP database acquires waited for a connection over 15 minutes (`piri_pdp_db_pool_acquires_waited`) | Warning | Raise `pool_max_conns` on the Postgres URL |
 
 ## Regular Checks
