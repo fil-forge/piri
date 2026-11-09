@@ -26,7 +26,10 @@ type Calculator interface {
 // minutes and flatten within about an hour (the 90th percentile of the Yahoo
 // HDFS traces falls between 22 and 75 minutes), so an hour covers nearly all
 // of what a delay can save, at the cost of an hour added to time-to-first-proof.
-const DefaultDelay = time.Hour
+//
+// Do not merge: zero here, so forge-perf can measure piri with commP at
+// acceptance.
+const DefaultDelay time.Duration = 0
 
 // MaxDelay bounds the configurable delay. Past it a blob spends longer unproven
 // than any deletion pattern justifies.
