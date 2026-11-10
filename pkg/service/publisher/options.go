@@ -3,6 +3,7 @@ package publisher
 import (
 	"net/url"
 
+	ipnistore "github.com/fil-forge/go-ipni-tools/pkg/store"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/multiformats/go-multiaddr"
 
@@ -17,6 +18,7 @@ type options struct {
 	indexingService       app.IndexingServiceConfig
 	indexingServiceProofs []ucan.Delegation
 	tx                    store.Transactor
+	batchStore            ipnistore.BatchStore
 }
 
 type Option func(*options) error
@@ -72,6 +74,16 @@ func WithIndexingServiceProof(proofs []ucan.Delegation) Option {
 func WithTransactor(tx store.Transactor) Option {
 	return func(o *options) error {
 		o.tx = tx
+		return nil
+	}
+}
+
+// WithBatchStore publishes each batch through the given store: one read of its
+// contexts and one commit of its contexts and the head. Without it, a batch
+// reads and writes its contexts one call at a time through the publisher store.
+func WithBatchStore(batchStore ipnistore.BatchStore) Option {
+	return func(o *options) error {
+		o.batchStore = batchStore
 		return nil
 	}
 }

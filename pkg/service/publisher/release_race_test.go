@@ -47,7 +47,8 @@ func TestPublishClaimed_WaitsForRelease(t *testing.T) {
 		require.NoError(t, svc.Publish(ctx, clm))
 		return clm.Link()
 	}
-	released, kept := queueClaim(), queueClaim()
+	released := queueClaim()
+	queueClaim()
 
 	const id harmonytask.TaskID = 9
 	stamped, err := db.BeginTransaction(ctx, func(tx *harmonydb.Tx) (bool, error) {
@@ -91,9 +92,11 @@ func TestPublishClaimed_WaitsForRelease(t *testing.T) {
 	require.Equal(t, 1, got.rows, "the released claim is not in the batch")
 	require.Equal(t, 1, got.published)
 
+	// The other claim was published and its row retired with the batch; the
+	// released one was dequeued by the release.
 	claimed, err := queue.Claimed(ctx, id)
 	require.NoError(t, err)
-	require.Equal(t, []cid.Cid{kept}, claimsOf(claimed))
+	require.Empty(t, claimsOf(claimed))
 }
 
 // blockingBatchPublisher holds a batch mid-publish until release is closed.

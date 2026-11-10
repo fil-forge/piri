@@ -59,7 +59,9 @@ var Module = fx.Module("curio-pdp",
 		fx.Annotate(provideInitTask, fx.ResultTags(taskGroup)),
 		fx.Annotate(provideNextTask, fx.ResultTags(taskGroup)),
 		fx.Annotate(provideProveTask, fx.ResultTags(taskGroup)),
+		fx.Annotate(provideSaveCacheTask, fx.ResultTags(taskGroup)),
 		fx.Annotate(provideSettleTask, fx.ResultTags(taskGroup)),
+		fx.Annotate(provideProcessDeletionsTask, fx.ResultTags(taskGroup)),
 
 		// Engine consumes the whole task group.
 		fx.Annotate(provideEngine, fx.ParamTags("", "", taskGroup)),
@@ -128,19 +130,10 @@ func provideS3PieceReader(store blobstore.Blobstore, resolver types.PieceResolve
 	return NewS3PieceReader(store, resolver)
 }
 
-// provideProofCache returns a nil store: Piri has no proof cache yet, and the
-// prove task gates its cached-proof branch on `p.idx != nil` alone. A non-nil
-// no-op store therefore reads as "cache available" — for every sub-piece above
-// MinSizeForCache (32 MiB padded) the task would call GenerateCachedProof, get
-// (nil, nil) back, treat that as a cache failure, and write
-// `needs_save_cache = TRUE, cached_proofgen_failure_count = n+1` to
-// pdp_piecerefs on *every* proof, with no SaveCache task registered to drain
-// it. Returning nil skips the branch entirely and goes straight to the
-// full-memtree path, which is what Piri actually proves with today.
-//
-// Replace this with a real ProofCacheStore (and register pdpv0's SaveCache
-// task) to pick up the proving optimization.
-func provideProofCache() pdpv0.ProofCacheStore { return nil }
+// provideProofCache stores the proof cache layers in Piri's Postgres. The prove
+// task proves a sub-piece above 32 MiB padded only from its cached layer, and
+// the save-cache task builds that layer.
+func provideProofCache(db *harmonydb.DB) pdpv0.ProofCacheStore { return newProofCacheStore(db) }
 
 // --- pdpv0 pipeline tasks ---
 
@@ -152,6 +145,10 @@ func provideNextTask(db *harmonydb.DB, ec ethchain.EthClient, fil pdpv0.NextProv
 	return pdpv0.NewNextProvingPeriodTask(db, ec, fil, w, s)
 }
 
+func provideSaveCacheTask(db *harmonydb.DB, pr pdpv0.PieceReader, pc pdpv0.ProofCacheStore) harmonytask.TaskInterface {
+	return &saveCacheTask{TaskPDPSaveCache: pdpv0.NewTaskPDPSaveCache(db, pr, pc), db: db}
+}
+
 func provideProveTask(db *harmonydb.DB, ec ethchain.EthClient, fil pdpv0.ProveTaskChainApi, w *pdpv0.Watcher, s *message.SenderETH, pr pdpv0.PieceReader, pc pdpv0.ProofCacheStore) harmonytask.TaskInterface {
 	return pdpv0.NewProveTask(db, ec, fil, w, s, pr, pc)
 }
@@ -159,6 +156,13 @@ func provideProveTask(db *harmonydb.DB, ec ethchain.EthClient, fil pdpv0.ProveTa
 // provideSettleTask: Curio's autonomous payment-rail settlement task (periodic singleton).
 func provideSettleTask(db *harmonydb.DB, ec ethchain.EthClient, s *message.SenderETH, al curioalerting.AlertingInterface) harmonytask.TaskInterface {
 	return pay.NewSettleTask(db, ec, s, al)
+}
+
+// provideProcessDeletionsTask drains a dataset's scheduled piece removals with
+// processPieceDeletions. PDPVerifier 3.5.0 reverts nextProvingPeriod while that
+// queue is not empty.
+func provideProcessDeletionsTask(db *harmonydb.DB, ec ethchain.EthClient, fil service.ChainClient, w *pdpv0.Watcher, s *message.SenderETH) harmonytask.TaskInterface {
+	return pdpv0.NewProcessDeletionsTask(db, ec, fil, w, s)
 }
 
 // --- engine + pipeline startup ---
@@ -171,7 +175,9 @@ type resourceInspector struct{}
 func (resourceInspector) GetResources() (resources.Resources, error) { return resources.System(0) }
 
 func provideEngine(lc fx.Lifecycle, db *harmonydb.DB, tasks []harmonytask.TaskInterface) (*harmonytask.TaskEngine, error) {
-	eng, err := harmonytask.New(db, tasks, harmonyMachineID, resourceInspector{})
+	// Piri runs a single machine, so it opens no peer connections: a nil
+	// connector makes harmonytask use its no-op one.
+	eng, err := harmonytask.New(db, tasks, harmonyMachineID, nil, resourceInspector{})
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +196,10 @@ func startPipeline(lc fx.Lifecycle, db *harmonydb.DB, ec ethchain.EthClient, cs 
 	pdpv0.NewDataSetWatch(w)
 	// Curio's payment-settlement confirmation watcher (registers on the pdpv0 watcher).
 	pay.NewSettleWatcher(w)
+	// Reconciles proving periods whose nextProvingPeriod reverted or was lost.
+	pdpv0.NewProvingPeriodWatcher(w)
+	// Tracks in-flight processPieceDeletions messages for the deletion-drain task.
+	pdpv0.NewProcessDeletionsWatcher(w)
 	// Watches message_waits_eth and records tx receipts / tx_success — required for
 	// the sender's WaitForConfirmation (provider registration, create, addPieces).
 	if _, err := message.NewMessageWatcherEth(db, eng, cs, ec); err != nil {

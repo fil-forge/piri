@@ -115,6 +115,26 @@ func TestGenerateConfig(t *testing.T) {
 		require.Nil(t, result.Repo.S3)
 	})
 
+	blobDirCases := []struct {
+		desc    string
+		blobDir string
+	}{
+		{desc: "unset blob dir is left out", blobDir: ""},
+		{desc: "blob dir is written", blobDir: "/mnt/blobs"},
+	}
+	for _, tc := range blobDirCases {
+		t.Run(tc.desc, func(t *testing.T) {
+			setupViperDefaults(t)
+			flags := baseFlags()
+			flags.blobDir = tc.blobDir
+
+			result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
+			require.NoError(t, err)
+
+			require.Equal(t, tc.blobDir, result.Repo.BlobDir)
+		})
+	}
+
 	t.Run("sqlite database configuration", func(t *testing.T) {
 		setupViperDefaults(t)
 		flags := baseFlags()

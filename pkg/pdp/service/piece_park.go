@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/filecoin-project/curio/harmony/harmonydb"
+	"github.com/filecoin-project/curio/lib/proof"
 
 	"github.com/fil-forge/piri/pkg/pdp/types"
 )
@@ -30,10 +31,13 @@ func (p *PDPService) ParkPiece(ctx context.Context, params types.ParkPieceReques
 			return false, fmt.Errorf("failed to create parked_piece_refs entry: %w", err)
 		}
 
-		// 3. Create a reference in pdp_piecerefs.
+		// 3. Create a reference in pdp_piecerefs. Only a piece above Curio's
+		// cache threshold is proven from a cache layer; flagging a smaller one
+		// would cost a SaveCache task that builds nothing.
 		if _, err := tx.Exec(
-			`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref) VALUES ($1, $2, $3)`,
-			"storacha", params.PieceCID.String(), refID); err != nil {
+			`INSERT INTO pdp_piecerefs (service, piece_cid, piece_ref, needs_save_cache) VALUES ($1, $2, $3, $4)`,
+			"storacha", params.PieceCID.String(), refID,
+			params.PaddedSize > int64(proof.MIN_PADDED_PIECE_SIZE_FOR_CACHE)); err != nil {
 			return false, fmt.Errorf("failed to create pdp_piecerefs entry: %w", err)
 		}
 

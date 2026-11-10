@@ -47,6 +47,8 @@ All flags are required:
 | `--operator-email <email>` | Contact email for the Forge team to reach you |
 | `--public-url <url>` | Public HTTPS URL where your node will be accessible |
 
+`--blob-dir <path>` is optional. It keeps blob bytes and IPNI adverts in a directory other than `--data-dir`, and `init` writes it into the generated config as [`repo.blob_dir`](../configuration/repo/index.md#blob_dir).
+
 ## Authenticated Lotus endpoints
 
 A Lotus node or hosted RPC provider that requires a bearer token reads it from

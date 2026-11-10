@@ -19,7 +19,6 @@ import (
 	"github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/store/objectstore"
 	"github.com/fil-forge/piri/pkg/store/objectstore/flatfs"
-	"github.com/fil-forge/piri/pkg/store/objectstore/leveldb"
 	"github.com/fil-forge/piri/pkg/store/objectstore/memory"
 	miniostore "github.com/fil-forge/piri/pkg/store/objectstore/minio"
 )
@@ -27,22 +26,19 @@ import (
 type StoreKind string
 
 const (
-	Memory  StoreKind = "memory"
-	LevelDB StoreKind = "leveldb"
-	Minio   StoreKind = "minio"
-	FlatFS  StoreKind = "flatfs"
+	Memory StoreKind = "memory"
+	Minio  StoreKind = "minio"
+	FlatFS StoreKind = "flatfs"
 )
 
 var (
-	storeKinds = []StoreKind{Memory, LevelDB, Minio, FlatFS}
+	storeKinds = []StoreKind{Memory, Minio, FlatFS}
 )
 
 func makeStore(t *testing.T, k StoreKind) objectstore.Store {
 	switch k {
 	case Memory:
 		return memory.NewStore()
-	case LevelDB:
-		return createLevelDBStore(t)
 	case Minio:
 		return createMinioStore(t)
 	case FlatFS:
@@ -326,13 +322,6 @@ func TestObjectStore(t *testing.T) {
 			})
 		})
 	}
-}
-
-func createLevelDBStore(t *testing.T) objectstore.Store {
-	s, err := leveldb.NewStore(filepath.Join(t.TempDir(), "leveldb.db"))
-	require.NoError(t, err)
-	return s
-
 }
 
 func createMinioStore(t *testing.T) objectstore.Store {

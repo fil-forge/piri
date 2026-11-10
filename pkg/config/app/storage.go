@@ -64,7 +64,6 @@ type StorageConfig struct {
 	S3 *S3Config
 
 	// Service-specific storage subdirectories
-	Aggregator       AggregatorStorageConfig
 	Blobs            BlobStorageConfig
 	Publisher        PublisherStorageConfig
 	EgressTracker    EgressTrackerStorageConfig
@@ -82,11 +81,6 @@ type S3Config struct {
 	BucketPrefix string      // Prefix for bucket names (e.g., "piri-" creates piri-pdp)
 	Credentials  Credentials // access credentials
 	Insecure     bool        // set to true to disable SSL (for development only)
-}
-
-// AggregatorStorageConfig contains aggregator-specific storage paths
-type AggregatorStorageConfig struct {
-	Dir string
 }
 
 // BlobStorageConfig contains blob-specific storage paths

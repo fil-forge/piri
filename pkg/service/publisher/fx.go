@@ -69,29 +69,35 @@ func startPublishTicker(lc fx.Lifecycle, task *PublishTask) {
 
 func asTask[T harmonytask.TaskInterface](t T) harmonytask.TaskInterface { return t }
 
+// FxParams are the publisher service's dependencies. BatchStore is provided
+// only by a store that publishes a batch in one transaction.
+type FxParams struct {
+	fx.In
+	PubCfg         app.PublisherServiceConfig
+	IdxCfg         app.IndexingServiceConfig
+	ID             identity.Identity
+	PublisherStore store.PublisherStore
+	BatchStore     store.BatchStore `optional:"true"`
+	Queue          AdvertQueue
+	Tx             pstore.Transactor
+}
+
 // NewFx wires the publisher service from its narrow configs.
-func NewFx(
-	pubCfg app.PublisherServiceConfig,
-	idxCfg app.IndexingServiceConfig,
-	id identity.Identity,
-	publisherStore store.PublisherStore,
-	queue AdvertQueue,
-	tx pstore.Transactor,
-) (*PublisherService, error) {
-	if pubCfg.PublicMaddr.String() == "" {
+func NewFx(p FxParams) (*PublisherService, error) {
+	if p.PubCfg.PublicMaddr.String() == "" {
 		return nil, fmt.Errorf("public address is required for publisher service")
 	}
 
-	return New(
-		id,
-		publisherStore,
-		pubCfg.PublicMaddr,
-		queue,
-		WithDirectAnnounce(pubCfg.AnnounceURLs...),
-		WithIndexingService(idxCfg),
-		WithIndexingServiceProof(idxCfg.Proofs),
-		WithAnnounceAddress(pubCfg.AnnounceMaddr),
-		WithBlobAddress(pubCfg.BlobMaddr),
-		WithTransactor(tx),
-	)
+	opts := []Option{
+		WithDirectAnnounce(p.PubCfg.AnnounceURLs...),
+		WithIndexingService(p.IdxCfg),
+		WithIndexingServiceProof(p.IdxCfg.Proofs),
+		WithAnnounceAddress(p.PubCfg.AnnounceMaddr),
+		WithBlobAddress(p.PubCfg.BlobMaddr),
+		WithTransactor(p.Tx),
+	}
+	if p.BatchStore != nil {
+		opts = append(opts, WithBatchStore(p.BatchStore))
+	}
+	return New(p.ID, p.PublisherStore, p.PubCfg.PublicMaddr, p.Queue, opts...)
 }

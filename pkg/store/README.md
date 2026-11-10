@@ -74,6 +74,17 @@ node (`pkg/fx/store/postgres`), and a `NewDatastoreStore(ds)` over
 | `receiptstore` | `ucan.Receipt`, found by CID or by the task it ran | `ucan_receipts`, `ucan_receipts_by_ran` |
 | `consolidationstore` | `Consolidation` | `ucan_consolidations` |
 
+`ipnistore` keeps the IPNI advertisement chain for go-ipni-tools' publisher
+(migration `00000008-ipni-publisher-store.sql`): the signed head in
+`ipni_head` and the per-context maps in `ipni_contexts`, and each advert as
+an object keyed by its CID (`ipni/<cid>` in the S3 bucket,
+`data_dir/ipni/<shard>/<cid>.data` on flatfs). Entries chunks are inlined
+into identity CIDs. It is also the publisher's batch store: a publish batch
+reads its contexts with one `SELECT`, uploads its adverts in parallel, and
+commits its contexts with one upsert and the head with a compare-and-swap,
+all in one transaction.
+In-memory nodes use go-ipni-tools' datastore store instead.
+
 Changes that read an allocation first lock its row, so they hold across
 processes. Each store's tests run against both implementations
 (`impls_test.go`); the Postgres runs skip on darwin.

@@ -70,7 +70,7 @@ func startHarmonyPostgres() {
 // NewHarmonyDB returns a harmonydb.DB on a fresh database with piri's
 // curated PDP schema applied. Skips the test when Docker/Postgres is
 // unavailable.
-func NewHarmonyDB(t *testing.T) *harmonydb.DB {
+func NewHarmonyDB(t testing.TB) *harmonydb.DB {
 	t.Helper()
 	startHarmonyPostgres()
 	if harmonyPGErr != nil {

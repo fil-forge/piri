@@ -8,40 +8,29 @@ import (
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/receipt"
-	"github.com/ipfs/go-cid"
 
-	"github.com/fil-forge/piri/internal/ipldstore"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/types"
 	apitypes "github.com/fil-forge/piri/pkg/pdp/types"
 	"github.com/fil-forge/piri/pkg/store/receiptstore"
 )
 
 type PieceAcceptor struct {
-	issuer         ucan.Issuer
-	aggregateStore ipldstore.KVStore[cid.Cid, types.Aggregate]
-	receiptStore   receiptstore.ReceiptStore
-	resolver       apitypes.PieceResolverAPI
+	issuer       ucan.Issuer
+	receiptStore receiptstore.ReceiptStore
+	resolver     apitypes.PieceResolverAPI
 }
 
-func NewPieceAccepter(issuer ucan.Issuer, aggregateStore types.Store, receiptStore receiptstore.ReceiptStore, resolver apitypes.PieceResolverAPI) *PieceAcceptor {
+func NewPieceAccepter(issuer ucan.Issuer, receiptStore receiptstore.ReceiptStore, resolver apitypes.PieceResolverAPI) *PieceAcceptor {
 	return &PieceAcceptor{
-		issuer:         issuer,
-		aggregateStore: aggregateStore,
-		receiptStore:   receiptStore,
-		resolver:       resolver,
+		issuer:       issuer,
+		receiptStore: receiptStore,
+		resolver:     resolver,
 	}
 }
 
-func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregateLinks []cid.Cid) error {
-	// TODO we can run this in parallel since receipt generation requires resolving pdp pieces in links to blobs
-	aggregates := make([]types.Aggregate, 0, len(aggregateLinks))
-	for _, aggregateLink := range aggregateLinks {
-		aggregate, err := pa.aggregateStore.Get(ctx, aggregateLink)
-		if err != nil {
-			return fmt.Errorf("reading aggregates: %w", err)
-		}
-		aggregates = append(aggregates, aggregate)
-	}
+// AcceptPieces issues and stores a /pdp/accept receipt for every piece of
+// the aggregates.
+func (pa *PieceAcceptor) AcceptPieces(ctx context.Context, aggregates []types.Aggregate) error {
 	receipts, err := GenerateReceiptsForAggregates(ctx, pa.issuer, aggregates, pa.resolver)
 	if err != nil {
 		return fmt.Errorf("generating receipts: %w", err)
@@ -96,6 +85,7 @@ func GenerateReceiptsForAggregates(ctx context.Context, issuer ucan.Issuer, aggr
 		size += len(aggregate.Pieces)
 	}
 	receipts := make([]*receipt.Receipt, 0, size)
+	// TODO we can run this in parallel since receipt generation requires resolving pdp pieces in links to blobs
 	for _, aggregate := range aggregates {
 		aggregateReceipts, err := GenerateReceipts(ctx, issuer, aggregate, resolver)
 		if err != nil {
