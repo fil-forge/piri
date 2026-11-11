@@ -45,6 +45,7 @@ var Module = fx.Module("pdp/pipeline",
 	),
 	fx.Invoke(registerSettleMetrics),
 	fx.Invoke(registerCommPMetrics),
+	fx.Invoke(registerAddRootsMetrics),
 )
 
 func asTask[T harmonytask.TaskInterface](t T) harmonytask.TaskInterface { return t }

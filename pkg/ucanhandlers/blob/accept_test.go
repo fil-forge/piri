@@ -8,6 +8,7 @@ import (
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/libforge/testutil"
+	ucanerrors "github.com/fil-forge/ucantone/errors"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/fil-forge/piri/pkg/store"
 	"github.com/fil-forge/piri/pkg/store/acceptancestore"
 	"github.com/fil-forge/piri/pkg/store/allocationstore"
+	"github.com/fil-forge/piri/pkg/store/allocationstore/allocation"
 	"github.com/fil-forge/piri/pkg/store/invocationstore"
 )
 
@@ -51,7 +53,31 @@ func newAcceptDeps(t *testing.T) (AcceptDeps, *pdpfake.Pieces, *acceptancestore.
 	}, pieces, accepts, claimStore, pub
 }
 
-func TestAccept_PieceMissing(t *testing.T) {
+// requireNamedFailure checks err is the named failure a receipt reports.
+func requireNamedFailure(t *testing.T, err error, name string) {
+	t.Helper()
+	var named ucanerrors.Named
+	require.True(t, ucanerrors.As(err, &named), "want a named failure, got %v", err)
+	require.Equal(t, name, named.Name())
+}
+
+// storedAllocation gives a random space an allocation of a random blob that
+// expires at expires.
+func storedAllocation(t *testing.T, deps AcceptDeps, expires ucan.UnixTimestamp) allocation.Allocation {
+	t.Helper()
+	alloc := allocation.Allocation{
+		Space:      testutil.RandomDID(t),
+		Blob:       blob.Blob{Digest: testutil.RandomMultihash(t), Size: 4},
+		Expires:    expires,
+		Cause:      testutil.RandomCID(t),
+		Allocation: testutil.RandomCID(t),
+	}
+	require.NoError(t, deps.Pending.(*allocationstore.Store).Put(t.Context(), alloc))
+	return alloc
+}
+
+// Bytes that are not held, in a space with no allocation of the blob.
+func TestAccept_PieceMissingWithoutAllocation(t *testing.T) {
 	deps, _, _, _, _ := newAcceptDeps(t)
 
 	_, err := Accept(t.Context(), deps, &AcceptRequest{
@@ -59,8 +85,80 @@ func TestAccept_PieceMissing(t *testing.T) {
 		Blob:  blob.Blob{Digest: testutil.RandomMultihash(t), Size: 4},
 		Cause: testutil.RandomCID(t),
 	})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "piece not found")
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
+}
+
+// Bytes not yet delivered to an allocation that has not expired: the accept
+// fails without a named failure, so it can be sent again.
+func TestAccept_PieceMissingBeforeExpiry(t *testing.T) {
+	deps, _, _, _, _ := newAcceptDeps(t)
+	alloc := storedAllocation(t, deps, ucan.Now()+3600)
+
+	_, err := Accept(t.Context(), deps, &AcceptRequest{
+		Space:      alloc.Space,
+		Blob:       alloc.Blob,
+		Cause:      testutil.RandomCID(t),
+		Allocation: &alloc.Allocation,
+	})
+	require.ErrorContains(t, err, "piece not found")
+	var named ucanerrors.Named
+	require.False(t, ucanerrors.As(err, &named), "not a named failure: %v", err)
+}
+
+// Bytes never delivered to an allocation that has expired, whether or not the
+// accept identifies the allocation.
+func TestAccept_PieceMissingAfterExpiry(t *testing.T) {
+	for name, identified := range map[string]bool{"allocation identified": true, "allocation not identified": false} {
+		t.Run(name, func(t *testing.T) {
+			deps, _, accepts, _, _ := newAcceptDeps(t)
+			alloc := storedAllocation(t, deps, ucan.Now()-1)
+			req := &AcceptRequest{Space: alloc.Space, Blob: alloc.Blob, Cause: testutil.RandomCID(t)}
+			if identified {
+				req.Allocation = &alloc.Allocation
+			}
+
+			_, err := Accept(t.Context(), deps, req)
+			requireNamedFailure(t, err, blob.AllocationExpiredErrorName)
+
+			_, err = accepts.Get(t.Context(), alloc.Blob.Digest, alloc.Space)
+			require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
+		})
+	}
+}
+
+// An allocation past its expiry whose bytes were delivered is accepted.
+func TestAccept_PieceHeldAfterExpiry(t *testing.T) {
+	deps, pieces, accepts, _, _ := newAcceptDeps(t)
+	alloc := storedAllocation(t, deps, ucan.Now()-1)
+	pieces.Put(alloc.Blob.Digest, []byte("data"))
+
+	_, err := Accept(t.Context(), deps, &AcceptRequest{
+		Space:      alloc.Space,
+		Blob:       alloc.Blob,
+		Cause:      testutil.RandomCID(t),
+		Allocation: &alloc.Allocation,
+	})
+	require.NoError(t, err)
+	_, err = accepts.Get(t.Context(), alloc.Blob.Digest, alloc.Space)
+	require.NoError(t, err)
+}
+
+// An accept that identifies an allocation the space no longer holds is
+// refused even though the bytes are held.
+func TestAccept_AllocationReleased(t *testing.T) {
+	deps, pieces, accepts, _, _ := newAcceptDeps(t)
+	digest, space, link := testutil.RandomMultihash(t), testutil.RandomDID(t), testutil.RandomCID(t)
+	pieces.Put(digest, []byte("data"))
+
+	_, err := Accept(t.Context(), deps, &AcceptRequest{
+		Space:      space,
+		Blob:       blob.Blob{Digest: digest, Size: 4},
+		Cause:      testutil.RandomCID(t),
+		Allocation: &link,
+	})
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
+	_, err = accepts.Get(t.Context(), digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
 }
 
 func TestAccept_PieceHeld(t *testing.T) {
