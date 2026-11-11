@@ -89,6 +89,11 @@ type proofSetState struct {
 	// set, read from the chain rather than the database; nil when the read
 	// failed or the set is unrecoverable.
 	LastProvenEpoch *int64 `db:"-"`
+	// UntrackedAddPiecesEpoch is the epoch the set's oldest addPieces transaction
+	// confirmed at, among those that succeeded on chain but whose pieces
+	// Curio has not recorded (add_message_ok TRUE, pieces_added FALSE); nil
+	// when there are none.
+	UntrackedAddPiecesEpoch *int64 `db:"untracked_add_pieces_confirmed_epoch"`
 }
 
 // lastProvenReader reads when PDPVerifier last accepted a proof for a proof
@@ -142,12 +147,25 @@ func newDBMetricsSource(db *harmonydb.DB, service, host string, verifier lastPro
 
 func (s *dbMetricsSource) proofSets(ctx context.Context) ([]proofSetState, error) {
 	var rows []proofSetState
+	// Curio's trigger on message_waits_eth sets add_message_ok once an add
+	// succeeds on chain, and the receipt watcher sets pieces_added once it
+	// has recorded the pieces from the receipt, normally on the next chain
+	// head. The untracked adds are read through
+	// idx_pdp_data_set_piece_adds_unprocessed.
 	if err := s.db.Select(ctx, &rows, `
 		SELECT d.id, d.prove_at_epoch, d.challenge_window, d.proving_period,
 		       d.unrecoverable_proving_failure_epoch,
-		       dd.created_at AS drain_queued_at
+		       dd.created_at AS drain_queued_at,
+		       ua.confirmed_epoch AS untracked_add_pieces_confirmed_epoch
 		FROM pdp_data_sets d
 		LEFT JOIN pdpv0_deletion_drain dd ON dd.data_set = d.id
+		LEFT JOIN (
+			SELECT a.data_set, min(w.confirmed_block_number) AS confirmed_epoch
+			FROM pdp_data_set_piece_adds a
+			JOIN message_waits_eth w ON w.signed_tx_hash = a.add_message_hash
+			WHERE a.add_message_ok = TRUE AND a.pieces_added = FALSE
+			GROUP BY a.data_set
+		) ua ON ua.data_set = d.id
 		WHERE d.service = $1
 		ORDER BY d.id`, s.service); err != nil {
 		return nil, fmt.Errorf("reading proof sets: %w", err)
@@ -324,6 +342,14 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 	if err != nil {
 		return fmt.Errorf("create deletion drain queued gauge: %w", err)
 	}
+	untrackedAddPieces, err := meter.Int64ObservableGauge(
+		"piri_pdp_proofset_untracked_add_pieces_confirmed_epoch",
+		metric.WithDescription("Epoch at which the proof set's oldest addPieces transaction that succeeded on chain but whose pieces Curio has not recorded was confirmed (pdp_data_set_piece_adds with add_message_ok TRUE and pieces_added FALSE); absent when there is none. Curio records an add on the next chain head, so an old value means it cannot read the receipt, and a new proof set waiting on it never starts proving"),
+		metric.WithUnit("{epoch}"),
+	)
+	if err != nil {
+		return fmt.Errorf("create untracked add pieces gauge: %w", err)
+	}
 	taskLastSuccess, err := meter.Int64ObservableGauge(
 		"piri_pdp_task_last_success_timestamp_seconds",
 		metric.WithDescription("When a run of a PDP task last finished on this node without a retryable error (unix seconds); for PDPv0_Prove this includes runs that missed the window, found proving disabled or had their proof rejected, so it does not mean a proof landed"),
@@ -424,6 +450,9 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 					if ps.DrainQueuedAt != nil {
 						o.ObserveInt64(drainQueued, ps.DrainQueuedAt.Unix(), attrs)
 					}
+					if ps.UntrackedAddPiecesEpoch != nil {
+						o.ObserveInt64(untrackedAddPieces, *ps.UntrackedAddPiecesEpoch, attrs)
+					}
 					// The schedule is only reported while one is set.
 					if ps.ProveAtEpoch == nil {
 						continue
@@ -476,6 +505,7 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 		unrecoverable,
 		lastProven,
 		drainQueued,
+		untrackedAddPieces,
 		taskLastSuccess,
 		poolConns,
 		poolMaxConns,
