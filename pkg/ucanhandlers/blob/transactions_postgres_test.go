@@ -265,7 +265,7 @@ func TestAccept_AfterRejectIsRefused(t *testing.T) {
 		Cause:      testutil.RandomCID(t),
 		Allocation: &alloc.Allocation,
 	}, commit)
-	require.ErrorContains(t, err, "was released before it was accepted")
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
 
 	_, err = p.accepts.Get(ctx, alloc.Blob.Digest, alloc.Space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
@@ -311,7 +311,7 @@ func TestAccept_WithoutDigestAfterRejectIsRefused(t *testing.T) {
 		Allocation:    &pending.Allocation,
 		WithoutDigest: true,
 	}, commit)
-	require.ErrorContains(t, err, "was released before it was accepted")
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
 
 	_, err = p.accepts.Get(ctx, pending.Digest, pending.Space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
@@ -395,7 +395,8 @@ func TestAllocateUnhashed_OverlappingRetryGetsSameUpload(t *testing.T) {
 }
 
 // An accept that waits for a removal holding the blob's lock finds the bytes
-// gone once it commits, and is refused without recording an acceptance.
+// gone once it commits, and is refused without recording an acceptance. The
+// space holds no allocation of the blob, which is what the failure names.
 func TestAccept_AfterRemovalIsRefused(t *testing.T) {
 	p := newPostgresBlob(t)
 	ctx := t.Context()
@@ -415,7 +416,7 @@ func TestAccept_AfterRemovalIsRefused(t *testing.T) {
 		Blob:  blob.Blob{Digest: digest, Size: 4},
 		Cause: testutil.RandomCID(t),
 	}, commit)
-	require.ErrorContains(t, err, "piece not found")
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
 
 	_, err = p.accepts.Get(ctx, digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
@@ -490,7 +491,7 @@ func TestAccept_WithoutDigestOfReallocatedTaskIsRefused(t *testing.T) {
 		Allocation:    &resolved.Allocation,
 		WithoutDigest: true,
 	})
-	require.ErrorContains(t, err, "was released before it was accepted")
+	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
 
 	_, err = p.accepts.Get(ctx, resolved.Digest, resolved.Space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
