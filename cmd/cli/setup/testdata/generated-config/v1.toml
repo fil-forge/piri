@@ -7,6 +7,7 @@ network = "fixture"
 [repo]
   data_dir = "/data/piri"
   temp_dir = "/tmp/piri"
+  blob_dir = "/blobs/piri"
   [repo.database]
     type = "postgres"
     [repo.database.postgres]

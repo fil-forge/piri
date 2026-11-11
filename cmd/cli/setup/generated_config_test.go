@@ -58,10 +58,16 @@ func TestGeneratedConfig(t *testing.T) {
 		args []string
 	}
 	// The base config supplies storage settings, so the presets take them from
-	// flags instead.
+	// flags instead. --blob-dir is a flag only: init doesn't read repo.blob_dir
+	// from a base config, so the base-config case passes it to pin how init
+	// writes it.
 	cases := []goldenCase{{
 		name: "base-config",
-		args: []string{"--base-config=" + baseConfig, "--registrar-url=https://registrar.example.com"},
+		args: []string{
+			"--base-config=" + baseConfig,
+			"--registrar-url=https://registrar.example.com",
+			"--blob-dir=/blobs/piri",
+		},
 	}}
 	for _, network := range presets.AvailableNetworks {
 		cases = append(cases, goldenCase{
