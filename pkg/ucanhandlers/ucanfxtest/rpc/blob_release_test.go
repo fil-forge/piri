@@ -75,8 +75,8 @@ func (s *RPCSuite) sendRelease(
 	return s.sendInvocationWith(t, release, causes, proofs...)
 }
 
-// seedAcceptedBlob stores a random blob and accepts it for space via the
-// /blob/accept flow, returning the digest. Gives the failure-path tests
+// seedAcceptedBlob allocates and stores a random blob and accepts it for
+// space via the /blob/accept flow, returning the digest. Gives the failure-path tests
 // state to assert is retained.
 func (s *RPCSuite) seedAcceptedBlob(t *testing.T, space did.DID) multihash.Multihash {
 	t.Helper()
@@ -84,6 +84,7 @@ func (s *RPCSuite) seedAcceptedBlob(t *testing.T, space did.DID) multihash.Multi
 
 	data := testutil.RandomBytes(t, 64)
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	s.allocate(t, space, digest, uint64(len(data)))
 	s.Pieces.Put(digest, data)
 
 	acceptProof := testutil.Must(delegation.Delegate(
@@ -183,6 +184,7 @@ func (s *RPCSuite) TestBlobRelease_OtherSpaceRetainsBytes() {
 		s.ServiceID, s.UploadServiceIdentity.DID(), service, blob.Accept.Command,
 	))(t)
 	for _, space := range []did.DID{spaceA, spaceB} {
+		s.allocate(t, space, digest, size)
 		accept := testutil.Must(blob.Accept.Invoke(
 			s.UploadServiceIdentity,
 			service,

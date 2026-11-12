@@ -296,18 +296,24 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 // refuses an allocation released, or bytes removed, before the locks were
 // taken. An allocation made without a digest is released once its pending
 // record is gone; one made with a digest, once the space holds no allocation
-// of the blob. An accept that does not identify its allocation accepts
-// whatever the space holds. The bytes are checked under the blob's lock,
+// of the blob. An accept that does not identify its allocation accepts the
+// allocation the space holds. The bytes are checked under the blob's lock,
 // which the removal sweep takes before it deletes them.
 //
-// A released allocation is refused with AllocationNotFound. Bytes that are
-// not held are refused with AllocationNotFound when the space holds no
-// allocation of the blob, and with AllocationExpired when its allocation
-// passed its expiry before they were delivered. An allocation past its expiry
-// whose bytes are held is accepted.
+// A space that holds no allocation of the blob is refused with
+// AllocationNotFound, whether or not the bytes are held and whether or not
+// the accept identifies its allocation. Bytes that are not held are refused
+// with AllocationExpired when the allocation passed its expiry before they
+// were delivered. An allocation past its expiry whose bytes are held is
+// accepted.
 func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptRequest) error {
 	allocs := deps.Pending
-	if req.Allocation != nil && req.WithoutDigest {
+	if req.WithoutDigest {
+		// The digest of an allocation made without one comes from its pending
+		// record, so the accept always identifies the allocation.
+		if req.Allocation == nil {
+			return fmt.Errorf("accept without a digest does not identify its allocation")
+		}
 		if err := allocs.LockPending(ctx, *req.Allocation); err != nil {
 			log.Errorw("locking pending allocation", "error", err)
 			return fmt.Errorf("locking pending allocation: %w", err)
@@ -341,10 +347,8 @@ func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptReq
 		return fmt.Errorf("locking allocation: %w", err)
 	}
 	// The pending record read above stands for an allocation made without a
-	// digest. Otherwise the space's allocation of the blob is read when the
-	// accept identifies its allocation, or when the bytes are not held and
-	// the allocation says why.
-	if !req.WithoutDigest && (req.Allocation != nil || !found) {
+	// digest. Otherwise the space must hold an allocation of the blob.
+	if !req.WithoutDigest {
 		alloc, err := allocs.Get(ctx, req.Blob.Digest, req.Space)
 		if err != nil {
 			if !errors.Is(err, store.ErrNotFound) {
