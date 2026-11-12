@@ -317,12 +317,13 @@ func TestAccept_WithoutDigestAfterRejectIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
 }
 
-// With no allocation of the blob in the space, an accept that names no
-// allocation still waits for a release that holds the blob's lock.
-func TestAccept_WaitsForReleaseWithoutAllocation(t *testing.T) {
+// An accept that names no allocation still waits for a release that holds
+// the lock on the space's allocation of the blob.
+func TestAccept_WaitsForReleaseWithoutNamingAllocation(t *testing.T) {
 	p := newPostgresBlob(t)
 	ctx := t.Context()
-	space, digest := testutil.RandomDID(t), testutil.RandomMultihash(t)
+	alloc := p.allocated(t)
+	space, digest := alloc.Space, alloc.Blob.Digest
 	deps := p.acceptDeps()
 	deps.Pieces.(*pdpfake.Pieces).Put(digest, []byte("data"))
 
@@ -396,11 +397,12 @@ func TestAllocateUnhashed_OverlappingRetryGetsSameUpload(t *testing.T) {
 
 // An accept that waits for a removal holding the blob's lock finds the bytes
 // gone once it commits, and is refused without recording an acceptance. The
-// space holds no allocation of the blob, which is what the failure names.
+// space's allocation has passed its expiry, which is what the failure names.
 func TestAccept_AfterRemovalIsRefused(t *testing.T) {
 	p := newPostgresBlob(t)
 	ctx := t.Context()
-	space, digest := testutil.RandomDID(t), testutil.RandomMultihash(t)
+	alloc := p.allocated(t)
+	space, digest := alloc.Space, alloc.Blob.Digest
 	deps := p.acceptDeps()
 	pieces := deps.Pieces.(*pdpfake.Pieces)
 	pieces.Put(digest, []byte("data"))
@@ -416,7 +418,7 @@ func TestAccept_AfterRemovalIsRefused(t *testing.T) {
 		Blob:  blob.Blob{Digest: digest, Size: 4},
 		Cause: testutil.RandomCID(t),
 	}, commit)
-	requireNamedFailure(t, err, blob.AllocationNotFoundErrorName)
+	requireNamedFailure(t, err, blob.AllocationExpiredErrorName)
 
 	_, err = p.accepts.Get(ctx, digest, space)
 	require.ErrorIs(t, err, store.ErrNotFound, "no acceptance is recorded")
