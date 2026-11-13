@@ -16,6 +16,7 @@ func TestProvideEngine_RegistersTheMachineUnderTheGivenID(t *testing.T) {
 	lc := fxtest.NewLifecycle(t)
 	eng, err := provideEngine(lc, db, id, nil)
 	require.NoError(t, err)
+	lc.RequireStart()
 	t.Cleanup(lc.RequireStop)
 
 	require.Equal(t, id, eng.Host())
