@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/fil-forge/ucantone/ucan"
 	"go.uber.org/fx"
 
 	"github.com/filecoin-project/curio/alertmanager/curioalerting"
@@ -28,12 +27,18 @@ import (
 // taskGroup is the fx group collecting every harmonytask.TaskInterface the engine runs.
 const taskGroup = `group:"curio_harmonytasks"`
 
+// MachineIDTag names the string that identifies this node to the task engine.
+// The graph that includes Module provides it; it must be unique per node and
+// stable across restarts.
+const MachineIDTag = `name:"harmony_machine_id"`
+
 // Module wires Curio's pdpv0 PDP pipeline (harmonytask scheduler + init/next
 // proving-period + prove tasks) into Piri, backed by Piri's S3 blobstore, eth
 // client, and Lotus node. Requires Postgres (see ProvideHarmonyDB).
 //
 // Consumes from Piri's existing graph: *ethclient.Client, api.FullNode,
-// blobstore.Blobstore, types.PieceResolverAPI, app.StorageConfig, ucan.Issuer.
+// blobstore.Blobstore, types.PieceResolverAPI, app.StorageConfig, and the string named by
+// MachineIDTag.
 //
 // Deferred to e2e/devnet: provisioning the signing key into eth_keys and
 // validating the watcher trigger chain end-to-end.
@@ -61,7 +66,7 @@ var Module = fx.Module("curio-pdp",
 		fx.Annotate(provideProcessDeletionsTask, fx.ResultTags(taskGroup)),
 
 		// Engine consumes the whole task group.
-		fx.Annotate(provideEngine, fx.ParamTags("", "", "", taskGroup)),
+		fx.Annotate(provideEngine, fx.ParamTags("", "", MachineIDTag, taskGroup)),
 	),
 	fx.Invoke(provisionPDPState),
 	// Before startPipeline: the chain head handler must be added to the
@@ -171,15 +176,14 @@ type resourceInspector struct{}
 
 func (resourceInspector) GetResources() (resources.Resources, error) { return resources.System(0) }
 
-// provideEngine registers this node in harmony_machines under its DID and
+// provideEngine registers this node in harmony_machines under machineID and
 // starts the task engine. harmonytask calls the value a host-and-port, but the
 // engine Piri embeds only stores and compares it: it keys the machine row,
 // cordon and restart requests, and the completed-by column of task history.
-// The DID is unique per node and survives a change of listen address.
-func provideEngine(lc fx.Lifecycle, db *harmonydb.DB, id ucan.Issuer, tasks []harmonytask.TaskInterface) (*harmonytask.TaskEngine, error) {
+func provideEngine(lc fx.Lifecycle, db *harmonydb.DB, machineID string, tasks []harmonytask.TaskInterface) (*harmonytask.TaskEngine, error) {
 	// Piri runs a single machine, so it opens no peer connections: a nil
 	// connector makes harmonytask use its no-op one.
-	eng, err := harmonytask.New(db, tasks, id.DID().String(), nil, resourceInspector{})
+	eng, err := harmonytask.New(db, tasks, machineID, nil, resourceInspector{})
 	if err != nil {
 		return nil, err
 	}
