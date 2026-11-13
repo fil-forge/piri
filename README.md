@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="200" alt="logo" src="https://github.com/user-attachments/assets/ce2562e9-a18b-4069-a977-866cf359a75d" />
+  <img width="200" alt="logo" src="https://github.com/user-attachments/assets/48dbc7a5-27ad-4331-bf24-665c56486961" />
   <h1>Piri</h1>
   <p>A storage node that runs on the Forge network.</p>
 </div>
