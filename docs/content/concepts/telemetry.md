@@ -68,6 +68,7 @@ for example alerts.
 | <nobr>`piri_pdp_proofsets_unrecoverable`</nobr>              | Gauge | count | Number of proof sets Curio has stopped proving after an unrecoverable failure |
 | <nobr>`piri_pdp_proofset_last_proven_epoch`</nobr> | Gauge | epoch | Epoch PDPVerifier last accepted a proof for the proof set, read from the chain on each collection |
 | <nobr>`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`</nobr> | Gauge | s | Unix time the proof set was queued to drain its scheduled piece removals; absent when none is queued. PDPVerifier 3.5.0 rejects `nextProvingPeriod` until the drain finishes |
+| <nobr>`piri_pdp_proofset_untracked_add_pieces_confirmed_epoch`</nobr> | Gauge | epoch | Epoch the proof set's oldest successful `addPieces` transaction whose pieces Curio has not recorded was confirmed at; absent when there is none. A set waiting on it never starts proving |
 | <nobr>`piri_pdp_proof_cache_pending_oldest_seconds`</nobr> | Gauge | s | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer, which Curio needs to prove it, was parked; 0 when none waits |
 | <nobr>`piri_pdp_task_last_success_timestamp_seconds`</nobr>  | Gauge | s     | Unix time a PDP task last finished a run on the node without a retryable error; for `PDPv0_Prove` this is not "last proof landed" |
 
@@ -105,10 +106,12 @@ for how to read them.
 
 ### Aggregation Pipeline Metrics
 
-The entry of the aggregation pipeline. An accepted blob waits out
+The entry and exit of the aggregation pipeline. An accepted blob waits out
 [`pdp.aggregation.commp.delay`](../configuration/pdp/aggregation/commp.md#delay)
 before a CommP task claims it; the removal sweep cancels the blob's pipeline
-row if the blob is released before it is aggregated. See
+row if the blob is released before it is aggregated. Once a blob is folded
+into an aggregate it waits for a `PDPAddRoots` task to add the aggregate's root
+on chain, which deletes the blob's pipeline row. See
 [Monitoring > Aggregation Pipeline Health](../operator-guide/monitoring.md#aggregation-pipeline-health)
 for an example alert.
 
@@ -119,6 +122,8 @@ for an example alert.
 | <nobr>`piri_pdp_commp_due_blobs_oldest_seconds`</nobr>    | Gauge     | s     | How long the oldest unclaimed blob has been past the delay   |
 | <nobr>`piri_pdp_pipeline_cancelled`</nobr>                | Counter   | count | Pipeline rows the removal sweep cancelled before aggregation |
 | <nobr>`piri_pdp_pipeline_cancelled_age_seconds`</nobr>    | Histogram | s     | Age of a cancelled row since the blob's acceptance; buckets at 1m, 5m, 15m, 30m, 1h, 2h, 6h, 1d and 7d |
+| <nobr>`piri_pdp_aggregated_blobs`</nobr>                  | Gauge     | count | Blobs folded into an aggregate whose root has not been added on chain |
+| <nobr>`piri_pdp_aggregated_blobs_oldest_seconds`</nobr>   | Gauge     | s     | How long ago the oldest of those blobs was folded into its aggregate; 0 when there are none |
 
 **Labels:**
 

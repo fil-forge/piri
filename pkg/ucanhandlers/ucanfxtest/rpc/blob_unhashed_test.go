@@ -225,6 +225,55 @@ func (s *RPCSuite) TestBlobUnhashed_AcceptBeforeUpload() {
 	require.True(t, rcpt.Out().IsErr(), "nothing has been received to accept")
 }
 
+// An accept of an allocation that passed its expiry before its data was
+// received says so, where one that has not expired can be sent again.
+func (s *RPCSuite) TestBlobUnhashed_AcceptExpiredBeforeUpload() {
+	t := s.T()
+	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
+	p, err := s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
+	require.NoError(t, err)
+	p.Expires = ucan.Now() - 1
+	require.NoError(t, s.Allocations.PutPending(t.Context(), p))
+
+	_, rcpt := s.accept(t, b,
+		[]ucan.Invocation{b.put},
+		[]ucan.Receipt{putReceipt(t, b, b.putter, b.digest)})
+	assertReceiptFailure(t, rcpt, blob.AllocationExpiredErrorName)
+}
+
+// An allocation past its expiry whose data was received is still accepted.
+func (s *RPCSuite) TestBlobUnhashed_AcceptExpiredAfterUpload() {
+	t := s.T()
+	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
+	s.upload(t, b)
+	p, err := s.Allocations.GetPending(t.Context(), b.alloc.Task().Link())
+	require.NoError(t, err)
+	p.Expires = ucan.Now() - 1
+	require.NoError(t, s.Allocations.PutPending(t.Context(), p))
+
+	_, rcpt := s.accept(t, b,
+		[]ucan.Invocation{b.put},
+		[]ucan.Receipt{putReceipt(t, b, b.putter, b.digest)})
+	decodeAcceptOK(t, rcpt)
+}
+
+// An accept of an allocation the node no longer holds, here one that was
+// rejected, reports that it was not found.
+func (s *RPCSuite) TestBlobUnhashed_AcceptAfterReject() {
+	t := s.T()
+	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))
+	s.upload(t, b)
+	assertReceiptOK(t, s.rejectAllocation(t, b.alloc.Task().Link()))
+
+	_, rcpt := s.accept(t, b,
+		[]ucan.Invocation{b.put},
+		[]ucan.Receipt{putReceipt(t, b, b.putter, b.digest)})
+	assertReceiptFailure(t, rcpt, blob.AllocationNotFoundErrorName)
+
+	_, err := s.Acceptances.Get(t.Context(), b.digest, b.space)
+	require.ErrorIs(t, err, store.ErrNotFound, "nothing is accepted")
+}
+
 func (s *RPCSuite) TestBlobUnhashed_RejectBeforeUpload() {
 	t := s.T()
 	b := s.allocateUnhashed(t, testutil.RandomDID(t), testutil.RandomBytes(t, 64))

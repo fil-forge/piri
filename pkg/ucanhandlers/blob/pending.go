@@ -60,7 +60,9 @@ var (
 // put's subject; the put must have been made to an allocation of this space
 // and size; and the digest the node computed as it received the data must
 // match the one the receipt reports, else the accept fails with
-// BlobDigestMismatch.
+// BlobDigestMismatch. An allocation the node does not hold fails with
+// AllocationNotFound, and one that passed its expiry before its data was
+// received with AllocationExpired.
 func resolvePutDigest(
 	ctx context.Context,
 	pending PendingAllocations,
@@ -123,7 +125,7 @@ func resolvePutDigest(
 	p, err := pending.GetPending(ctx, putArgs.Destination.Task)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, allocation.Pending{}, fmt.Errorf("no allocation %s for the put", putArgs.Destination.Task)
+			return nil, allocation.Pending{}, allocationNotFound(putArgs.Destination.Task)
 		}
 		return nil, allocation.Pending{}, fmt.Errorf("getting pending allocation: %w", err)
 	}
@@ -131,6 +133,10 @@ func resolvePutDigest(
 		return nil, allocation.Pending{}, fmt.Errorf("allocation %s is not for this blob", p.Allocation)
 	}
 	if len(p.Digest) == 0 {
+		if p.Expires <= ucan.Now() {
+			return nil, allocation.Pending{}, errors.New(blob.AllocationExpiredErrorName,
+				"allocation %s expired at %s before the blob was received", p.Allocation, formatExpiry(p.Expires))
+		}
 		return nil, allocation.Pending{}, fmt.Errorf("blob for allocation %s has not been received", p.Allocation)
 	}
 	if !bytes.Equal(p.Digest, putOK.Blob.Digest) {

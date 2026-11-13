@@ -113,6 +113,12 @@ func NewAcceptHandler(deps AcceptDeps) server.Route {
 		}
 		resp, err := Accept(req.Context(), deps, accReq)
 		if err != nil {
+			// A named error is a decision about the request, not a server
+			// fault: report it as a receipt failure the caller can act on.
+			var named errors.Named
+			if errors.As(err, &named) {
+				return rsp.SetFailure(named)
+			}
 			return err
 		}
 
@@ -290,12 +296,24 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 // refuses an allocation released, or bytes removed, before the locks were
 // taken. An allocation made without a digest is released once its pending
 // record is gone; one made with a digest, once the space holds no allocation
-// of the blob. An accept that does not identify its allocation accepts
-// whatever the space holds. The bytes are checked under the blob's lock,
+// of the blob. An accept that does not identify its allocation accepts the
+// allocation the space holds. The bytes are checked under the blob's lock,
 // which the removal sweep takes before it deletes them.
+//
+// A space that holds no allocation of the blob is refused with
+// AllocationNotFound, whether or not the bytes are held and whether or not
+// the accept identifies its allocation. Bytes that are not held are refused
+// with AllocationExpired when the allocation passed its expiry before they
+// were delivered. An allocation past its expiry whose bytes are held is
+// accepted.
 func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptRequest) error {
 	allocs := deps.Pending
-	if req.Allocation != nil && req.WithoutDigest {
+	if req.WithoutDigest {
+		// The digest of an allocation made without one comes from its pending
+		// record, so the accept always identifies the allocation.
+		if req.Allocation == nil {
+			return fmt.Errorf("accept without a digest does not identify its allocation")
+		}
 		if err := allocs.LockPending(ctx, *req.Allocation); err != nil {
 			log.Errorw("locking pending allocation", "error", err)
 			return fmt.Errorf("locking pending allocation: %w", err)
@@ -303,7 +321,7 @@ func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptReq
 		p, err := allocs.GetPending(ctx, *req.Allocation)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
+				return allocationNotFound(*req.Allocation)
 			}
 			return fmt.Errorf("getting pending allocation: %w", err)
 		}
@@ -311,7 +329,7 @@ func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptReq
 		// The allocate task can have been released and allocated again since,
 		// so the record must still be the one the digest came from.
 		if p.Space != req.Space || p.Size != req.Blob.Size || !bytes.Equal(p.Digest, req.Blob.Digest) {
-			return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
+			return allocationNotFound(*req.Allocation)
 		}
 	}
 	if err := allocs.LockBlob(ctx, req.Blob.Digest); err != nil {
@@ -324,21 +342,44 @@ func lockAcceptedAllocation(ctx context.Context, deps AcceptDeps, req *AcceptReq
 		log.Errorw("finding piece for blob", "error", err)
 		return fmt.Errorf("finding piece for blob: %w", err)
 	}
-	if !found {
-		log.Errorw("piece not found", "blob", req.Blob.Digest)
-		return fmt.Errorf("piece not found")
-	}
 	if err := allocs.Lock(ctx, req.Blob.Digest, req.Space); err != nil {
 		log.Errorw("locking allocation", "error", err)
 		return fmt.Errorf("locking allocation: %w", err)
 	}
-	if req.Allocation != nil && !req.WithoutDigest {
-		if _, err := allocs.Get(ctx, req.Blob.Digest, req.Space); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return fmt.Errorf("allocation %s was released before it was accepted", *req.Allocation)
+	// The pending record read above stands for an allocation made without a
+	// digest. Otherwise the space must hold an allocation of the blob.
+	if !req.WithoutDigest {
+		alloc, err := allocs.Get(ctx, req.Blob.Digest, req.Space)
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("getting allocation: %w", err)
 			}
-			return fmt.Errorf("getting allocation: %w", err)
+			if req.Allocation != nil {
+				return allocationNotFound(*req.Allocation)
+			}
+			return errors.New(blob.AllocationNotFoundErrorName,
+				"%s holds no allocation of blob %s", req.Space, digestutil.Format(req.Blob.Digest))
+		}
+		if !found && alloc.Expires <= ucan.Now() {
+			return errors.New(blob.AllocationExpiredErrorName,
+				"allocation of blob %s expired at %s before the blob was received",
+				digestutil.Format(req.Blob.Digest), formatExpiry(alloc.Expires))
 		}
 	}
+	if !found {
+		log.Errorw("piece not found", "blob", req.Blob.Digest)
+		return fmt.Errorf("piece not found")
+	}
 	return nil
+}
+
+// allocationNotFound is the failure for an accept of an allocation the node
+// does not hold: one never made, rejected, or removed after it expired.
+func allocationNotFound(link cid.Cid) error {
+	return errors.New(blob.AllocationNotFoundErrorName, "allocation %s not found", link)
+}
+
+// formatExpiry renders an allocation's expiry for a failure message.
+func formatExpiry(expires ucan.UnixTimestamp) string {
+	return time.Unix(int64(expires), 0).UTC().Format(time.RFC3339)
 }

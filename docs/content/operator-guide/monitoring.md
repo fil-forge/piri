@@ -81,6 +81,8 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_commp_due_blobs` | Blobs past the delay that no CommP task has picked up (should stay near zero) |
 | `piri_pdp_commp_due_blobs_oldest_seconds` | How long the oldest of those has waited |
 | `piri_pdp_pipeline_cancelled` | Blobs removed before aggregation, by whether their CommP had been computed |
+| `piri_pdp_aggregated_blobs` | Blobs aggregated but not yet added on chain |
+| `piri_pdp_aggregated_blobs_oldest_seconds` | How long ago the oldest of those was aggregated (should stay under about 5 minutes) |
 | `system_cpu_utilization` | CPU usage |
 | `system_memory_used_bytes` | Memory usage |
 | `piri_datadir_free_bytes` | Available disk space |
@@ -89,6 +91,7 @@ Piri emits OpenTelemetry metrics and traces for detailed observability.
 | `piri_pdp_proofsets_unrecoverable` | Proof sets Curio has stopped proving |
 | `piri_pdp_proofset_last_proven_epoch` | When PDPVerifier last accepted a proof for each proof set |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | When each proof set was queued to drain scheduled piece removals, which must finish before its next proving period |
+| `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` | When each proof set's oldest piece addition that Curio has not recorded was confirmed on chain |
 | `piri_pdp_proof_cache_pending_oldest_seconds` | How long the oldest piece still waiting for the proof cache layer it needs to be proven has waited |
 | `piri_pdp_task_last_success_timestamp_seconds` | When each PDP task last finished a run without a retryable error |
 | `piri_pdp_db_pool_acquires_waited` | PDP database acquires that waited for a free connection (rising share means the pool is too small) |
@@ -130,6 +133,7 @@ one that confirms a proof landed.
 | `piri_pdp_proofsets_unrecoverable` | count | | Number of the node's proof sets Curio has stopped proving after an unrecoverable failure |
 | `piri_pdp_proofset_last_proven_epoch` | epoch | `proof_set` | The epoch at which PDPVerifier last accepted a proof for the proof set (`getDataSetLastProvenEpoch`), read from the chain on each collection, so it is what landed rather than what Curio sent. It advances once per proving period while proving works. Before a set's first proof it holds the epoch the set was created, so judge it only for sets with a scheduled challenge. Absent when the chain read fails |
 | `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` | unix seconds | `proof_set` | When the proof set was queued to drain its scheduled piece removals with `processPieceDeletions` (`pdpv0_deletion_drain.created_at`). PDPVerifier 3.5.0 rejects `nextProvingPeriod` while removals are queued, so a drain still queued after a proving period means proving is blocked on it. Absent when no drain is queued |
+| `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` | epoch | `proof_set` | The epoch at which the proof set's oldest `addPieces` transaction that succeeded on chain, but whose pieces Curio has not recorded from its receipt, was confirmed (`pdp_data_set_piece_adds` with `add_message_ok` true and `pieces_added` false). Curio records an add on the next chain head, so a value more than a few epochs behind the head means it cannot read the receipt, for example after a contract upgrade adds an event its parser does not know. A new proof set is not scheduled for proving until its first add is recorded, so none of the schedule-based alerts see this. Absent when there is none |
 | `piri_pdp_proof_cache_pending_oldest_seconds` | seconds | | How long ago the oldest parked piece above 32 MiB padded that still has no proof cache layer was parked, whether or not a `PDPv0_SaveCache` task has claimed it. Curio proves a sub-piece of that size only from its layer, so a piece in a proof set without one fails every proof. A layer is normally built within minutes of parking; 0 when none waits. The age counts from parking, not from when the piece was queued, so when Curio queues an older piece to rebuild a layer that failed validation, the gauge jumps to that piece's age until the rebuild finishes |
 | `piri_pdp_task_last_success_timestamp_seconds` | unix seconds | `task_name` | When a run of `PDPv0_Prove`, `PDPv0_ProvPeriod`, `PDPv0_InitPP` or `PDPv0_ProcDel` last finished on this node without a retryable error. For `PDPv0_Prove` that includes runs that woke too late, found proving disabled, or had their proof rejected: it shows the task is running, not that proofs are landing |
 
@@ -151,6 +155,9 @@ The proof set gauges are read from the database at each collection:
 - `piri_pdp_proofset_deletion_drain_queued_timestamp_seconds` is reported only
   while a drain is queued. A queued drain the task finds empty is dropped on
   its next run, so a short-lived series after removals or an upgrade is normal.
+- `piri_pdp_proofset_untracked_add_pieces_confirmed_epoch` is reported only while
+  an add is confirmed but untracked, which is normally for less than a
+  minute after each add lands.
 - After the upgrade that adds the proof cache, every piece already parked
   above 32 MiB waits for its layer, so `piri_pdp_proof_cache_pending_oldest_seconds`
   starts at the age of the oldest piece and falls as the backlog drains.
@@ -227,6 +234,19 @@ piri_pdp_proofset_last_proven_epoch{job="forge/piri"}
   30 * piri_pdp_proofset_proving_period_epochs{job="forge/piri"}
 )
 
+# Untracked add pieces: an addPieces transaction for a proof set succeeded on
+# chain more than 20 epochs (10 minutes) ago, and Curio has still not recorded
+# its pieces. Curio retries the receipt on every chain head without reporting a
+# failure, so the set never starts proving and the schedule-based alerts above
+# stay quiet. Check logs for warnings about extracting pieces from the receipt.
+(
+    max by (node) (piri_chain_head_epoch{job="forge/piri"})
+  + (time() - max by (node) (piri_chain_head_timestamp_seconds{job="forge/piri"})) / 30
+)
+- on (node) group_right()
+piri_pdp_proofset_untracked_add_pieces_confirmed_epoch{job="forge/piri"}
+> 20
+
 # Proof cache backlog: a piece above 32 MiB padded has waited more than 30
 # minutes for its proof cache layer. Curio proves such a piece only from the
 # layer, so once it is in a proof set and challenged, the proof fails. Check
@@ -266,6 +286,19 @@ is past the delay the task engine claims it within a poll, so
 that keeps growing, or an oldest age of minutes, means claims have stopped:
 the task engine is down, or every poll finds other work first.
 
+At the other end, a folded aggregate waits for a `PDPAddRoots` task to add its
+root on chain. A full batch of
+[`pdp.aggregation.manager.batch_size`](../configuration/pdp/aggregation/manager.md#batch_size)
+roots is sent at once and a partial one on the next
+[`poll_interval`](../configuration/pdp/aggregation/manager.md#poll_interval).
+The task then waits for the transaction to confirm, eight epochs (4 minutes),
+before it deletes the batch's rows. So
+`piri_pdp_aggregated_blobs_oldest_seconds` stays under about 5 minutes and
+`piri_pdp_aggregated_blobs` rises and falls with each batch. An age that keeps
+growing means AddRoots has stopped: check the `PDPAddRoots` task's logs and
+Piri's chain RPC. If roots are still landing but the age climbs, aggregates are
+folded faster than AddRoots sends them; raise `batch_size`.
+
 | Metric | Unit | Labels | What It Tells You |
 |--------|------|--------|-------------------|
 | `piri_pdp_commp_held_blobs` | count | | Accepted blobs still inside the CommP delay |
@@ -273,12 +306,20 @@ the task engine is down, or every poll finds other work first.
 | `piri_pdp_commp_due_blobs_oldest_seconds` | seconds | | How long the oldest of those has been past the delay |
 | `piri_pdp_pipeline_cancelled` | count | `stage` | Blobs released before aggregation. `before_commp` ones cost no CommP and no on-chain root; `after_commp` ones had their CommP computed and piece parked, and finalization cleans that up |
 | `piri_pdp_pipeline_cancelled_age_seconds` | seconds | `stage` | Age of each cancelled blob since acceptance. The share of `before_commp` cancellations under the delay is what the delay is saving; the histogram's shape says whether a shorter or longer delay would save more |
+| `piri_pdp_aggregated_blobs` | count | | Blobs folded into an aggregate whose root has not been added on chain |
+| `piri_pdp_aggregated_blobs_oldest_seconds` | seconds | | How long ago the oldest of those was folded; 0 when there are none |
 
 ```promql
 # CommP claims stalled: a blob has been past the delay for 10 minutes without a
 # CommP task claiming it. The engine claims due blobs on each poll (seconds),
 # so this is the task engine down or saturated, not a slow CommP.
 max by (node) (piri_pdp_commp_due_blobs_oldest_seconds{job="forge/piri"}) > 600
+
+# AddRoots stalled or falling behind: a blob was aggregated 10 minutes ago and
+# its root is still not added on chain. A healthy batch is sent within a poll
+# interval and confirmed within 4 minutes, so the age stays under about 5
+# minutes; twice that is AddRoots failing or too slow for the fold rate.
+max by (node) (piri_pdp_aggregated_blobs_oldest_seconds{job="forge/piri"}) > 600
 ```
 
 ### PDP Database Pool
@@ -369,11 +410,13 @@ Recommended alerts:
 | Proof set unrecoverable (`piri_pdp_proofsets_unrecoverable`) | Warning | Check logs for why Curio gave up on the proof set |
 | Proof set not proven on chain for over a proving period (`piri_pdp_proofset_last_proven_epoch`) | Critical | Check logs for the `PDPv0_Prove` and `PDPv0_ProvPeriod` tasks, and the proof set with `piri client pdp proofset state` |
 | Deletion drain queued for over a proving period (`piri_pdp_proofset_deletion_drain_queued_timestamp_seconds`) | Critical | Check logs for the `PDPv0_ProcDel` task and its `processPieceDeletions` transactions |
+| Untracked add pieces for over 20 epochs (`piri_pdp_proofset_untracked_add_pieces_confirmed_epoch`) | Warning | Check logs for warnings about extracting pieces from the `addPieces` receipt |
 | A piece has waited over 30 minutes for its proof cache layer (`piri_pdp_proof_cache_pending_oldest_seconds`) | Warning | Check logs for the `PDPv0_SaveCache` task and its blobstore reads |
 | Disk space <10% free | Warning | Expand storage or clean up |
 | Disk space <5% free | Critical | Immediate action required |
 | Failed jobs accumulating | Warning | Check logs for root cause |
 | No `PDPv0_Prove` run finished in 1.5 proving periods (`piri_pdp_task_last_success_timestamp_seconds`) | Critical | Verify node is running and healthy |
+| An aggregated blob has waited over 10 minutes to be added on chain (`piri_pdp_aggregated_blobs_oldest_seconds`) | Warning | Check logs for the `PDPAddRoots` task and the chain RPC; raise `batch_size` if roots are landing but too slowly |
 | A tenth of PDP database acquires waited for a connection over 15 minutes (`piri_pdp_db_pool_acquires_waited`) | Warning | Raise `pool_max_conns` on the Postgres URL |
 
 ## Regular Checks
