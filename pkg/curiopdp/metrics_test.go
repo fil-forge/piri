@@ -284,7 +284,7 @@ func TestDBMetricsSource(t *testing.T) {
 	_, err = db.Exec(ctx, `INSERT INTO pdpv0_deletion_drain (data_set, created_at) VALUES (4, '2026-01-01T00:30:00Z')`)
 	require.NoError(t, err)
 
-	const host = "10.0.0.1:12300"
+	const host = "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK"
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	insertHistory := func(name string, end time.Time, ok bool, by string) {
 		t.Helper()
