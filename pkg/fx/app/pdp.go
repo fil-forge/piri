@@ -51,7 +51,7 @@ var PDPModule = fx.Module("pdp",
 	// The task engine records this node under its DID, which is unique per
 	// node and does not change with the listen address.
 	fx.Provide(fx.Annotate(
-		func(cfg app.IdentityConfig) string { return cfg.Issuer.String() },
+		func(cfg app.IdentityConfig) string { return cfg.Issuer.DID().String() },
 		fx.ResultTags(curiopdp.MachineIDTag),
 	)),
 	smartcontracts.Module,
