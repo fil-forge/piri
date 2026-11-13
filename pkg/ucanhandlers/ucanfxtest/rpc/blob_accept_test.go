@@ -3,17 +3,21 @@ package rpc_test
 import (
 	"bytes"
 	"net/url"
+	"testing"
 
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
 	"github.com/fil-forge/libforge/testutil"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
+
+	"github.com/fil-forge/piri/pkg/store"
 )
 
 // /blob/accept is performed by the upload service: The invocation subject is
@@ -34,6 +38,8 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	data := testutil.RandomBytes(t, 64)
 	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
 	size := uint64(len(data))
+	space := testutil.RandomDID(t)
+	s.allocate(t, space, digest, size)
 	s.Pieces.Put(digest, data)
 
 	// The Put promise on AcceptArguments is an await on the blob/allocate
@@ -41,7 +47,6 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	// hand it a freshly-minted CID — the handler doesn't resolve the
 	// promise, it just persists it alongside the acceptance record.
 	putAwait := promise.AwaitOK{Task: testutil.RandomCID(t)}
-	space := testutil.RandomDID(t)
 
 	// /blob/accept is performed by the upload service: the provider delegates
 	// /blob/accept to the upload service, which issues the invocation with the
@@ -217,4 +222,74 @@ func (s *RPCSuite) TestBlobAccept_ExistingDataInDifferentSpace() {
 	// The two acceptances issued distinct location commitments.
 	require.NotEqual(t, acceptOKA.Site, acceptOKB.Site,
 		"each space's accept issues a distinct location commitment")
+}
+
+// acceptDigest sends a /blob/accept that names the blob's digest.
+func (s *RPCSuite) acceptDigest(space did.DID, digest multihash.Multihash, size uint64) ucan.Receipt {
+	t := s.T()
+	proof := testutil.Must(delegation.Delegate(
+		s.ServiceID, s.UploadServiceIdentity.DID(), s.ServiceID.DID(), blob.Accept.Command,
+	))(t)
+	inv := testutil.Must(blob.Accept.Invoke(
+		s.UploadServiceIdentity,
+		s.ServiceID.DID(),
+		&blob.AcceptArguments{
+			Space: space,
+			Blob:  blob.SpecFromDigest(digest, size),
+			Put:   promise.AwaitOK{Task: testutil.RandomCID(t)},
+		},
+		invocation.WithAudience(s.ServiceID.DID()),
+		invocation.WithProofs(proof.Link()),
+	))(t)
+	return s.sendInvocationWithProofs(t, inv, proof)
+}
+
+// An accept of a blob the space holds no allocation of reports that the
+// allocation was not found, whether or not the node holds the bytes.
+func (s *RPCSuite) TestBlobAccept_AllocationNotFound() {
+	t := s.T()
+	rcpt := s.acceptDigest(testutil.RandomDID(t), testutil.RandomMultihash(t), 64)
+	assertReceiptFailure(t, rcpt, blob.AllocationNotFoundErrorName)
+
+	data := testutil.RandomBytes(t, 64)
+	digest := testutil.Must(multihash.Sum(data, multihash.SHA2_256, -1))(t)
+	space := testutil.RandomDID(t)
+	s.Pieces.Put(digest, data)
+	rcpt = s.acceptDigest(space, digest, uint64(len(data)))
+	assertReceiptFailure(t, rcpt, blob.AllocationNotFoundErrorName)
+	_, err := s.Acceptances.Get(t.Context(), digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "nothing is accepted")
+}
+
+// An accept of an allocation that passed its expiry before the bytes were
+// delivered reports that it expired.
+func (s *RPCSuite) TestBlobAccept_AllocationExpired() {
+	t := s.T()
+	space, digest := testutil.RandomDID(t), testutil.RandomMultihash(t)
+	alloc, allocProof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.SpecFromDigest(digest, 64),
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, allocProof))
+	held, err := s.Allocations.Get(t.Context(), digest, space)
+	require.NoError(t, err)
+	held.Expires = ucan.Now() - 1
+	require.NoError(t, s.Allocations.Put(t.Context(), held))
+
+	assertReceiptFailure(t, s.acceptDigest(space, digest, 64), blob.AllocationExpiredErrorName)
+
+	_, err = s.Acceptances.Get(t.Context(), digest, space)
+	require.ErrorIs(t, err, store.ErrNotFound, "nothing is accepted")
+}
+
+// allocate sends a /blob/allocate that gives space an allocation of the blob.
+func (s *RPCSuite) allocate(t *testing.T, space did.DID, digest multihash.Multihash, size uint64) {
+	t.Helper()
+	alloc, proof := s.newAllocate(t, &blob.AllocateArguments{
+		Space: space,
+		Blob:  blob.SpecFromDigest(digest, size),
+		Cause: testutil.RandomCID(t),
+	})
+	assertReceiptOK(t, s.sendInvocationWithProofs(t, alloc, proof))
 }
