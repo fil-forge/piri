@@ -48,6 +48,12 @@ var PDPModule = fx.Module("pdp",
 		},
 		func(staging *blobstore.StagingStore) blobstore.Blobstore { return staging },
 	),
+	// The task engine records this node under its DID, which is unique per
+	// node and does not change with the listen address.
+	fx.Provide(fx.Annotate(
+		func(cfg app.IdentityConfig) string { return cfg.Issuer.DID().String() },
+		fx.ResultTags(curiopdp.MachineIDTag),
+	)),
 	smartcontracts.Module,
 	pipeline.Module, // aggregation pipeline (commp/aggregate/add-roots) + removal sweep as harmonytasks
 	curiopdp.Module, // Curio pdpv0 pipeline (harmonytask + prove/proving-period) on harmonydb
