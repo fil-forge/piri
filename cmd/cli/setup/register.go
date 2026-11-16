@@ -437,6 +437,11 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	if parsedURL.Scheme == "" {
 		return nil, fmt.Errorf("--public-url must include a scheme (http:// or https://)")
 	}
+	// The node's DID is derived from the public URL; fail here, before
+	// anything is registered, if it cannot be.
+	if _, err := config.DIDFromPublicURL(*parsedURL); err != nil {
+		return nil, fmt.Errorf("--public-url: %w", err)
+	}
 
 	walletPath, err := cmd.Flags().GetString("wallet-file")
 	if err != nil {
@@ -664,7 +669,7 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 	}
 
 	cfg := appcfg.AppConfig{
-		Identity: lo.Must(config.IdentityConfig{KeyFile: flags.keyFile}.ToAppConfig()),
+		Identity: lo.Must(config.IdentityConfig{KeyFile: flags.keyFile}.ToAppConfig(*flags.publicURL)),
 		Server: appcfg.ServerConfig{
 			Host:      flags.host,
 			Port:      flags.port,

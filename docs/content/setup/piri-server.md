@@ -92,7 +92,7 @@ export PIRI_PDP_LOTUS_AUTH_TOKEN=YOUR_TOKEN_HERE
 ✅ Configuration validated
 
 [2/6] Creating Piri node...
-✅ Node created with DID: did:key:z6MkhaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+✅ Node created with DID: did:web:piri.example.com
 
 [3/6] Registering provider with contract...
 ⏳ Waiting for registration to be confirmed on-chain...
@@ -137,7 +137,7 @@ If the `--config` option is not provided, Piri will automatically load config fr
 ▐▌   █      █  ▀▘
 
 🔥 v0.2.4
-🆔 did:key:z6MkhaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+🆔 did:web:piri.example.com
 Piri Running on: localhost:3000
 Piri Public Endpoint: https://piri.example.com
 ```
