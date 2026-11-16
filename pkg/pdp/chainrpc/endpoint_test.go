@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -15,6 +16,16 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 )
+
+// callTimeout bounds each test call, so a call the client never ends fails the
+// test with a deadline error instead of hanging until go test's timeout.
+const callTimeout = 10 * time.Second
+
+// dropDelay is how long the endpoint waits after reading a request before it
+// drops the WebSocket. go-ethereum leaves a call waiting for good if the drop
+// is noticed while the client is still finishing the request's write, so the
+// endpoint gives it time to finish.
+const dropDelay = 100 * time.Millisecond
 
 // endpoint is how the fake chain RPC endpoint answers.
 type endpoint struct {
@@ -54,6 +65,7 @@ func serveEndpoint(t *testing.T, e endpoint, scheme string) string {
 				continue
 			}
 			if e.dropOnRequest {
+				time.Sleep(dropDelay)
 				return
 			}
 			reply := fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, req.ID)
@@ -73,7 +85,8 @@ func serveEndpoint(t *testing.T, e endpoint, scheme string) string {
 // eth client does, and returns its error.
 func callEth(t *testing.T, e endpoint, scheme string) error {
 	t.Helper()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
 	rc, err := rpc.DialOptions(ctx, serveEndpoint(t, e, scheme))
 	if err != nil {
 		return err
@@ -90,12 +103,14 @@ func callLotus(t *testing.T, e endpoint) error {
 	var api struct {
 		ChainHead func(context.Context) (string, error)
 	}
-	closer, err := jsonrpc.NewMergeClient(context.Background(), serveEndpoint(t, e, "ws"), "Filecoin", []any{&api}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	closer, err := jsonrpc.NewMergeClient(ctx, serveEndpoint(t, e, "ws"), "Filecoin", []any{&api}, nil)
 	if err != nil {
 		return err
 	}
 	t.Cleanup(closer)
-	_, err = api.ChainHead(context.Background())
+	_, err = api.ChainHead(ctx)
 	return err
 }
 
