@@ -21,12 +21,6 @@ import (
 // test with a deadline error instead of hanging until go test's timeout.
 const callTimeout = 10 * time.Second
 
-// dropDelay is how long the endpoint waits after reading a request before it
-// drops the WebSocket. go-ethereum leaves a call waiting for good if the drop
-// is noticed while the client is still finishing the request's write, so the
-// endpoint gives it time to finish.
-const dropDelay = 100 * time.Millisecond
-
 // endpoint is how the fake chain RPC endpoint answers.
 type endpoint struct {
 	// handshakeStatus, when set, refuses every request with this HTTP status.
@@ -35,8 +29,11 @@ type endpoint struct {
 	// JSON-RPC request with this error.
 	rpcErrCode    int
 	rpcErrMessage string
-	// dropOnRequest closes the WebSocket when the first request arrives.
-	dropOnRequest bool
+	// dropOnRequest, when set, closes the WebSocket when the request with
+	// this number (counting from 1) arrives, leaving earlier ones unanswered.
+	dropOnRequest int
+	// received, when set, gets a value as each request arrives.
+	received chan<- struct{}
 }
 
 // serveEndpoint starts the fake endpoint and returns its address with scheme.
@@ -53,7 +50,7 @@ func serveEndpoint(t *testing.T, e endpoint, scheme string) string {
 			return
 		}
 		defer conn.Close()
-		for {
+		for n := 1; ; n++ {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
 				return
@@ -64,9 +61,14 @@ func serveEndpoint(t *testing.T, e endpoint, scheme string) string {
 			if json.Unmarshal(msg, &req) != nil || req.ID == nil {
 				continue
 			}
-			if e.dropOnRequest {
-				time.Sleep(dropDelay)
+			if e.received != nil {
+				e.received <- struct{}{}
+			}
+			if n == e.dropOnRequest {
 				return
+			}
+			if e.dropOnRequest != 0 {
+				continue
 			}
 			reply := fmt.Sprintf(`{"jsonrpc":"2.0","id":%s,"result":"0x1"}`, req.ID)
 			if e.rpcErrCode != 0 {
@@ -94,6 +96,36 @@ func callEth(t *testing.T, e endpoint, scheme string) error {
 	t.Cleanup(rc.Close)
 	_, err = ethclient.NewClient(rc).BlockNumber(ctx)
 	return err
+}
+
+// callEthDroppedMidCall makes an eth_blockNumber call that is waiting for its
+// answer when the endpoint drops the WebSocket, and returns its error.
+// go-ethereum leaves a call waiting for good if the drop arrives before it has
+// finished sending the request. It sends a second call only once the first is
+// fully sent, so the endpoint drops when the second call arrives.
+func callEthDroppedMidCall(t *testing.T) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
+	defer cancel()
+	received := make(chan struct{}, 2)
+	rc, err := rpc.DialOptions(ctx, serveEndpoint(t, endpoint{dropOnRequest: 2, received: received}, "ws"))
+	if err != nil {
+		return err
+	}
+	t.Cleanup(rc.Close)
+	client := ethclient.NewClient(rc)
+	first := make(chan error, 1)
+	go func() {
+		_, err := client.BlockNumber(ctx)
+		first <- err
+	}()
+	select {
+	case <-received:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	go func() { _, _ = client.BlockNumber(ctx) }()
+	return <-first
 }
 
 // callLotus makes one Filecoin.ChainHead call through go-jsonrpc, the way

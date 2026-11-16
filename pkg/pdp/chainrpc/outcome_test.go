@@ -45,14 +45,14 @@ func TestClassifyOutcome(t *testing.T) {
 		{"an eth JSON-RPC error about the call itself", func(t *testing.T) error {
 			return requireErr(t, callEth(t, endpoint{rpcErrCode: -32000, rpcErrMessage: "execution reverted"}, "ws"))
 		}, outcomeError},
-		{"an eth WebSocket dropped mid-call", func(t *testing.T) error { return requireErr(t, callEth(t, endpoint{dropOnRequest: true}, "ws")) }, outcomeUnavailable},
+		{"an eth WebSocket dropped mid-call", func(t *testing.T) error { return requireErr(t, callEthDroppedMidCall(t)) }, outcomeUnavailable},
 		{"a Lotus JSON-RPC limit error (-32005)", func(t *testing.T) error {
 			return requireErr(t, callLotus(t, endpoint{rpcErrCode: -32005, rpcErrMessage: "limit exceeded"}))
 		}, outcomeRateLimited},
 		{"a Lotus JSON-RPC error about the call itself", func(t *testing.T) error {
 			return requireErr(t, callLotus(t, endpoint{rpcErrCode: -32603, rpcErrMessage: "actor not found"}))
 		}, outcomeError},
-		{"a Lotus WebSocket dropped mid-call", func(t *testing.T) error { return requireErr(t, callLotus(t, endpoint{dropOnRequest: true})) }, outcomeUnavailable},
+		{"a Lotus WebSocket dropped mid-call", func(t *testing.T) error { return requireErr(t, callLotus(t, endpoint{dropOnRequest: 1})) }, outcomeUnavailable},
 	} {
 		t.Run("classifies "+tc.name+" as "+string(tc.want), func(t *testing.T) {
 			err := tc.err(t)
