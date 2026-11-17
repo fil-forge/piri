@@ -70,6 +70,20 @@ func (m *Metrics) recordCall(ctx context.Context, client, method string, err err
 	))
 }
 
+// zeroUnauthorized starts the call's unauthorized count at 0. Prometheus sees
+// no increase in a series that first appears at 1, so without this the first
+// refusal would not fire the key-refused alert.
+func (m *Metrics) zeroUnauthorized(client, method string) {
+	if m == nil {
+		return
+	}
+	m.calls.Add(context.Background(), 0, metric.WithAttributes(
+		attribute.String("client", client),
+		attribute.String("method", method),
+		attribute.String("outcome", string(outcomeUnauthorized)),
+	))
+}
+
 // recordSubscriptionClosed counts one subscription that closed under its reader.
 func (m *Metrics) recordSubscriptionClosed(client, method string) {
 	if m == nil {

@@ -175,6 +175,20 @@ func TestProbe(t *testing.T) {
 		require.Equal(t, map[string]int64{"eth": 1, "lotus": 0}, collect(t, reader, "piri_chain_rpc_reachable"))
 	})
 
+	t.Run("starts the probe calls' unauthorized counts at zero, so the first refusal shows as an increase", func(t *testing.T) {
+		m, reader := newTestMetrics(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the probe loops record nothing once ctx is done
+
+		StartProbe(ctx, m, &fakeEth{}, &fakeLotus{}, Endpoint{})
+
+		require.Equal(t, map[string]int64{
+			"endpoint/Handshake/unauthorized": 0,
+			"eth/BlockNumber/unauthorized":    0,
+			"lotus/ChainHead/unauthorized":    0,
+		}, collect(t, reader, "piri_chain_rpc_calls"))
+	})
+
 	t.Run("counts the probe's calls like any other", func(t *testing.T) {
 		m, reader := newTestMetrics(t)
 		eth := NewEthClient(&fakeEth{}, m)

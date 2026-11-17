@@ -22,6 +22,7 @@ const (
 	// checks the key only when a connection opens, so the calls above, on
 	// connections opened at start-up, cannot see a key revoked since.
 	handshakeInterval = 5 * time.Minute
+	handshakeMethod   = "Handshake"
 )
 
 // The probe makes one cheap read through each client.
@@ -37,6 +38,10 @@ type lotusProber interface {
 // fresh handshake with endpoint now and every handshakeInterval, until ctx is
 // done. Pass the instrumented clients, so the probe's calls are counted too.
 func StartProbe(ctx context.Context, m *Metrics, eth ethProber, lotus lotusProber, endpoint Endpoint) {
+	// The probe's calls are the first to see a refused key.
+	m.zeroUnauthorized(ClientEth, "BlockNumber")
+	m.zeroUnauthorized(ClientLotus, "ChainHead")
+	m.zeroUnauthorized(ClientEndpoint, handshakeMethod)
 	go func() {
 		ticker := time.NewTicker(handshakeInterval)
 		defer ticker.Stop()
@@ -115,5 +120,5 @@ func probeHandshake(ctx context.Context, m *Metrics, endpoint Endpoint) {
 	if errors.Is(err, websocket.ErrBadHandshake) && resp != nil {
 		err = fmt.Errorf("%w (HTTP status %s)", err, resp.Status)
 	}
-	m.recordCall(ctx, ClientEndpoint, "Handshake", err)
+	m.recordCall(ctx, ClientEndpoint, handshakeMethod, err)
 }
