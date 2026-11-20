@@ -125,7 +125,7 @@ func newDIDResolver(cfg app.UCANServiceConfig) (did.Resolver, error) {
 	}
 	m := resolver.ByMethod{
 		"key": key.Resolver,
-		"web": resolver.NewCached(httpResolver, 24*time.Hour),
+		"web": httpResolver,
 		"plc": resolver.NewCached(p, 3*time.Hour),
 	}
 	return m, nil
