@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -577,4 +578,23 @@ func TestParseAndValidateFlags_S3Path(t *testing.T) {
 			require.ErrorContains(t, err, tc.message)
 		})
 	}
+}
+
+func TestParseAndValidateFlags_BaseConfigS3Path(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("testdata", "generated-config", "base-config.toml"))
+	require.NoError(t, err)
+	withPath := strings.Replace(string(fixture), `bucket_prefix = "fixture-"`, `path = "fixture/piri-0/"`, 1)
+	require.NotEqual(t, string(fixture), withPath, "the fixture no longer sets bucket_prefix = \"fixture-\"")
+	baseConfig := filepath.Join(t.TempDir(), "base-config.toml")
+	require.NoError(t, os.WriteFile(baseConfig, []byte(withPath), 0o600))
+
+	t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+	cmd := &cobra.Command{Use: "init"}
+	addInitFlags(cmd)
+	require.NoError(t, cmd.ParseFlags(append(append([]string{}, goldenCommonArgs...),
+		"--base-config="+baseConfig, "--registrar-url=https://registrar.example.com")))
+	flags, err := parseAndValidateFlags(cmd)
+	require.NoError(t, err)
+
+	require.Equal(t, "fixture/piri-0/", flags.storage.s3.Path)
 }
