@@ -555,8 +555,8 @@ github.com/fil-forge/libforge v0.0.0-20261111172920-ff407324a982 h1:dguWFiI+Dyus
 github.com/fil-forge/libforge v0.0.0-20261111172920-ff407324a982/go.mod h1:ZtPwUgXm7gqQSmjmIcfMy5AwWpFIR02WMZvbgNOwi/4=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
-github.com/fil-forge/ucantone v0.0.0-20261103134646-342e8488c56a h1:RmV9ClZWftnSW5jDMC6Xtb55wNkdz2j07+pR6eiaQbg=
-github.com/fil-forge/ucantone v0.0.0-20261103134646-342e8488c56a/go.mod h1:430/+X2LtJhgc4yMsoRhMImJ4fdWDpaaubS3v55F6kA=
+github.com/fil-forge/ucantone v0.0.0-20261120104359-4253712d41e4 h1:2hQIpdhNOu0QKY1rpdsYnJRtNG/0MklyETPraR/ms+Y=
+github.com/fil-forge/ucantone v0.0.0-20261120104359-4253712d41e4/go.mod h1:PJe9Lcv+QWawlM29ItA9y5JzFIs37gZ3jODxYKXbQkM=
 github.com/filecoin-project/curio v1.29.3 h1:UFzo6zpTO+KarcUugqDJTXhF88XuXCfQdh2aoax1+Lo=
 github.com/filecoin-project/curio v1.29.3/go.mod h1:sjU79DniqrT63Ye1udRip6rX47SX96eo2qBboxvr9qY=
 github.com/filecoin-project/filecoin-ffi v1.37.0 h1:mv/1uLee2Y/Wx7zvi8sTC4m/bEtEBuaW1OwqPilBBu0=
@@ -726,8 +726,8 @@ github.com/go-stack/stack v1.8.0/go.mod h1:v0f6uXyyMGvRgIKkXu+yp6POWl0qKG85gN/me
 github.com/go-task/slim-sprig v0.0.0-20210107165309-348f09dbbbc0/go.mod h1:fyg7847qk6SyHyPtNmDHnmrv/HOrqktSC+C9fM+CJOE=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=
 github.com/go-viper/mapstructure/v2 v2.5.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
-github.com/gobwas/glob v0.2.3 h1:A4xDbljILXROh+kObIiy5kIaPYD8e96x1tgBhUI5J+Y=
-github.com/gobwas/glob v0.2.3/go.mod h1:d3Ez4x06l9bZtSvzIay5+Yzi0fmZzPgnTbPcKjJAkT8=
+github.com/gobwas/glob v1.1.0 h1:CS8tIr7+5fu50N+tKsQy3osOU5jmhjHv0/ildcKAn2Q=
+github.com/gobwas/glob v1.1.0/go.mod h1:5OYLTTNYHcww+D/XwWAjGpmIE8sD41kWneKyzWkK7/k=
 github.com/goccy/go-json v0.10.2/go.mod h1:6MelG93GURQebXPDq3khkgXZkazVtN9CRI+MGFi0w8I=
 github.com/goccy/go-yaml v1.9.8/go.mod h1:JubOolP3gh0HpiBc4BLRD4YmjEjHAmIIB2aaXKkTfoE=
 github.com/goccy/go-yaml v1.11.0/go.mod h1:H+mJrWtjPTJAHvRbV09MCK9xYwODM+wRTVFFTWckfng=
