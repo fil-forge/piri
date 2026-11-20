@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/fil-forge/libforge/commands/assert"
 	"github.com/fil-forge/libforge/commands/blob"
@@ -13,6 +14,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan/delegation"
 	"github.com/fil-forge/ucantone/ucan/invocation"
 	"github.com/fil-forge/ucantone/ucan/promise"
+	"github.com/fil-forge/ucantone/validator"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multihash"
 	"github.com/stretchr/testify/require"
@@ -85,6 +87,13 @@ func (s *RPCSuite) TestBlobAccept_Basic() {
 	claim, err := s.ClaimStore.Get(t.Context(), ok.Site)
 	require.NoError(t, err, "location claim persisted under Site CID")
 	require.Equal(t, s.ServiceID.DID(), claim.Issuer(), "claim is signed by the service")
+	// The claim outlives the key that signed it, and its issue time is what
+	// places it before a later change of key.
+	require.NotNil(t, claim.IssuedAt(), "claim records when it was issued")
+	require.InDelta(t, time.Now().Unix(), int64(*claim.IssuedAt()), 60, "claim was issued now")
+	require.NoError(t,
+		validator.ValidateInvocation(s.Ctx(), claim, validator.WithDIDResolver(s.nodeResolver())),
+		"claim verifies against the DID document the node serves")
 	require.Equal(t, s.ServiceID.DID(), claim.Subject(),
 		"location claim is issued by the provider node")
 	require.Equal(t, assert.Location.Command, claim.Command(),

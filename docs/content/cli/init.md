@@ -45,7 +45,7 @@ All flags are required:
 | `--wallet-file <path>` | Path to hex file containing your delegated Filecoin wallet private key |
 | `--lotus-endpoint <url>` | WebSocket URL of your Lotus node (e.g., `wss://lotus.example.com/rpc/v1`) |
 | `--operator-email <email>` | Contact email for the Forge team to reach you |
-| `--public-url <url>` | Public HTTPS URL where your node will be accessible |
+| `--public-url <url>` | Public HTTPS URL where your node will be accessible. The node's DID is derived from it, so it must have no path |
 
 `--blob-dir <path>` is optional. It keeps blob bytes and IPNI adverts in a directory other than `--data-dir`, and `init` writes it into the generated config as [`repo.blob_dir`](../configuration/repo/index.md#blob_dir).
 
@@ -84,7 +84,7 @@ Initializing your Piri node on the Forge Network...
 Configuration validated
 
 [2/5] Creating Piri node...
-Node created with DID: did:key:z6MkhaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+Node created with DID: did:web:piri.example.com
 
 [3/5] Setting up proof set...
 Creating new proof set...
