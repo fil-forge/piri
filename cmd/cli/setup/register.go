@@ -107,7 +107,7 @@ func addInitFlags(cmd *cobra.Command) {
 
 	// S3 storage configuration flags
 	cmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
-	cmd.Flags().String("s3-bucket-prefix", "", "Prefix for S3 bucket names (e.g. 'piri-' creates piri-blobs, piri-allocations)")
+	cmd.Flags().String("s3-bucket-prefix", "", "Prefix for S3 bucket names ('piri-' creates the bucket piri-pdp), or bucket and folder ('fil-one/piri-0/' stores under piri-0/ in the bucket fil-one)")
 	cmd.Flags().String("s3-access-key-id", "", "S3 access key ID")
 	cmd.Flags().String("s3-secret-access-key", "", "S3 secret access key")
 	cmd.Flags().Bool("s3-insecure", false, "Disable SSL for S3 (development only)")

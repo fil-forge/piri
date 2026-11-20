@@ -2,6 +2,7 @@ package s3
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -30,14 +31,23 @@ var Module = fx.Module("s3-store",
 	),
 )
 
-// Stores holds the S3/MinIO store instances, each in its own bucket named
-// with the configured prefix.
+// Stores holds the S3/MinIO stores.
 type Stores struct {
-	// PDP holds blob bytes, in the bucket {prefix}pdp.
+	// PDP holds blob bytes.
 	PDP *minio_store.Store
+	// IPNI holds the node's IPNI adverts, one object per advert.
+	IPNI objectstore.Store
 }
 
-// NewStores creates the S3/MinIO stores.
+// NewStores creates the S3/MinIO stores where the bucket prefix places them.
+//
+// A prefix without a "/" names a bucket of its own for the blobs,
+// {prefix}pdp, and the IPNI adverts go under ipni/ in that bucket.
+//
+// A prefix with a "/" places both in one bucket, shared with other data: the
+// part before the first "/" names the bucket and the rest is a folder in it. For
+// "fil-one/piri-0/", the blobs go under piri-0/pdp/ and the IPNI adverts
+// under piri-0/ipni/ in the bucket fil-one.
 func NewStores(cfg app.StorageConfig) (*Stores, error) {
 	if cfg.S3 == nil || cfg.S3.Endpoint == "" || cfg.S3.BucketPrefix == "" {
 		return nil, fmt.Errorf("S3 configuration required: endpoint and bucket_prefix must be set")
@@ -52,16 +62,25 @@ func NewStores(cfg app.StorageConfig) (*Stores, error) {
 		)
 	}
 
-	prefix := cfg.S3.BucketPrefix
 	endpoint := cfg.S3.Endpoint
-	stores := &Stores{}
-	var err error
-
-	if stores.PDP, err = minio_store.New(endpoint, prefix+"pdp", options); err != nil {
-		return nil, fmt.Errorf("creating pdp s3 store: %w", err)
+	bucket, folder, sharedBucket := strings.Cut(cfg.S3.BucketPrefix, "/")
+	if !sharedBucket {
+		pdp, err := minio_store.New(endpoint, bucket+"pdp", options)
+		if err != nil {
+			return nil, fmt.Errorf("creating pdp s3 store: %w", err)
+		}
+		return &Stores{PDP: pdp, IPNI: objectstore.Prefixed("ipni/", pdp)}, nil
 	}
 
-	return stores, nil
+	pdp, err := minio_store.New(endpoint, bucket, options, minio_store.WithKeyPrefix(folder+"pdp/"))
+	if err != nil {
+		return nil, fmt.Errorf("creating pdp s3 store: %w", err)
+	}
+	ipni, err := minio_store.New(endpoint, bucket, options, minio_store.WithKeyPrefix(folder+"ipni/"))
+	if err != nil {
+		return nil, fmt.Errorf("creating ipni s3 store: %w", err)
+	}
+	return &Stores{PDP: pdp, IPNI: ipni}, nil
 }
 
 // Configs provides storage configs needed by S3-backed stores.
@@ -82,10 +101,10 @@ func ProvideConfigs(cfg app.StorageConfig) Configs {
 }
 
 // NewIPNIObjectStore provides the node's IPNI adverts, one object per advert
-// under ipni/<cid> in the PDP bucket. It uses the raw bucket rather than the
-// blob store, whose key encoder would rewrite the CID keys.
+// keyed by its CID. It uses the raw object store rather than the blob store,
+// whose key encoder would rewrite the CID keys.
 func NewIPNIObjectStore(stores *Stores) objectstore.Store {
-	return objectstore.Traced("ipni", objectstore.Prefixed("ipni/", stores.PDP))
+	return objectstore.Traced("ipni", stores.IPNI)
 }
 
 // NewPDPStore provides the blob store backing PDP piece storage.

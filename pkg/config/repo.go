@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/fil-forge/piri/pkg/config/app"
@@ -18,8 +19,11 @@ type Credentials struct {
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
-// When configured, all supported stores use S3 with separate buckets
-// named using the BucketPrefix (e.g., "piri-blobs", "piri-allocations").
+// When configured, blobs and IPNI adverts are stored in S3. A BucketPrefix
+// without a "/" names a bucket of their own, {prefix}pdp (e.g. "piri-pdp").
+// One with a "/" puts them in a bucket shared with other data:
+// "fil-one/piri-0/" keeps them under piri-0/pdp/ and piri-0/ipni/ in the
+// bucket fil-one.
 type S3Config struct {
 	Endpoint     string      `mapstructure:"endpoint" validate:"required" toml:"endpoint"`
 	BucketPrefix string      `mapstructure:"bucket_prefix" validate:"required" toml:"bucket_prefix"`
@@ -53,6 +57,13 @@ func (c *S3Config) Validate() error {
 	}
 	if c.BucketPrefix == "" {
 		return errors.New("s3 bucket_prefix is required when S3 storage is configured")
+	}
+	bucket, folder, sharedBucket := strings.Cut(c.BucketPrefix, "/")
+	if sharedBucket && bucket == "" {
+		return fmt.Errorf("s3 bucket_prefix %q must start with a bucket name before its first \"/\"", c.BucketPrefix)
+	}
+	if folder != "" && !strings.HasSuffix(folder, "/") {
+		return fmt.Errorf("s3 bucket_prefix %q must end with \"/\" after its folder", c.BucketPrefix)
 	}
 	return nil
 }

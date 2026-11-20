@@ -144,3 +144,28 @@ func TestRepoConfig_ToAppConfig_BlobDir(t *testing.T) {
 		})
 	}
 }
+
+func TestS3Config_Validate_BucketPrefix(t *testing.T) {
+	validPrefixes := []string{"piri-", "fil-one/piri-0/", "fil-one/"}
+	for _, prefix := range validPrefixes {
+		t.Run("accepts "+prefix, func(t *testing.T) {
+			cfg := &S3Config{Endpoint: "objects.example.com", BucketPrefix: prefix}
+			require.NoError(t, cfg.Validate())
+		})
+	}
+
+	invalidPrefixes := []struct {
+		description  string
+		bucketPrefix string
+		message      string
+	}{
+		{"no bucket before its first slash", "/piri-0/", "must start with a bucket name"},
+		{"a folder without a trailing slash", "fil-one/piri-0", "must end with \"/\""},
+	}
+	for _, tc := range invalidPrefixes {
+		t.Run("rejects "+tc.description, func(t *testing.T) {
+			cfg := &S3Config{Endpoint: "objects.example.com", BucketPrefix: tc.bucketPrefix}
+			require.ErrorContains(t, cfg.Validate(), tc.message)
+		})
+	}
+}
