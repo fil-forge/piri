@@ -39,18 +39,18 @@ type Stores struct {
 	IPNI objectstore.Store
 }
 
-// NewStores creates the S3/MinIO stores where the bucket prefix places them.
+// NewStores creates the S3/MinIO stores where the config places them.
 //
-// A prefix without a "/" names a bucket of its own for the blobs,
-// {prefix}pdp, and the IPNI adverts go under ipni/ in that bucket.
+// A bucket prefix names a bucket of Piri's own for the blobs, {prefix}pdp,
+// and the IPNI adverts go under ipni/ in that bucket.
 //
-// A prefix with a "/" places both in one bucket, shared with other data: the
-// part before the first "/" names the bucket and the rest is a folder in it. For
+// A path places both in one bucket, shared with other data: the part before
+// the first "/" names the bucket and the rest is a folder in it. For
 // "fil-one/piri-0/", the blobs go under piri-0/pdp/ and the IPNI adverts
 // under piri-0/ipni/ in the bucket fil-one.
 func NewStores(cfg app.StorageConfig) (*Stores, error) {
-	if cfg.S3 == nil || cfg.S3.Endpoint == "" || cfg.S3.BucketPrefix == "" {
-		return nil, fmt.Errorf("S3 configuration required: endpoint and bucket_prefix must be set")
+	if cfg.S3 == nil || cfg.S3.Endpoint == "" || (cfg.S3.BucketPrefix == "" && cfg.S3.Path == "") {
+		return nil, fmt.Errorf("S3 configuration required: endpoint and bucket_prefix or path must be set")
 	}
 
 	options := minio.Options{Secure: !cfg.S3.Insecure}
@@ -63,15 +63,15 @@ func NewStores(cfg app.StorageConfig) (*Stores, error) {
 	}
 
 	endpoint := cfg.S3.Endpoint
-	bucket, folder, sharedBucket := strings.Cut(cfg.S3.BucketPrefix, "/")
-	if !sharedBucket {
-		pdp, err := minio_store.New(endpoint, bucket+"pdp", options)
+	if cfg.S3.Path == "" {
+		pdp, err := minio_store.New(endpoint, cfg.S3.BucketPrefix+"pdp", options)
 		if err != nil {
 			return nil, fmt.Errorf("creating pdp s3 store: %w", err)
 		}
 		return &Stores{PDP: pdp, IPNI: objectstore.Prefixed("ipni/", pdp)}, nil
 	}
 
+	bucket, folder, _ := strings.Cut(cfg.S3.Path, "/")
 	pdp, err := minio_store.New(endpoint, bucket, options, minio_store.WithKeyPrefix(folder+"pdp/"))
 	if err != nil {
 		return nil, fmt.Errorf("creating pdp s3 store: %w", err)

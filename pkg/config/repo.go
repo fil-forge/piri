@@ -19,16 +19,20 @@ type Credentials struct {
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
-// When configured, blobs and IPNI adverts are stored in S3. A BucketPrefix
-// without a "/" names a bucket of their own, {prefix}pdp (e.g. "piri-pdp").
-// One with a "/" puts them in a bucket shared with other data:
-// "fil-one/piri-0/" keeps them under piri-0/pdp/ and piri-0/ipni/ in the
-// bucket fil-one.
+// When configured, blobs and IPNI adverts are stored in S3, where exactly one
+// of BucketPrefix and Path places them.
 type S3Config struct {
-	Endpoint     string      `mapstructure:"endpoint" validate:"required" toml:"endpoint"`
-	BucketPrefix string      `mapstructure:"bucket_prefix" validate:"required" toml:"bucket_prefix"`
-	Credentials  Credentials `mapstructure:"credentials" toml:"credentials,omitempty"`
-	Insecure     bool        `mapstructure:"insecure" toml:"insecure,omitempty"`
+	Endpoint string `mapstructure:"endpoint" validate:"required" toml:"endpoint"`
+	// BucketPrefix names a bucket of Piri's own, {prefix}pdp (e.g. "piri-"
+	// creates piri-pdp). IPNI adverts go under ipni/ in that bucket.
+	BucketPrefix string `mapstructure:"bucket_prefix" toml:"bucket_prefix,omitempty"`
+	// Path places the objects in a bucket shared with other data: the bucket
+	// name, optionally followed by a folder that ends with "/". With
+	// "fil-one/piri-0/", blobs go under piri-0/pdp/ and IPNI adverts under
+	// piri-0/ipni/ in the bucket fil-one.
+	Path        string      `mapstructure:"path" toml:"path,omitempty"`
+	Credentials Credentials `mapstructure:"credentials" toml:"credentials,omitempty"`
+	Insecure    bool        `mapstructure:"insecure" toml:"insecure,omitempty"`
 }
 
 // IsConfigured returns true if any S3 configuration is provided.
@@ -36,13 +40,14 @@ func (c *S3Config) IsConfigured() bool {
 	if c == nil {
 		return false
 	}
-	return c.Endpoint != "" || c.BucketPrefix != "" ||
+	return c.Endpoint != "" || c.BucketPrefix != "" || c.Path != "" ||
 		c.Credentials.AccessKeyID != "" || c.Credentials.SecretAccessKey != "" ||
 		c.Insecure
 }
 
 // Validate checks that S3 configuration is complete.
-// Returns an error if S3 is partially configured (e.g., endpoint without bucket_prefix).
+// Returns an error if S3 is partially configured (e.g., endpoint without
+// bucket_prefix or path), or if both bucket_prefix and path are set.
 func (c *S3Config) Validate() error {
 	if c == nil {
 		return nil
@@ -51,19 +56,31 @@ func (c *S3Config) Validate() error {
 	if !c.IsConfigured() {
 		return nil
 	}
-	// If any S3 config is provided, endpoint and bucket_prefix are required
 	if c.Endpoint == "" {
 		return errors.New("s3 endpoint is required when S3 storage is configured")
 	}
-	if c.BucketPrefix == "" {
-		return errors.New("s3 bucket_prefix is required when S3 storage is configured")
+	switch {
+	case c.BucketPrefix != "" && c.Path != "":
+		return errors.New("s3 bucket_prefix and path are mutually exclusive; set only one of them")
+	case c.BucketPrefix == "" && c.Path == "":
+		return errors.New("s3 bucket_prefix or path is required when S3 storage is configured")
+	case strings.Contains(c.BucketPrefix, "/"):
+		return fmt.Errorf("s3 bucket_prefix %q cannot contain \"/\"; set path to keep the objects in a folder of a bucket", c.BucketPrefix)
+	case c.Path != "":
+		return validateS3Path(c.Path)
 	}
-	bucket, folder, sharedBucket := strings.Cut(c.BucketPrefix, "/")
-	if sharedBucket && bucket == "" {
-		return fmt.Errorf("s3 bucket_prefix %q must start with a bucket name before its first \"/\"", c.BucketPrefix)
+	return nil
+}
+
+// validateS3Path checks that path names a bucket and, if it has a folder,
+// that the folder ends with "/".
+func validateS3Path(path string) error {
+	bucket, folder, _ := strings.Cut(path, "/")
+	if bucket == "" {
+		return fmt.Errorf("s3 path %q must start with a bucket name", path)
 	}
 	if folder != "" && !strings.HasSuffix(folder, "/") {
-		return fmt.Errorf("s3 bucket_prefix %q must end with \"/\" after its folder", c.BucketPrefix)
+		return fmt.Errorf("s3 path %q must end with \"/\" after its folder", path)
 	}
 	return nil
 }
@@ -207,6 +224,7 @@ func (r RepoConfig) ToAppConfig() (app.StorageConfig, error) {
 		out.S3 = &app.S3Config{
 			Endpoint:     r.S3.Endpoint,
 			BucketPrefix: r.S3.BucketPrefix,
+			Path:         r.S3.Path,
 			Credentials: app.Credentials{
 				AccessKeyID:     r.S3.Credentials.AccessKeyID,
 				SecretAccessKey: r.S3.Credentials.SecretAccessKey,

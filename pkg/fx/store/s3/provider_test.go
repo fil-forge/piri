@@ -25,20 +25,23 @@ func TestNewStoresPlacesObjects(t *testing.T) {
 	endpoint := testutil.StartMinioContainer(t)
 
 	testCases := []struct {
+		description  string
 		bucketPrefix string
+		path         string
 		bucket       string
 		pdpKey       string
 		ipniKey      string
 	}{
-		{bucketPrefix: "piri-", bucket: "piri-pdp", pdpKey: "blob", ipniKey: "ipni/advert"},
-		{bucketPrefix: "fil-one/piri-0/", bucket: "fil-one", pdpKey: "piri-0/pdp/blob", ipniKey: "piri-0/ipni/advert"},
+		{description: `bucket prefix "piri-"`, bucketPrefix: "piri-", bucket: "piri-pdp", pdpKey: "blob", ipniKey: "ipni/advert"},
+		{description: `path "fil-one/piri-0/"`, path: "fil-one/piri-0/", bucket: "fil-one", pdpKey: "piri-0/pdp/blob", ipniKey: "piri-0/ipni/advert"},
 	}
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("bucket prefix %q keeps the objects in %s", tc.bucketPrefix, tc.bucket), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s keeps the objects in %s", tc.description, tc.bucket), func(t *testing.T) {
 			ctx := t.Context()
 			stores, err := NewStores(app.StorageConfig{S3: &app.S3Config{
 				Endpoint:     endpoint,
 				BucketPrefix: tc.bucketPrefix,
+				Path:         tc.path,
 				Credentials:  app.Credentials{AccessKeyID: "minioadmin", SecretAccessKey: "minioadmin"},
 				Insecure:     true,
 			}})

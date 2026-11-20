@@ -31,6 +31,13 @@ var storageVariants = map[string]testutil.TestConfigOption{
 			BucketPrefix: "piri-test-",
 		}
 	},
+	"s3 stores in a folder of a bucket": func(t *testing.T, cfg *app.AppConfig) {
+		cfg.Storage.DataDir = t.TempDir()
+		cfg.Storage.S3 = &app.S3Config{
+			Endpoint: "localhost:9000",
+			Path:     "piri-test/piri-0/",
+		}
+	},
 }
 
 // TestFullServerModule_ValidateApp ensures the full piri server's dependency

@@ -107,12 +107,12 @@ func addInitFlags(cmd *cobra.Command) {
 
 	// S3 storage configuration flags
 	cmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
-	cmd.Flags().String("s3-bucket-prefix", "", "Prefix for S3 bucket names ('piri-' creates the bucket piri-pdp), or bucket and folder ('fil-one/piri-0/' stores under piri-0/ in the bucket fil-one)")
+	cmd.Flags().String("s3-bucket-prefix", "", "Prefix for the name of Piri's own S3 bucket ('piri-' creates the bucket piri-pdp)")
+	cmd.Flags().String("s3-path", "", "S3 bucket shared with other data, optionally followed by a folder ending with '/' ('fil-one/piri-0/' stores under piri-0/ in the bucket fil-one)")
 	cmd.Flags().String("s3-access-key-id", "", "S3 access key ID")
 	cmd.Flags().String("s3-secret-access-key", "", "S3 secret access key")
 	cmd.Flags().Bool("s3-insecure", false, "Disable SSL for S3 (development only)")
-	// these flags must be provided together
-	cmd.MarkFlagsRequiredTogether("s3-endpoint", "s3-bucket-prefix")
+	cmd.MarkFlagsMutuallyExclusive("s3-bucket-prefix", "s3-path")
 
 	cmd.Flags().String(
 		"registrar-url",
@@ -490,7 +490,7 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	// Parse storage configuration from flags
 	var storage *storageConfig
 
-	// S3 configuration - endpoint and bucket-prefix are required together
+	// S3 configuration - endpoint and one of bucket-prefix and path are required
 	s3Endpoint, err := cmd.Flags().GetString("s3-endpoint")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --s3-endpoint: %w", err)
@@ -498,6 +498,10 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	s3BucketPrefix, err := cmd.Flags().GetString("s3-bucket-prefix")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --s3-bucket-prefix: %w", err)
+	}
+	s3Path, err := cmd.Flags().GetString("s3-path")
+	if err != nil {
+		return nil, fmt.Errorf("error reading --s3-path: %w", err)
 	}
 	s3AccessKeyID, err := cmd.Flags().GetString("s3-access-key-id")
 	if err != nil {
@@ -515,28 +519,32 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	// Check if user explicitly provided any S3 flag
 	s3FlagsChanged := cmd.Flags().Changed("s3-endpoint") ||
 		cmd.Flags().Changed("s3-bucket-prefix") ||
+		cmd.Flags().Changed("s3-path") ||
 		cmd.Flags().Changed("s3-access-key-id") ||
 		cmd.Flags().Changed("s3-secret-access-key") ||
 		cmd.Flags().Changed("s3-insecure")
 	if s3FlagsChanged {
-		// Both endpoint and bucket-prefix are required when using S3
 		if s3Endpoint == "" {
 			return nil, fmt.Errorf("--s3-endpoint is required when using S3 storage")
 		}
-		if s3BucketPrefix == "" {
-			return nil, fmt.Errorf("--s3-bucket-prefix is required when using S3 storage")
+		if s3BucketPrefix == "" && s3Path == "" {
+			return nil, fmt.Errorf("--s3-bucket-prefix or --s3-path is required when using S3 storage")
 		}
 
 		storage = &storageConfig{
 			s3: &config.S3Config{
 				Endpoint:     s3Endpoint,
 				BucketPrefix: s3BucketPrefix,
+				Path:         s3Path,
 				Credentials: config.Credentials{
 					AccessKeyID:     s3AccessKeyID,
 					SecretAccessKey: s3SecretAccessKey,
 				},
 				Insecure: s3Insecure,
 			},
+		}
+		if err := storage.s3.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid S3 flags: %w", err)
 		}
 	}
 

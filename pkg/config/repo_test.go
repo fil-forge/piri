@@ -145,27 +145,52 @@ func TestRepoConfig_ToAppConfig_BlobDir(t *testing.T) {
 	}
 }
 
-func TestS3Config_Validate_BucketPrefix(t *testing.T) {
-	validPrefixes := []string{"piri-", "fil-one/piri-0/", "fil-one/"}
-	for _, prefix := range validPrefixes {
-		t.Run("accepts "+prefix, func(t *testing.T) {
-			cfg := &S3Config{Endpoint: "objects.example.com", BucketPrefix: prefix}
+func TestS3Config_Validate(t *testing.T) {
+	validConfigs := map[string]S3Config{
+		"bucket_prefix":            {Endpoint: "objects.example.com", BucketPrefix: "piri-"},
+		"path with a folder":       {Endpoint: "objects.example.com", Path: "fil-one/piri-0/"},
+		"path with a bucket alone": {Endpoint: "objects.example.com", Path: "fil-one"},
+	}
+	for description, cfg := range validConfigs {
+		t.Run("accepts "+description, func(t *testing.T) {
 			require.NoError(t, cfg.Validate())
 		})
 	}
 
-	invalidPrefixes := []struct {
-		description  string
-		bucketPrefix string
-		message      string
+	invalidConfigs := []struct {
+		description string
+		cfg         S3Config
+		message     string
 	}{
-		{"no bucket before its first slash", "/piri-0/", "must start with a bucket name"},
-		{"a folder without a trailing slash", "fil-one/piri-0", "must end with \"/\""},
+		{
+			description: "both bucket_prefix and path",
+			cfg:         S3Config{Endpoint: "objects.example.com", BucketPrefix: "piri-", Path: "fil-one/"},
+			message:     "mutually exclusive",
+		},
+		{
+			description: "neither bucket_prefix nor path",
+			cfg:         S3Config{Endpoint: "objects.example.com"},
+			message:     "bucket_prefix or path is required",
+		},
+		{
+			description: "a bucket_prefix with a slash",
+			cfg:         S3Config{Endpoint: "objects.example.com", BucketPrefix: "fil-one/piri-0/"},
+			message:     "set path to keep the objects in a folder",
+		},
+		{
+			description: "a path with no bucket before its first slash",
+			cfg:         S3Config{Endpoint: "objects.example.com", Path: "/piri-0/"},
+			message:     "must start with a bucket name",
+		},
+		{
+			description: "a path whose folder lacks a trailing slash",
+			cfg:         S3Config{Endpoint: "objects.example.com", Path: "fil-one/piri-0"},
+			message:     `must end with "/"`,
+		},
 	}
-	for _, tc := range invalidPrefixes {
+	for _, tc := range invalidConfigs {
 		t.Run("rejects "+tc.description, func(t *testing.T) {
-			cfg := &S3Config{Endpoint: "objects.example.com", BucketPrefix: tc.bucketPrefix}
-			require.ErrorContains(t, cfg.Validate(), tc.message)
+			require.ErrorContains(t, tc.cfg.Validate(), tc.message)
 		})
 	}
 }
