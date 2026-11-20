@@ -40,7 +40,7 @@ require (
 	github.com/ipld/go-car v0.6.3
 	github.com/ipld/go-ipld-prime v0.24.0
 	github.com/ipni/go-libipni v0.9.0
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	github.com/labstack/echo-jwt/v5 v5.0.2
 	github.com/labstack/echo-otel/v5 v5.0.0
 	github.com/labstack/echo/v5 v5.4.6
