@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"strings"
 	"time"
 
 	logging "github.com/ipfs/go-log/v2"
@@ -20,9 +21,23 @@ var log = logging.Logger("objectstore/minio")
 type Store struct {
 	client *minio.Client
 	bucket string
+	// keyPrefix is prepended to every key the caller passes, so the store
+	// occupies one folder of a bucket it may share with others.
+	keyPrefix string
 }
 
-func New(endpoint, bucket string, opts minio.Options) (*Store, error) {
+// Option configures a Store.
+type Option func(*Store)
+
+// WithKeyPrefix stores every object under prefix in the bucket. Keys the
+// store returns, such as those ListPrefix yields, have the prefix removed.
+func WithKeyPrefix(prefix string) Option {
+	return func(s *Store) {
+		s.keyPrefix = prefix
+	}
+}
+
+func New(endpoint, bucket string, opts minio.Options, storeOpts ...Option) (*Store, error) {
 	// Every object store call is a client span on the caller's trace.
 	base := opts.Transport
 	if base == nil {
@@ -49,10 +64,14 @@ func New(endpoint, bucket string, opts minio.Options) (*Store, error) {
 		}
 	}
 
-	return &Store{
+	store := &Store{
 		client: client,
 		bucket: bucket,
-	}, nil
+	}
+	for _, opt := range storeOpts {
+		opt(store)
+	}
+	return store, nil
 }
 
 func (s *Store) IsOnline() bool {
@@ -60,10 +79,11 @@ func (s *Store) IsOnline() bool {
 }
 
 func (s *Store) Delete(ctx context.Context, key string) error {
-	return s.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+	return s.client.RemoveObject(ctx, s.bucket, s.keyPrefix+key, minio.RemoveObjectOptions{})
 }
 
 func (s *Store) Put(ctx context.Context, key string, size uint64, body io.Reader) error {
+	key = s.keyPrefix + key
 	start := time.Now()
 	log.Debugw("putting object", "bucket", s.bucket, "key", key, "size", size)
 	obj, err := s.client.PutObject(
@@ -107,8 +127,8 @@ var _ objectstore.Mover = (*Store)(nil)
 // again copies once more and removes src.
 func (s *Store) Move(ctx context.Context, src, dst string) error {
 	_, err := s.client.CopyObject(ctx,
-		minio.CopyDestOptions{Bucket: s.bucket, Object: dst},
-		minio.CopySrcOptions{Bucket: s.bucket, Object: src},
+		minio.CopyDestOptions{Bucket: s.bucket, Object: s.keyPrefix + dst},
+		minio.CopySrcOptions{Bucket: s.bucket, Object: s.keyPrefix + src},
 	)
 	if err != nil {
 		var merr minio.ErrorResponse
@@ -124,7 +144,7 @@ func (s *Store) Move(ctx context.Context, src, dst string) error {
 		}
 		return nil
 	}
-	if err := s.client.RemoveObject(ctx, s.bucket, src, minio.RemoveObjectOptions{}); err != nil {
+	if err := s.client.RemoveObject(ctx, s.bucket, s.keyPrefix+src, minio.RemoveObjectOptions{}); err != nil {
 		return fmt.Errorf("removing %s after copying it to %s: %w", src, dst, err)
 	}
 	return nil
@@ -144,6 +164,7 @@ func (o *MinioObject) Body() io.ReadCloser {
 }
 
 func (s *Store) Get(ctx context.Context, key string, opts ...objectstore.GetOption) (objectstore.Object, error) {
+	key = s.keyPrefix + key
 	start := time.Now()
 	config := objectstore.NewGetConfig()
 	config.ProcessOptions(opts)
@@ -215,7 +236,7 @@ func (s *Store) Get(ctx context.Context, key string, opts ...objectstore.GetOpti
 // Returns true if the object exists, false if it doesn't exist, or an error
 // if the check fails for other reasons.
 func (s *Store) Exists(ctx context.Context, key string) (bool, error) {
-	_, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	_, err := s.client.StatObject(ctx, s.bucket, s.keyPrefix+key, minio.StatObjectOptions{})
 	if err != nil {
 		var merr minio.ErrorResponse
 		if errors.As(err, &merr) {
@@ -234,7 +255,7 @@ func (s *Store) Exists(ctx context.Context, key string) (bool, error) {
 func (s *Store) ListPrefix(ctx context.Context, prefix string) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
 		objectCh := s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
-			Prefix:    prefix,
+			Prefix:    s.keyPrefix + prefix,
 			Recursive: true,
 		})
 
@@ -243,7 +264,7 @@ func (s *Store) ListPrefix(ctx context.Context, prefix string) iter.Seq2[string,
 				yield("", fmt.Errorf("listing objects with prefix %s: %w", prefix, object.Err))
 				return
 			}
-			if !yield(object.Key, nil) {
+			if !yield(strings.TrimPrefix(object.Key, s.keyPrefix), nil) {
 				return
 			}
 		}

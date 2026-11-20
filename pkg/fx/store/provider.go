@@ -15,7 +15,7 @@ import (
 // records about them go to Postgres either way. With no data dir, every store
 // is in memory.
 func StorageModule(cfg app.StorageConfig) fx.Option {
-	if cfg.S3 != nil && cfg.S3.Endpoint != "" && cfg.S3.BucketPrefix != "" {
+	if cfg.S3 != nil && cfg.S3.Endpoint != "" && (cfg.S3.BucketPrefix != "" || cfg.S3.Path != "") {
 		// LocalOnlyModule keeps the stores that must remain on the local
 		// filesystem (RetrievalJournal, KeyStore)
 		return fx.Options(
