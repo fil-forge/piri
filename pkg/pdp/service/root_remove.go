@@ -20,23 +20,11 @@ func (p *PDPService) RemoveRoot(ctx context.Context, proofSetID uint64, rootID u
 			log.Infow("removed root", "proofSetID", proofSetID, "rootID", rootID, "response", res)
 		}
 	}()
-	// Get the ABI and pack the transaction data
-	abiData, err := p.verifierContract.GetABI()
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("get contract ABI: %w", err)
-	}
-
 	// TODO should probably check if we even have the proof set before scheduling a removal
 
-	// TODO this will surely fail without extraData as a signature.
-	// Pack the method call data
-	data, err := abiData.Pack("schedulePieceDeletions",
-		big.NewInt(int64(proofSetID)),
-		[]*big.Int{big.NewInt(int64(rootID))},
-		[]byte{},
-	)
+	data, err := p.schedulePieceDeletionsCall(ctx, proofSetID, rootID)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("pack ABI method call: %w", err)
+		return common.Hash{}, err
 	}
 
 	// Prepare the transaction
@@ -87,4 +75,41 @@ func (p *PDPService) RemoveRoot(ctx context.Context, proofSetID uint64, rootID u
 	}
 
 	return txHash, nil
+}
+
+// schedulePieceDeletionsCall packs schedulePieceDeletions for one root, with
+// the payer's signature as extraData: FWSS reverts the call with
+// ExtraDataRequired without it.
+func (p *PDPService) schedulePieceDeletionsCall(ctx context.Context, proofSetID uint64, rootID uint64) ([]byte, error) {
+	setID := new(big.Int).SetUint64(proofSetID)
+	pieceIDs := []*big.Int{new(big.Int).SetUint64(rootID)}
+
+	dataSet, err := p.serviceContract.GetDataSet(ctx, setID)
+	if err != nil {
+		return nil, fmt.Errorf("get data set %d: %w", proofSetID, err)
+	}
+	// The payer signs FWSS's clientDataSetId, not the PDPVerifier set ID.
+	signature, err := p.signingService.SignSchedulePieceRemovals(ctx,
+		p.id,
+		dataSet.ClientDataSetId,
+		pieceIDs,
+		nil, // proofs: signing service obtains its own access/grant
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sign SchedulePieceRemovals: %w", err)
+	}
+	extraData, err := p.edc.EncodeSchedulePieceRemovalsExtraData(signature)
+	if err != nil {
+		return nil, fmt.Errorf("encode extraData: %w", err)
+	}
+
+	abiData, err := p.verifierContract.GetABI()
+	if err != nil {
+		return nil, fmt.Errorf("get contract ABI: %w", err)
+	}
+	data, err := abiData.Pack("schedulePieceDeletions", setID, pieceIDs, extraData)
+	if err != nil {
+		return nil, fmt.Errorf("pack ABI method call: %w", err)
+	}
+	return data, nil
 }
