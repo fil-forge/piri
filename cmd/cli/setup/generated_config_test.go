@@ -217,12 +217,20 @@ func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 		require.Equalf(t, key[len(key)-1], name,
 			"%s: mapstructure name differs from toml name", strings.Join(key, "."))
 	}
+	// The fixture cannot set both keys of a mutually exclusive pair, because
+	// init rejects such a config, so setting one of them covers the other.
+	// TestParseAndValidateFlags_BaseConfigS3Path covers repo.s3.path.
+	exclusiveAlternatives := map[string]string{"repo.s3.path": "repo.s3.bucket_prefix"}
+	covered := func(key []string) bool {
+		name := strings.Join(key, ".")
+		return defined[name] || defined[exclusiveAlternatives[name]]
+	}
 	for _, key := range tomlLeafKeys(reflect.TypeOf(full), nil, sameMapstructureName) {
-		require.Truef(t, defined[strings.Join(key, ".")],
+		require.Truef(t, covered(key),
 			"%s does not set %s; set it to a value init would not write on its own", path, strings.Join(key, "."))
 	}
 	for _, key := range tomlLeafKeys(reflect.TypeOf(base), nil, nil) {
-		require.Truef(t, defined[strings.Join(key, ".")],
+		require.Truef(t, covered(key),
 			"%s does not set %s, which init's base config parses", path, strings.Join(key, "."))
 	}
 

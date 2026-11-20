@@ -168,3 +168,69 @@ func TestMove(t *testing.T) {
 		require.ErrorIs(t, store.Move(ctx, "staged-none", "blob/none.data"), objectstore.ErrNotExist)
 	})
 }
+
+func TestKeyPrefix(t *testing.T) {
+	ctx := t.Context()
+	bucketName := uniqueBucketName(t.Name())
+	bucket := createTestStore(t, bucketName)
+	store, err := New(minioEndpoint, bucketName, minio.Options{
+		Creds:  credentials.NewStaticV4("minioadmin", "minioadmin", ""),
+		Secure: false,
+	}, WithKeyPrefix("piri-0/pdp/"))
+	require.NoError(t, err)
+
+	data := []byte("hello")
+	put := func(t *testing.T, s *Store, key string) {
+		require.NoError(t, s.Put(ctx, key, uint64(len(data)), bytes.NewReader(data)))
+	}
+	existsInBucket := func(t *testing.T, key string) bool {
+		exists, err := bucket.Exists(ctx, key)
+		require.NoError(t, err)
+		return exists
+	}
+
+	t.Run("Put writes under the prefix", func(t *testing.T) {
+		put(t, store, "put")
+		require.True(t, existsInBucket(t, "piri-0/pdp/put"))
+	})
+
+	t.Run("Get reads under the prefix", func(t *testing.T) {
+		put(t, bucket, "piri-0/pdp/get")
+		obj, err := store.Get(ctx, "get")
+		require.NoError(t, err)
+		defer obj.Body().Close()
+		got, err := io.ReadAll(obj.Body())
+		require.NoError(t, err)
+		require.Equal(t, data, got)
+	})
+
+	t.Run("Exists checks under the prefix", func(t *testing.T) {
+		put(t, bucket, "piri-0/pdp/exists")
+		exists, err := store.Exists(ctx, "exists")
+		require.NoError(t, err)
+		require.True(t, exists)
+	})
+
+	t.Run("Delete removes under the prefix", func(t *testing.T) {
+		put(t, bucket, "piri-0/pdp/delete")
+		require.NoError(t, store.Delete(ctx, "delete"))
+		require.False(t, existsInBucket(t, "piri-0/pdp/delete"))
+	})
+
+	t.Run("Move stays under the prefix", func(t *testing.T) {
+		put(t, store, "staged")
+		require.NoError(t, store.Move(ctx, "staged", "moved"))
+		require.True(t, existsInBucket(t, "piri-0/pdp/moved"))
+	})
+
+	t.Run("ListPrefix yields keys without the prefix", func(t *testing.T) {
+		put(t, bucket, "piri-0/pdp/list/a")
+		put(t, bucket, "other/list/b")
+		var keys []string
+		for key, err := range store.ListPrefix(ctx, "list/") {
+			require.NoError(t, err)
+			keys = append(keys, key)
+		}
+		require.Equal(t, []string{"list/a"}, keys)
+	})
+}

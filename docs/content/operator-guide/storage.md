@@ -89,7 +89,7 @@ Piri manages several categories of data:
 
 - **Blobs**: User data and location claims
 - **Aggregation state**: CommP calculations and pending aggregates
-- **IPNI advertisement chain**: the chain head and the map of published content live in Postgres; each advertisement is one small object, under `ipni/` in the S3 bucket or in `data_dir/ipni` on a local volume
+- **IPNI advertisement chain**: the chain head and the map of published content live in Postgres; each advertisement is one small object, in S3 where [`repo.s3`](../configuration/repo/index.md#s3) places it or in `data_dir/ipni` on a local volume
 
 On the filesystem backend, blob bytes live in `data_dir/pdp/datastore`. Set [`repo.blob_dir`](../configuration/repo/index.md#blob_dir) to keep blobs and IPNI adverts on a separate volume from the rest of Piri's state.
 - **Receipts**: UCAN receipt journals for egress tracking

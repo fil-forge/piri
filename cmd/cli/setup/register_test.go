@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,11 +13,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	"github.com/fil-forge/piri/pkg/config"
 	appcfg "github.com/fil-forge/piri/pkg/config/app"
+	"github.com/fil-forge/piri/pkg/presets"
 )
 
 // setupViperDefaults sets up viper with default values for tests.
@@ -526,4 +529,72 @@ func TestWriteFileAtomicSymlink(t *testing.T) {
 			require.NotContains(t, e.Name(), ".tmp-", "temporary file left behind")
 		}
 	}
+}
+
+func TestParseAndValidateFlags_S3Path(t *testing.T) {
+	parse := func(t *testing.T, args ...string) (*initFlags, error) {
+		t.Helper()
+		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+		cmd := &cobra.Command{Use: "init"}
+		addInitFlags(cmd)
+		allArgs := append(append([]string{"--network=" + string(presets.AvailableNetworks[0])}, goldenCommonArgs...), args...)
+		require.NoError(t, cmd.ParseFlags(allArgs))
+		if err := cmd.ValidateFlagGroups(); err != nil {
+			return nil, err
+		}
+		return parseAndValidateFlags(cmd)
+	}
+
+	t.Run("--s3-path sets the S3 path", func(t *testing.T) {
+		flags, err := parse(t, "--s3-endpoint=ist.example.com", "--s3-path=fil-one/piri-0/")
+		require.NoError(t, err)
+		require.Equal(t, &config.S3Config{Endpoint: "ist.example.com", Path: "fil-one/piri-0/"}, flags.storage.s3)
+	})
+
+	rejectedCases := []struct {
+		description string
+		args        []string
+		message     string
+	}{
+		{
+			description: "both --s3-bucket-prefix and --s3-path",
+			args:        []string{"--s3-endpoint=ist.example.com", "--s3-bucket-prefix=piri-", "--s3-path=fil-one/"},
+			message:     "s3-bucket-prefix s3-path",
+		},
+		{
+			description: "--s3-bucket-prefix with a slash",
+			args:        []string{"--s3-endpoint=ist.example.com", "--s3-bucket-prefix=fil-one/piri-0/"},
+			message:     "set path to keep the objects in a folder",
+		},
+		{
+			description: "--s3-path whose folder lacks a trailing slash",
+			args:        []string{"--s3-endpoint=ist.example.com", "--s3-path=fil-one/piri-0"},
+			message:     `must end with "/"`,
+		},
+	}
+	for _, tc := range rejectedCases {
+		t.Run("rejects "+tc.description, func(t *testing.T) {
+			_, err := parse(t, tc.args...)
+			require.ErrorContains(t, err, tc.message)
+		})
+	}
+}
+
+func TestParseAndValidateFlags_BaseConfigS3Path(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("testdata", "generated-config", "base-config.toml"))
+	require.NoError(t, err)
+	withPath := strings.Replace(string(fixture), `bucket_prefix = "fixture-"`, `path = "fixture/piri-0/"`, 1)
+	require.NotEqual(t, string(fixture), withPath, "the fixture no longer sets bucket_prefix = \"fixture-\"")
+	baseConfig := filepath.Join(t.TempDir(), "base-config.toml")
+	require.NoError(t, os.WriteFile(baseConfig, []byte(withPath), 0o600))
+
+	t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+	cmd := &cobra.Command{Use: "init"}
+	addInitFlags(cmd)
+	require.NoError(t, cmd.ParseFlags(append(append([]string{}, goldenCommonArgs...),
+		"--base-config="+baseConfig, "--registrar-url=https://registrar.example.com")))
+	flags, err := parseAndValidateFlags(cmd)
+	require.NoError(t, err)
+
+	require.Equal(t, "fixture/piri-0/", flags.storage.s3.Path)
 }

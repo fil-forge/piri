@@ -59,8 +59,8 @@ type StorageConfig struct {
 	// Database configuration (sqlite or postgres)
 	Database DatabaseConfig
 
-	// Global S3 config - when set, blobs are stored in S3, in a bucket named
-	// using BucketPrefix (e.g., "piri-pdp")
+	// Global S3 config - when set, blobs and IPNI adverts are stored in S3,
+	// where BucketPrefix or Path places them (see S3Config)
 	S3 *S3Config
 
 	// Service-specific storage subdirectories
@@ -75,12 +75,17 @@ type StorageConfig struct {
 }
 
 // S3Config configures S3-compatible storage (e.g., MinIO, AWS S3).
-// When set on StorageConfig, blobs are stored in S3.
+// When set on StorageConfig, blobs are stored in S3, where exactly one of
+// BucketPrefix and Path places them.
 type S3Config struct {
-	Endpoint     string      // API URL (e.g., "minio.example.com:9000")
-	BucketPrefix string      // Prefix for bucket names (e.g., "piri-" creates piri-pdp)
-	Credentials  Credentials // access credentials
-	Insecure     bool        // set to true to disable SSL (for development only)
+	Endpoint string // API URL (e.g., "minio.example.com:9000")
+	// BucketPrefix names a bucket of Piri's own ("piri-" creates piri-pdp).
+	BucketPrefix string
+	// Path names a bucket shared with other data, optionally followed by a
+	// folder ("fil-one/piri-0/" stores under piri-0/pdp/ and piri-0/ipni/).
+	Path        string
+	Credentials Credentials // access credentials
+	Insecure    bool        // set to true to disable SSL (for development only)
 }
 
 // BlobStorageConfig contains blob-specific storage paths
