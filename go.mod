@@ -15,7 +15,7 @@ require (
 	github.com/fil-forge/go-ipni-tools v0.0.0-20261023132922-7d9dcd4e2d96
 	github.com/fil-forge/libforge v0.0.0-20261111172920-ff407324a982
 	github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899
-	github.com/fil-forge/ucantone v0.0.0-20261103134646-342e8488c56a
+	github.com/fil-forge/ucantone v0.0.0-20261120104359-4253712d41e4
 	github.com/filecoin-project/curio v1.29.3
 	github.com/filecoin-project/go-address v1.2.0
 	github.com/filecoin-project/go-commp-utils/nonffi v0.0.0-20240802040721-2a04ffc8ffe8
@@ -163,7 +163,7 @@ require (
 	github.com/go-playground/locales v0.14.2 // indirect
 	github.com/go-playground/universal-translator v0.18.2 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/gobwas/glob v1.1.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/mock v1.6.0 // indirect
