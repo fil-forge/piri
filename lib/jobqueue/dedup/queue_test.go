@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -104,6 +105,48 @@ func TestQueue_DedupSkipsCompletedPayloads(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, next, "no job should be available after dedupe skip")
 	})
+}
+
+// TestQueue_DedupSkipsPayloadCompletedDuringSend reproduces a Delete that
+// commits while Send of the same payload is in flight. The test holds the
+// delete transaction open so that Send passes its job_done check and then
+// blocks on the conflicting live job, and commits it afterwards. Only
+// Postgres runs Send concurrently with an open write transaction.
+func TestQueue_DedupSkipsPayloadCompletedDuringSend(t *testing.T) {
+	db := internaltesting.NewPostgresDB(t)
+	q, ctx := newTestQueueForBackend(t, dedup.NewOpts{DB: db}, internaltesting.BackendPostgres)
+
+	body := encodeEnvelope(t, "job", []byte("payload"))
+	_, err := q.SendAndGetID(ctx, queue.Message{Body: body})
+	require.NoError(t, err)
+	msg, err := q.Receive(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+	jobID, err := strconv.ParseInt(string(msg.ID), 10, 64)
+	require.NoError(t, err)
+
+	// Do what Delete does, without committing yet.
+	deleteTx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = deleteTx.ExecContext(ctx, `INSERT INTO job_done(ns_id, key, status) SELECT ns_id, key, 1 FROM jobs WHERE id = $1`, jobID)
+	require.NoError(t, err)
+	_, err = deleteTx.ExecContext(ctx, `DELETE FROM jobs WHERE id = $1`, jobID)
+	require.NoError(t, err)
+
+	sendErr := make(chan error, 1)
+	go func() {
+		_, err := q.SendAndGetID(ctx, queue.Message{Body: body})
+		sendErr <- err
+	}()
+
+	// Give Send time to pass the job_done check and block on the live job.
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, deleteTx.Commit())
+	require.NoError(t, <-sendErr)
+
+	next, err := q.Receive(ctx)
+	require.NoError(t, err)
+	require.Nil(t, next, "payload completed during Send must not be enqueued again")
 }
 
 func TestQueue_DedupDisabledAllowsReenqueue(t *testing.T) {
