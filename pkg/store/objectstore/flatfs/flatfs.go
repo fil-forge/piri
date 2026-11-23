@@ -60,6 +60,11 @@ type Store struct {
 	// synchronize all writes and directory changes for added safety
 	sync bool
 
+	// dirCreations holds a *dirCreation for each shard directory a write is
+	// creating and syncing into the root, so other writes to it wait until
+	// the directory is durable.
+	dirCreations sync.Map
+
 	shutdownLock sync.RWMutex
 	shutdown     bool
 
@@ -203,13 +208,64 @@ func open(path string, syncFiles bool) (*Store, error) {
 	return fs, nil
 }
 
-// New creates a new FlatFS object store or opens an existing one.
+// New creates a new FlatFS object store or opens an existing one. A store
+// that syncs makes a newly created one durable before returning.
 func New(path string, fun *ShardIdV1, sync bool) (*Store, error) {
+	ancestor := deepestExistingDir(path)
 	err := create(path, fun)
-	if err != nil && err != ErrStoreExists {
+	switch {
+	case err == nil && sync:
+		if err := syncNewStore(path, ancestor); err != nil {
+			return nil, fmt.Errorf("syncing new store %s: %w", path, err)
+		}
+	case err != nil && err != ErrStoreExists:
 		return nil, err
 	}
 	return open(path, sync)
+}
+
+// syncNewStore makes what create wrote durable: the SHARDING and README files
+// and every directory entry from path up to the one for ancestor, the deepest
+// directory that existed before.
+func syncNewStore(path, ancestor string) error {
+	for _, name := range []string{SHARDING_FN, README_FN} {
+		file, err := os.Open(filepath.Join(path, name))
+		if os.IsNotExist(err) { // create writes a README only for some shard funcs
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		err = syncFile(file)
+		_ = file.Close()
+		if err != nil {
+			return err
+		}
+	}
+	stop := filepath.Dir(ancestor)
+	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
+		if err := syncDir(dir); err != nil {
+			return err
+		}
+		if dir == stop || dir == filepath.Dir(dir) {
+			return nil
+		}
+	}
+}
+
+// deepestExistingDir returns path, or its deepest ancestor that exists.
+func deepestExistingDir(path string) string {
+	dir := filepath.Clean(path)
+	for {
+		if _, err := os.Stat(dir); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir
+		}
+		dir = parent
+	}
 }
 
 func (fs *Store) ShardStr() string {
@@ -224,22 +280,50 @@ func (fs *Store) encode(key string) (dir, file string) {
 	return dir, file
 }
 
-// makeDir is identical to makeDirNoSync but also enforce the sync
-// if required by the config.
+// dirCreation is a write creating a shard directory. done closes once the
+// directory is durable or the write has failed with err.
+type dirCreation struct {
+	done chan struct{}
+	err  error
+}
+
+// makeDir creates the shard directory when it is missing. A store that syncs
+// returns only once the directory's entry in the root is durable, including
+// when another write created the directory and is still syncing the root.
 func (fs *Store) makeDir(dir string) error {
-	created, err := fs.makeDirNoSync(dir)
-	if err != nil {
+	if !fs.sync {
+		_, err := fs.makeDirNoSync(dir)
 		return err
 	}
-
-	// In theory, if we create a new prefix dir and add a file to
-	// it, the creation of the prefix dir itself might not be
-	// durable yet. Sync the root dir after a successful mkdir of
-	// a prefix dir, just to be paranoid.
-	if fs.sync && created {
-		if err := syncDir(fs.path); err != nil {
-			return err
+	for {
+		mine := &dirCreation{done: make(chan struct{})}
+		existing, loaded := fs.dirCreations.LoadOrStore(dir, mine)
+		if !loaded {
+			mine.err = fs.makeDirDurable(dir)
+			fs.dirCreations.Delete(dir)
+			close(mine.done)
+			return mine.err
 		}
+		other := existing.(*dirCreation)
+		<-other.done
+		if other.err == nil {
+			return nil
+		}
+		// The other write failed and removed the directory; create it here.
+	}
+}
+
+// makeDirDurable creates the directory and syncs the root. When the sync
+// fails it removes the directory again, so the next write creates and syncs
+// it rather than finding it present and trusting it.
+func (fs *Store) makeDirDurable(dir string) error {
+	created, err := fs.makeDirNoSync(dir)
+	if err != nil || !created {
+		return err
+	}
+	if err := syncDir(fs.path); err != nil {
+		_ = os.Remove(dir)
+		return err
 	}
 	return nil
 }
@@ -332,22 +416,29 @@ func (fs *Store) Move(ctx context.Context, src, dst string) error {
 			return fmt.Errorf("moving %q to %q: %w", src, dst, err)
 		}
 		if _, err := os.Stat(dstPath); err == nil {
-			return nil
+			// An earlier attempt renamed the file but may have failed to
+			// sync the directories, so sync them before reporting success.
+			return fs.syncMove(srcDir, dstDir)
 		} else if os.IsNotExist(err) {
 			return objectstore.ErrNotExist
 		} else {
 			return err
 		}
 	}
-	if fs.sync {
-		if err := syncDir(dstDir); err != nil {
-			return err
-		}
-		if srcDir != dstDir {
-			if err := syncDir(srcDir); err != nil {
-				return err
-			}
-		}
+	return fs.syncMove(srcDir, dstDir)
+}
+
+// syncMove makes a rename between the directories durable in a store that
+// syncs.
+func (fs *Store) syncMove(srcDir, dstDir string) error {
+	if !fs.sync {
+		return nil
+	}
+	if err := syncDir(dstDir); err != nil {
+		return err
+	}
+	if srcDir != dstDir {
+		return syncDir(srcDir)
 	}
 	return nil
 }
