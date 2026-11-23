@@ -512,7 +512,10 @@ func TestParseAndValidateFlags_S3Path(t *testing.T) {
 		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
 		cmd := &cobra.Command{Use: "init"}
 		addInitFlags(cmd)
-		allArgs := append(append([]string{"--network=" + string(presets.AvailableNetworks[0])}, goldenCommonArgs...), args...)
+		allArgs := append(append([]string{
+			"--network=" + string(presets.AvailableNetworks[0]),
+			"--db-postgres-url=postgres://piri@db.example.com:5432/piri",
+		}, goldenCommonArgs...), args...)
 		require.NoError(t, cmd.ParseFlags(allArgs))
 		if err := cmd.ValidateFlagGroups(); err != nil {
 			return nil, err
@@ -572,4 +575,49 @@ func TestParseAndValidateFlags_BaseConfigS3Path(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "fixture/piri-0/", flags.storage.s3.Path)
+}
+
+func TestParseAndValidateFlags_Database(t *testing.T) {
+	const dbURL = "postgres://piri@db.example.com:5432/piri"
+	parse := func(t *testing.T, args ...string) (*initFlags, error) {
+		t.Helper()
+		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+		cmd := &cobra.Command{Use: "init"}
+		addInitFlags(cmd)
+		allArgs := append(append([]string{"--network=" + string(presets.AvailableNetworks[0])}, goldenCommonArgs...), args...)
+		require.NoError(t, cmd.ParseFlags(allArgs))
+		return parseAndValidateFlags(cmd)
+	}
+
+	acceptedCases := []struct {
+		description string
+		args        []string
+	}{
+		{description: "--db-postgres-url alone", args: []string{"--db-postgres-url=" + dbURL}},
+		{description: "with --db-type=postgres", args: []string{"--db-type=postgres", "--db-postgres-url=" + dbURL}},
+	}
+	for _, tc := range acceptedCases {
+		t.Run(tc.description, func(t *testing.T) {
+			flags, err := parse(t, tc.args...)
+			require.NoError(t, err)
+			require.Equal(t, dbURL, flags.storage.database.Postgres.URL)
+		})
+	}
+
+	rejectedCases := []struct {
+		description string
+		args        []string
+		message     string
+	}{
+		{description: "no database", message: "a PostgreSQL database is required"},
+		{description: "--db-type=postgres without a URL", args: []string{"--db-type=postgres"}, message: "a PostgreSQL database is required"},
+		{description: "--db-type=sqlite", args: []string{"--db-type=sqlite", "--db-postgres-url=" + dbURL}, message: `--db-type "sqlite" is not supported`},
+		{description: "pool flags without a URL", args: []string{"--db-postgres-max-open-conns=10"}, message: "--db-postgres-url is required"},
+	}
+	for _, tc := range rejectedCases {
+		t.Run(tc.description, func(t *testing.T) {
+			_, err := parse(t, tc.args...)
+			require.ErrorContains(t, err, tc.message)
+		})
+	}
 }

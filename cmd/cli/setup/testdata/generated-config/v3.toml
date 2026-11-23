@@ -1,4 +1,4 @@
-config_version = 2
+config_version = 3
 network = "fixture"
 
 [identity]
@@ -9,7 +9,6 @@ network = "fixture"
   temp_dir = "/tmp/piri"
   blob_dir = "/blobs/piri"
   [repo.database]
-    type = "postgres"
     [repo.database.postgres]
       url = "postgres://piri:fixture-db-password@db.example.com:5432/piri?sslmode=disable"
       max_open_conns = 17

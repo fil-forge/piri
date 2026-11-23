@@ -117,6 +117,9 @@ func TestRepoConfig_ToAppConfig_BlobDir(t *testing.T) {
 				DataDir: dataDir,
 				TempDir: t.TempDir(),
 				BlobDir: tc.blobDir,
+				Database: DatabaseConfig{
+					Postgres: PostgresConfig{URL: "postgres://localhost/db"},
+				},
 			}
 			result, err := cfg.ToAppConfig()
 			require.NoError(t, err)

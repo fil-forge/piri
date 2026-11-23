@@ -104,6 +104,10 @@ func addInitFlags(cmd *cobra.Command) {
 	cmd.Flags().Int("db-postgres-max-open-conns", 5, "PostgreSQL max open connections (default: 5)")
 	cmd.Flags().Int("db-postgres-max-idle-conns", 5, "PostgreSQL max idle connections (default: 5)")
 	cmd.Flags().String("db-postgres-conn-max-lifetime", "30m", "PostgreSQL connection max lifetime (e.g. '30m')")
+	// Deployment scripts pass --db-type=postgres, so the flag stays accepted
+	// with that one value.
+	cmd.Flags().String("db-type", "postgres", "Database backend; 'postgres' is the only supported value")
+	_ = cmd.Flags().MarkDeprecated("db-type", "PostgreSQL is the only supported database; drop the flag")
 
 	// S3 storage configuration flags
 	cmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
@@ -123,7 +127,7 @@ func addInitFlags(cmd *cobra.Command) {
 	// base-config provides an alternative to --network for custom or local development environments.
 	// It defines the network identity: which blockchain (chain ID), which smart contracts to interact
 	// with, and which Forge services (signing, upload, indexer, etc.) to connect to.
-	// It may also optionally include storage backend configuration (database type, S3 settings)
+	// It may also optionally include storage backend configuration (database, S3 settings)
 	// which will be used unless overridden by explicit flags.
 	cmd.Flags().String(
 		"base-config",
@@ -556,6 +560,14 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		if err := storage.s3.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid S3 flags: %w", err)
 		}
+	}
+
+	dbType, err := cmd.Flags().GetString("db-type")
+	if err != nil {
+		return nil, fmt.Errorf("error reading --db-type: %w", err)
+	}
+	if dbType != "postgres" {
+		return nil, fmt.Errorf("--db-type %q is not supported: PostgreSQL is the only supported database", dbType)
 	}
 
 	// Database configuration (PostgreSQL is the only supported backend) -

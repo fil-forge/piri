@@ -74,7 +74,6 @@ func TestGeneratedConfig(t *testing.T) {
 			name: string(network),
 			args: []string{
 				"--network=" + string(network),
-				"--db-type=postgres",
 				"--db-postgres-url=postgres://piri:fixture-db-password@db.example.com:5432/piri",
 				"--db-postgres-max-open-conns=21",
 				"--db-postgres-max-idle-conns=19",
@@ -243,7 +242,8 @@ func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 			"%s sets %s, which neither serve nor init reads", path, key)
 	}
 
-	// What init writes from an empty base config: every key absent at once.
+	// What init writes from an empty base config: every key absent at once,
+	// but for the database URL, which init requires.
 	empty := filepath.Join(t.TempDir(), "empty.toml")
 	require.NoError(t, os.WriteFile(empty, nil, 0o600))
 	t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
@@ -252,6 +252,7 @@ func TestGeneratedConfigFixtureIsComplete(t *testing.T) {
 	require.NoError(t, err)
 	_, err = toml.Decode(string(generateGoldenConfig(t, []string{
 		"--base-config=" + empty, "--registrar-url=https://registrar.example.com",
+		"--db-postgres-url=postgres://piri@absent.example.com:5432/piri",
 	})), &absent)
 	require.NoError(t, err)
 	fixtureValues, absentValues := tomlLeafValues(fixture, ""), tomlLeafValues(absent, "")

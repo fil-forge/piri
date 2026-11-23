@@ -123,7 +123,7 @@ func New(opts NewOpts) (*Queue, error) {
 }
 
 func ensureQueueConfigured(db *sql.DB, name string, dedupeEnabled bool) error {
-	query := internalsql.Rebind(`INSERT INTO queues(queue, dedupe_enabled) VALUES(?, ?) ON CONFLICT(queue) DO UPDATE SET dedupe_enabled = excluded.dedupe_enabled`)
+	query := `INSERT INTO queues(queue, dedupe_enabled) VALUES($1, $2) ON CONFLICT(queue) DO UPDATE SET dedupe_enabled = excluded.dedupe_enabled`
 	_, err := db.Exec(query, name, boolToInt(dedupeEnabled))
 	if err != nil {
 		return fmt.Errorf("ensure queue configuration: %w", err)
@@ -204,11 +204,11 @@ func (q *Queue) sendAndGetIDTx(ctx context.Context, tx *sql.Tx, m queue.Message)
 	available := time.Now().Add(m.Delay).Unix()
 
 	var id int64
-	insertQuery := internalsql.Rebind(`
+	insertQuery := `
 		INSERT INTO jobs(ns_id, key, body, avail_s)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT(ns_id, key) DO NOTHING
-		RETURNING id`)
+		RETURNING id`
 
 	err = tx.QueryRowContext(ctx, insertQuery, nsID, key, m.Body, available).Scan(&id)
 	if err != nil {
@@ -234,13 +234,13 @@ func decodeEnvelope(body []byte) (*messageEnvelope, error) {
 }
 
 func (q *Queue) ensureNamespace(ctx context.Context, tx *sql.Tx, name string) (int64, error) {
-	query := internalsql.Rebind(`INSERT INTO job_ns(queue, name) VALUES(?, ?) ON CONFLICT(queue, name) DO NOTHING`)
+	query := `INSERT INTO job_ns(queue, name) VALUES($1, $2) ON CONFLICT(queue, name) DO NOTHING`
 	if _, err := tx.ExecContext(ctx, query, q.name, name); err != nil {
 		return 0, fmt.Errorf("ensure namespace insert: %w", err)
 	}
 
 	var id int64
-	selectQuery := internalsql.Rebind(`SELECT id FROM job_ns WHERE queue = ? AND name = ?`)
+	selectQuery := `SELECT id FROM job_ns WHERE queue = $1 AND name = $2`
 	if err := tx.QueryRowContext(ctx, selectQuery, q.name, name).Scan(&id); err != nil {
 		return 0, fmt.Errorf("ensure namespace select: %w", err)
 	}
@@ -249,7 +249,7 @@ func (q *Queue) ensureNamespace(ctx context.Context, tx *sql.Tx, name string) (i
 
 func (q *Queue) isJobDone(ctx context.Context, tx *sql.Tx, nsID int64, key []byte) (bool, error) {
 	var status int
-	query := internalsql.Rebind(`SELECT status FROM job_done WHERE ns_id = ? AND key = ?`)
+	query := `SELECT status FROM job_done WHERE ns_id = $1 AND key = $2`
 	err := tx.QueryRowContext(ctx, query, nsID, key).Scan(&status)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -275,23 +275,23 @@ func (q *Queue) receiveTx(ctx context.Context, tx *sql.Tx) (*queue.Message, erro
 	nowSecs := now.Unix()
 	newAvail := now.Add(q.timeout).Unix()
 
-	query := internalsql.Rebind(`
+	query := `
 		WITH next_job AS (
 			SELECT j.id
 			FROM jobs j
 			JOIN job_ns ns ON ns.id = j.ns_id
 			WHERE
-				ns.queue = ? AND
-				j.avail_s <= ? AND
-				j.attempts < ?
+				ns.queue = $1 AND
+				j.avail_s <= $2 AND
+				j.attempts < $3
 			ORDER BY j.created_s, j.id
 			LIMIT 1
 		)
 		UPDATE jobs
 		SET attempts = attempts + 1,
-			avail_s = ?
+			avail_s = $4
 		WHERE id = (SELECT id FROM next_job)
-		RETURNING id, body, attempts`)
+		RETURNING id, body, attempts`
 
 	var (
 		id       int64
@@ -351,7 +351,7 @@ func (q *Queue) extendTx(ctx context.Context, tx *sql.Tx, id queue.ID, delay tim
 	}
 
 	newAvail := time.Now().Add(delay).Unix()
-	query := internalsql.Rebind(`UPDATE jobs SET avail_s = ? WHERE id = ?`)
+	query := `UPDATE jobs SET avail_s = $1 WHERE id = $2`
 	_, err = tx.ExecContext(ctx, query, newAvail, jobID)
 	if err != nil {
 		return fmt.Errorf("extend job: %w", err)
@@ -379,7 +379,7 @@ func (q *Queue) deleteTx(ctx context.Context, tx *sql.Tx, id queue.ID, status jo
 		return err
 	}
 
-	query := internalsql.Rebind(`DELETE FROM jobs WHERE id = ?`)
+	query := `DELETE FROM jobs WHERE id = $1`
 	if _, err := tx.ExecContext(ctx, query, jobID); err != nil {
 		return fmt.Errorf("delete job: %w", err)
 	}
@@ -414,15 +414,15 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id queue.ID,
 		return err
 	}
 
-	insertQuery := internalsql.Rebind(`
+	insertQuery := `
 		INSERT INTO job_dead(id, ns_id, key, body, attempts, reason, error)
-		VALUES(?, ?, ?, ?, ?, ?, ?)`)
+		VALUES($1, $2, $3, $4, $5, $6, $7)`
 	_, err = tx.ExecContext(ctx, insertQuery, row.id, row.namespaceID, row.key, row.body, row.attempts, failureReason, errorMsg)
 	if err != nil {
 		return fmt.Errorf("insert job_dead: %w", err)
 	}
 
-	deleteQuery := internalsql.Rebind(`DELETE FROM jobs WHERE id = ?`)
+	deleteQuery := `DELETE FROM jobs WHERE id = $1`
 	if _, err := tx.ExecContext(ctx, deleteQuery, jobID); err != nil {
 		return fmt.Errorf("delete job during dead-letter move: %w", err)
 	}
@@ -445,7 +445,7 @@ type jobRow struct {
 }
 
 func (q *Queue) fetchJob(ctx context.Context, tx *sql.Tx, id int64) (*jobRow, error) {
-	query := internalsql.Rebind(`SELECT id, ns_id, key, body, attempts FROM jobs WHERE id = ?`)
+	query := `SELECT id, ns_id, key, body, attempts FROM jobs WHERE id = $1`
 	var row jobRow
 	err := tx.QueryRowContext(ctx, query, id).Scan(&row.id, &row.namespaceID, &row.key, &row.body, &row.attempts)
 	if err != nil {

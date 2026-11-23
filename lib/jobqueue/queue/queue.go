@@ -149,7 +149,7 @@ func (q *Queue) sendAndGetIDTx(ctx context.Context, tx *sql.Tx, m Message) (ID, 
 	timeout := time.Now().Add(m.Delay).Format(rfc3339Milli)
 
 	var id ID
-	query := internalsql.Rebind(`INSERT INTO jobqueue (queue, body, timeout) VALUES (?, ?, ?) RETURNING id`)
+	query := `INSERT INTO jobqueue (queue, body, timeout) VALUES ($1, $2, $3) RETURNING id`
 	if err := tx.QueryRowContext(ctx, query, q.name, m.Body, timeout).Scan(&id); err != nil {
 		return "", err
 	}
@@ -173,21 +173,21 @@ func (q *Queue) receiveTx(ctx context.Context, tx *sql.Tx) (*Message, error) {
 	nowFormatted := now.Format(rfc3339Milli)
 	timeoutFormatted := now.Add(q.timeout).Format(rfc3339Milli)
 
-	query := internalsql.Rebind(`
+	query := `
 		UPDATE jobqueue
 		SET
-			timeout = ?,
+			timeout = $1,
 			received = received + 1
 		WHERE id = (
 			SELECT id FROM jobqueue
 			WHERE
-				queue = ? AND
-				? >= timeout AND
-				received < ?
+				queue = $2 AND
+				$3 >= timeout AND
+				received < $4
 			ORDER BY created
 			LIMIT 1
 		)
-		RETURNING id, body, received`)
+		RETURNING id, body, received`
 
 	var m Message
 	if err := tx.QueryRowContext(ctx, query, timeoutFormatted, q.name, nowFormatted, q.maxReceive).Scan(&m.ID, &m.Body, &m.Received); err != nil {
@@ -236,7 +236,7 @@ func (q *Queue) extendTx(ctx context.Context, tx *sql.Tx, id ID, delay time.Dura
 
 	timeout := time.Now().Add(delay).Format(rfc3339Milli)
 
-	query := internalsql.Rebind(`UPDATE jobqueue SET timeout = ? WHERE queue = ? AND id = ?`)
+	query := `UPDATE jobqueue SET timeout = $1 WHERE queue = $2 AND id = $3`
 	_, err := tx.ExecContext(ctx, query, timeout, q.name, id)
 	return err
 }
@@ -250,7 +250,7 @@ func (q *Queue) Delete(ctx context.Context, id ID) error {
 
 // deleteTx is like Delete, but within an existing transaction.
 func (q *Queue) deleteTx(ctx context.Context, tx *sql.Tx, id ID) error {
-	query := internalsql.Rebind(`DELETE FROM jobqueue WHERE queue = ? AND id = ?`)
+	query := `DELETE FROM jobqueue WHERE queue = $1 AND id = $2`
 	_, err := tx.ExecContext(ctx, query, q.name, id)
 	return err
 }
@@ -269,11 +269,11 @@ func (q *Queue) moveToDeadLetterTx(ctx context.Context, tx *sql.Tx, id ID, jobNa
 	movedAt := time.Now().Format(rfc3339Milli)
 
 	// First, copy the message to the dead letter queue
-	insertQuery := internalsql.Rebind(`
+	insertQuery := `
 		INSERT INTO jobqueue_dead (id, created, updated, queue, body, timeout, received, job_name, failure_reason, error_message, moved_at)
-		SELECT id, created, updated, queue, body, timeout, received, ?, ?, ?, ?
+		SELECT id, created, updated, queue, body, timeout, received, $1, $2, $3, $4
 		FROM jobqueue
-		WHERE queue = ? AND id = ?`)
+		WHERE queue = $5 AND id = $6`
 
 	result, err := tx.ExecContext(ctx, insertQuery, jobName, failureReason, errorMsg, movedAt, q.name, id)
 	if err != nil {

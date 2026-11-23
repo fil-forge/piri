@@ -24,9 +24,6 @@ data_dir = "/base/data"
 temp_dir = "/base/temp"
 blob_dir = "/base/blobs"
 
-[repo.database]
-type = "postgres"
-
 [repo.database.postgres]
 url = "postgres://piri:fixture-db-password@db.example.com:5432/piri?sslmode=disable"
 max_open_conns = 17
