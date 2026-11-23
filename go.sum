@@ -551,12 +551,12 @@ github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390 h1:
 github.com/fil-forge/filecoin-services/go v0.0.0-20260507172456-36ebe4467390/go.mod h1:ur5fRrG8v9twwwRFdX7lquGza4liT6x/xAFW7T4XVIc=
 github.com/fil-forge/go-ipni-tools v0.0.0-20261023132922-7d9dcd4e2d96 h1:B8OWRhwKTKan3eIN5lXNd+FHylAuw6bmZpKb0XdJFGQ=
 github.com/fil-forge/go-ipni-tools v0.0.0-20261023132922-7d9dcd4e2d96/go.mod h1:8OPFqruFBs/9aiUY0tLCQZfxOdJTb1wYlCMxbQN0pj0=
-github.com/fil-forge/libforge v0.0.0-20261111172920-ff407324a982 h1:dguWFiI+DyusXOx5ezqpi5A79EkEVozizBuMYerAcnA=
-github.com/fil-forge/libforge v0.0.0-20261111172920-ff407324a982/go.mod h1:ZtPwUgXm7gqQSmjmIcfMy5AwWpFIR02WMZvbgNOwi/4=
+github.com/fil-forge/libforge v0.0.0-20261123132321-e3267015aa44 h1:qTw0xtrVOhxbmgNxMGaJ4Zwdrha0bJ/6MGaKU9/xU7Q=
+github.com/fil-forge/libforge v0.0.0-20261123132321-e3267015aa44/go.mod h1:Z2F5ns5o/fk64SUJE79ctLYI5M1khrYSJbh4/xd74DE=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899 h1:5dV7QmNHHA5JZLIGikLJJsmB/sdmqzyTgr75ivInfVY=
 github.com/fil-forge/piri-signing-service v0.0.0-20260801143551-d7c06ad1d899/go.mod h1:6Xzvs1sZrikN3GygCV2I96dnbzy1xuCtitPMme/TjZU=
-github.com/fil-forge/ucantone v0.0.0-20261120160831-cf6c452a3cd7 h1:3Bhat1RvTC2z3NMpy6l22C97VKQYp2dEBxY1SdJsW4I=
-github.com/fil-forge/ucantone v0.0.0-20261120160831-cf6c452a3cd7/go.mod h1:PJe9Lcv+QWawlM29ItA9y5JzFIs37gZ3jODxYKXbQkM=
+github.com/fil-forge/ucantone v0.0.0-20261123131543-0ef2b25abb66 h1:bjARwsoQ+D3xANVSIbCSQSUvb5ZR4GdGV8dRXnoD/cs=
+github.com/fil-forge/ucantone v0.0.0-20261123131543-0ef2b25abb66/go.mod h1:PJe9Lcv+QWawlM29ItA9y5JzFIs37gZ3jODxYKXbQkM=
 github.com/filecoin-project/curio v1.29.3 h1:UFzo6zpTO+KarcUugqDJTXhF88XuXCfQdh2aoax1+Lo=
 github.com/filecoin-project/curio v1.29.3/go.mod h1:sjU79DniqrT63Ye1udRip6rX47SX96eo2qBboxvr9qY=
 github.com/filecoin-project/filecoin-ffi v1.37.0 h1:mv/1uLee2Y/Wx7zvi8sTC4m/bEtEBuaW1OwqPilBBu0=
