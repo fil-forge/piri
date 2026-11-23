@@ -24,8 +24,8 @@ Externally accessible URL. Required: the node does not start without it.
 
 The node's [DID](identity.md#the-nodes-did) is derived from this URL, so it has
 to be the root of a host, such as `https://piri.example.com`. A URL with a path,
-query or fragment is refused. A port other than the scheme's default becomes
-part of the DID.
+query or fragment is refused, as is a host that is an IP address. A port other
+than the scheme's default becomes part of the DID.
 
 The URL has to be `https`. Other services fetch the node's DID document over
 HTTPS, so a node at an `http` URL could not be identified. Development stacks

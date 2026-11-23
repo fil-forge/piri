@@ -25,7 +25,7 @@ func TestDIDFromPublicURL(t *testing.T) {
 		{url: "https://node.example.com:8443", want: "did:web:node.example.com%3A8443"},
 		{url: "http://piri-0:3000", insecure: true, want: "did:web:piri-0%3A3000"},
 		{url: "http://piri-0:80", insecure: true, want: "did:web:piri-0"},
-		{url: "http://127.0.0.1:3000", insecure: true, want: "did:web:127.0.0.1%3A3000"},
+		{url: "http://127.0.0.1:3000", insecure: true, wantErr: "not an IP address"},
 		{url: "https://node.example.com", insecure: true, want: "did:web:node.example.com"},
 		{url: "http://node.example.com", wantErr: "must be an https URL"},
 		{url: "http://piri-0:3000", wantErr: "must be an https URL"},
@@ -36,7 +36,7 @@ func TestDIDFromPublicURL(t *testing.T) {
 		{url: "ftp://node.example.com", wantErr: "must be an https URL"},
 		{url: "node.example.com", wantErr: "must be an https URL"},
 		{url: "ftp://node.example.com", insecure: true, wantErr: "http or https"},
-		{url: "http://[::1]:3000", insecure: true, wantErr: "IPv6"},
+		{url: "http://[::1]:3000", insecure: true, wantErr: "not an IP address"},
 		{url: "https://", wantErr: "no host"},
 	}
 	for _, tt := range tests {
