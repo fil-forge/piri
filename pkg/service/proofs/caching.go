@@ -5,14 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/fil-forge/libforge/commands/access"
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/did/web"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -59,15 +58,15 @@ func (ps *CachingProofService) RequestAccess(
 	if httpClient == nil {
 		serviceURL := cfg.url
 		if serviceURL == nil {
-			s := audience.String()
-			if !strings.HasPrefix(s, "did:web:") {
+			if audience.Method() != web.Method {
 				return nil, errors.New("non-did:web audience and no service URL provided")
 			}
-			u, err := url.Parse("https://" + strings.TrimPrefix(s, "did:web:"))
+			// A did:web names the service's host, port and path.
+			u, err := web.Location(audience)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("finding the service URL of %s: %w", audience, err)
 			}
-			serviceURL = u
+			serviceURL = &u
 		}
 		var opts []client.HTTPOption
 		if cfg.httpClient != nil {
