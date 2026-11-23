@@ -15,7 +15,7 @@ import (
 // --config-version` prints it, so a deployment can tell that a config was written by an
 // init that predates the running binary and re-run init. TestGeneratedConfig in
 // cmd/cli/setup fails when init's output changes without a bump.
-const GeneratedConfigVersion = 1
+const GeneratedConfigVersion = 2
 
 type FullServerConfig struct {
 	// ConfigVersion is the GeneratedConfigVersion of the init that wrote this
@@ -48,14 +48,14 @@ func (f FullServerConfig) ToAppConfig() (app.AppConfig, error) {
 	//
 	// user provided configuration
 	//
-	out.Identity, err = f.Identity.ToAppConfig()
-	if err != nil {
-		return app.AppConfig{}, fmt.Errorf("converting identity to app config: %s", err)
-	}
-
 	out.Server, err = f.Server.ToAppConfig()
 	if err != nil {
 		return app.AppConfig{}, fmt.Errorf("converting server config to app config: %s", err)
+	}
+
+	out.Identity, err = f.Identity.ToAppConfig(out.Server.PublicURL, f.UCANService.InsecureDIDResolution)
+	if err != nil {
+		return app.AppConfig{}, fmt.Errorf("converting identity to app config: %s", err)
 	}
 
 	out.Storage, err = f.Repo.ToAppConfig()

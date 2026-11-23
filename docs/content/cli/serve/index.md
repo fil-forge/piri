@@ -58,7 +58,7 @@ piri serve --config=config.toml
 ▐▌   █      █  ▀▘
 
 v0.2.1
-did:key:z6MkhaXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+did:web:piri.example.com
 Piri Running on: localhost:3000
 Piri Public Endpoint: https://piri.example.com
 ```

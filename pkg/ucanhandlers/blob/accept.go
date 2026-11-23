@@ -211,6 +211,10 @@ func Accept(ctx context.Context, deps AcceptDeps, req *AcceptRequest) (resp *Acc
 			Range:    &assert.Range{Start: 0, End: &rangeEnd},
 		},
 		invocation.WithNoExpiration(),
+		// A commitment outlives the key that signed it. The time it was
+		// issued is what lets a verifier accept it against a key the node has
+		// since retired.
+		invocation.WithIssuedAt(ucan.Now()),
 	)
 
 	if err != nil {

@@ -53,12 +53,16 @@ func (s *RetrievalSuite) SetupSuite() {
 	s.Require().NoError(err)
 
 	s.ExtraOptions = []fx.Option{
-		fx.Decorate(func(did.Resolver) did.Resolver {
-			return resolver.ByMethod{
-				"key": key.Resolver,
-				"web": resolver.WellKnown{
-					s.UploadServiceIdentity.DID(): uploadServiceDoc,
+		fx.Decorate(func(node did.Resolver) did.Resolver {
+			return resolver.Tiered{
+				resolver.ByMethod{
+					"key": key.Resolver,
+					"web": resolver.WellKnown{
+						s.UploadServiceIdentity.DID(): uploadServiceDoc,
+					},
 				},
+				// The node resolves its own did:web from its identity.
+				node,
 			}
 		}),
 		fx.Populate(&s.Allocations, &s.Pieces),
