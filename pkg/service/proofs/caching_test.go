@@ -1,6 +1,8 @@
 package proofs_test
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/fil-forge/ucantone/ucan/command"
 	"github.com/fil-forge/ucantone/ucan/container"
 	"github.com/fil-forge/ucantone/ucan/delegation"
+	verrs "github.com/fil-forge/ucantone/validator/errors"
 	"github.com/ipfs/go-cid"
 	"github.com/stretchr/testify/require"
 
@@ -155,4 +158,70 @@ func TestRequestAccessFindsTheServiceFromItsDID(t *testing.T) {
 		_, err := proofs.NewCachingProofService().RequestAccess(t.Context(), alice, testutil.RandomIssuer(t).DID(), cmd, nil)
 		require.ErrorContains(t, err, "non-did:web audience")
 	})
+}
+
+// rawCBORError is a failure whose payload is the given CBOR bytes, for
+// receipts that do not carry a named error.
+type rawCBORError []byte
+
+func (e rawCBORError) Error() string { return "raw CBOR failure" }
+
+func (e rawCBORError) MarshalCBOR(w io.Writer) error {
+	_, err := w.Write(e)
+	return err
+}
+
+// TestRequestAccessReportsTheServiceError covers a service that answers
+// /access/grant with a failure receipt: the returned error carries what the
+// service put in the receipt.
+func TestRequestAccessReportsTheServiceError(t *testing.T) {
+	nodeDID, err := web.Parse("did:web:piri.example")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name            string
+		failure         error
+		expectedMessage string
+	}{
+		{
+			name:            "a named error with a cause",
+			failure:         verrs.NewDIDKeyResolutionError(nodeDID, errors.New("fetching did.json: 404 Not Found")),
+			expectedMessage: `/access/grant receipt is a failure: DIDKeyResolutionError: unable to resolve "did:web:piri.example" key: fetching did.json: 404 Not Found`,
+		},
+		{
+			name:            "an error with no name",
+			failure:         errors.New("boom"),
+			expectedMessage: "/access/grant receipt is a failure: UnknownError: boom",
+		},
+		{
+			name:            "a payload that is not a map",
+			failure:         rawCBORError{0x18, 0x2a},
+			expectedMessage: "raw CBOR: 182a",
+		},
+		{
+			name:            "a map with no message",
+			failure:         rawCBORError{0xa1, 0x64, 'c', 'o', 'd', 'e', 0x01},
+			expectedMessage: "/access/grant receipt is a failure: the failure has no message, raw CBOR: a164636f646501",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := testutil.RandomIssuer(t)
+			srv := server.NewHTTP(service)
+			srv.Handle(access.Grant.Command, binding.NewHandler(
+				func(req *binding.Request[*access.GrantArguments], res *binding.Response[*access.GrantOK]) error {
+					return res.SetFailure(tc.failure)
+				},
+			))
+			endpoint, err := url.Parse("http://test")
+			require.NoError(t, err)
+			httpClient, err := client.NewHTTP(endpoint, client.WithHTTPClient(&http.Client{Transport: srv}))
+			require.NoError(t, err)
+
+			_, err = proofs.NewCachingProofService().RequestAccess(
+				t.Context(), testutil.RandomIssuer(t), service.DID(), command.New("/test/test"), nil, proofs.WithClient(httpClient),
+			)
+			require.ErrorContains(t, err, tc.expectedMessage)
+		})
+	}
 }
