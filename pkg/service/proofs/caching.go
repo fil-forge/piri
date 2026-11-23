@@ -12,6 +12,7 @@ import (
 	"github.com/fil-forge/ucantone/client"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/web"
+	errdm "github.com/fil-forge/ucantone/errors/datamodel"
 	"github.com/fil-forge/ucantone/execution"
 	"github.com/fil-forge/ucantone/ucan"
 	"github.com/fil-forge/ucantone/ucan/invocation"
@@ -145,9 +146,9 @@ func requestDelegation(
 	}
 
 	out := resp.Receipt().Out()
-	okBytes, _ := out.Unpack()
+	okBytes, errBytes := out.Unpack()
 	if !out.IsOK() {
-		return nil, fmt.Errorf("%s receipt is a failure", access.GrantCommand)
+		return nil, fmt.Errorf("%s receipt is a failure: %w", access.GrantCommand, decodeFailure(errBytes))
 	}
 
 	var ok access.GrantOK
@@ -167,4 +168,21 @@ func requestDelegation(
 		}
 	}
 	return nil, fmt.Errorf("%s response container did not include delegation %s", access.GrantCommand, ok.Delegations[0])
+}
+
+// decodeFailure turns the failure payload of a receipt into an error that
+// carries the error name and message the service put in it. A payload that is
+// not a named error is reported with its raw bytes.
+func decodeFailure(errBytes []byte) error {
+	var rcptErr errdm.ErrorModel
+	if err := rcptErr.UnmarshalCBOR(bytes.NewReader(errBytes)); err != nil {
+		return fmt.Errorf("decoding the failure (%w), raw CBOR: %x", err, errBytes)
+	}
+	if rcptErr.Message == "" {
+		return fmt.Errorf("the failure has no message, raw CBOR: %x", errBytes)
+	}
+	if rcptErr.Name() == "" {
+		return rcptErr
+	}
+	return fmt.Errorf("%s: %w", rcptErr.Name(), rcptErr)
 }
