@@ -65,6 +65,11 @@ type Store struct {
 	// the directory is durable.
 	dirCreations sync.Map
 
+	// unsyncedDirs holds the shard directories whose creation could not be
+	// synced into the root. A write that finds one syncs the root first.
+	// New syncs the root on every open, which covers any left at a restart.
+	unsyncedDirs sync.Map
+
 	shutdownLock sync.RWMutex
 	shutdown     bool
 
@@ -309,22 +314,28 @@ func (fs *Store) makeDir(dir string) error {
 		if other.err == nil {
 			return nil
 		}
-		// The other write failed and removed the directory; create it here.
+		// The other write failed to sync the root; try again here.
 	}
 }
 
 // makeDirDurable creates the directory and syncs the root. When the sync
-// fails it removes the directory again, so the next write creates and syncs
-// it rather than finding it present and trusting it.
+// fails it marks the directory unsynced, so the next write to find it syncs
+// the root again rather than trusting it.
 func (fs *Store) makeDirDurable(dir string) error {
 	created, err := fs.makeDirNoSync(dir)
-	if err != nil || !created {
+	if err != nil {
 		return err
+	}
+	if !created {
+		if _, unsynced := fs.unsyncedDirs.Load(dir); !unsynced {
+			return nil
+		}
 	}
 	if err := syncDir(fs.path); err != nil {
-		_ = os.Remove(dir)
+		fs.unsyncedDirs.Store(dir, struct{}{})
 		return err
 	}
+	fs.unsyncedDirs.Delete(dir)
 	return nil
 }
 
