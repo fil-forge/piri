@@ -209,25 +209,25 @@ func open(path string, syncFiles bool) (*Store, error) {
 }
 
 // New creates a new FlatFS object store or opens an existing one. A store
-// that syncs makes a newly created one durable before returning.
+// that syncs makes its metadata durable before returning, on every open: an
+// earlier open may have failed to, or may have run with sync off.
 func New(path string, fun *ShardIdV1, sync bool) (*Store, error) {
 	ancestor := deepestExistingDir(path)
-	err := create(path, fun)
-	switch {
-	case err == nil && sync:
-		if err := syncNewStore(path, ancestor); err != nil {
-			return nil, fmt.Errorf("syncing new store %s: %w", path, err)
-		}
-	case err != nil && err != ErrStoreExists:
+	if err := create(path, fun); err != nil && err != ErrStoreExists {
 		return nil, err
+	}
+	if sync {
+		if err := syncStoreMetadata(path, ancestor); err != nil {
+			return nil, fmt.Errorf("syncing store %s: %w", path, err)
+		}
 	}
 	return open(path, sync)
 }
 
-// syncNewStore makes what create wrote durable: the SHARDING and README files
-// and every directory entry from path up to the one for ancestor, the deepest
-// directory that existed before.
-func syncNewStore(path, ancestor string) error {
+// syncStoreMetadata makes the SHARDING and README files durable, and every
+// directory entry from path up to the one for ancestor, the deepest directory
+// that existed before this open.
+func syncStoreMetadata(path, ancestor string) error {
 	for _, name := range []string{SHARDING_FN, README_FN} {
 		file, err := os.Open(filepath.Join(path, name))
 		if os.IsNotExist(err) { // create writes a README only for some shard funcs
