@@ -100,7 +100,9 @@ func NewIPNIObjectStore(cfg app.PublisherStorageConfig, lc fx.Lifecycle) (object
 	if _, err := mkdirp(cfg.Dir); err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}
-	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
+	// Sync, because Postgres commits a head that links to the advert right
+	// after the write: an advert lost in a crash breaks the chain from there.
+	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), true)
 	if err != nil {
 		return nil, fmt.Errorf("creating IPNI object store: %w", err)
 	}
@@ -152,7 +154,9 @@ func NewPDPStore(cfg app.PDPStoreConfig, lc fx.Lifecycle) (*blobstore.Store, err
 	if cfg.Dir == "" {
 		return nil, fmt.Errorf("no data dir provided for pdp store")
 	}
-	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), false)
+	// Sync, because Postgres records the blob right after the write: a blob
+	// lost in a crash is data the node committed to prove and no longer has.
+	objStore, err := flatfs.New(cfg.Dir, flatfs.NextToLast(2), true)
 	if err != nil {
 		return nil, fmt.Errorf("creating pdp object store: %w", err)
 	}

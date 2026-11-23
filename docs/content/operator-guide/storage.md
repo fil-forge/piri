@@ -92,6 +92,8 @@ Piri manages several categories of data:
 - **IPNI advertisement chain**: the chain head and the map of published content live in Postgres; each advertisement is one small object, in S3 where [`repo.s3`](../configuration/repo/index.md#s3) places it or in `data_dir/ipni` on a local volume
 
 On the filesystem backend, blob bytes live in `data_dir/pdp/datastore`. Set [`repo.blob_dir`](../configuration/repo/index.md#blob_dir) to keep blobs and IPNI adverts on a separate volume from the rest of Piri's state.
+
+On the filesystem backend, Piri fsyncs every blob and IPNI advert, and the directory that holds it, before it records the object in the database. A host crash or power loss cannot leave a database row pointing at a file that never reached the disk. Each write waits for the volume to confirm it, so the volume's fsync latency adds to upload and publishing time. On a ZFS mirror of NVMe drives, this cost about 11% of advert publishing throughput, and blobs still wrote at about 1.4 GiB/s.
 - **Receipts**: UCAN receipt journals for egress tracking
 
 Nodes from earlier releases kept the advertisement chain in `data_dir/publisher`. Piri no longer reads that directory, and you can delete it.
