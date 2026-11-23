@@ -61,12 +61,16 @@ func (s *RPCSuite) SetupSuite() {
 		// did:key DIDs encode their public key directly so we decode in
 		// process — no network, works for any test signer (Alice, Bob,
 		// Mallory, etc.). did:web still needs the map for WebService.
-		fx.Decorate(func(did.Resolver) did.Resolver {
-			return resolver.ByMethod{
-				"key": key.Resolver,
-				"web": resolver.WellKnown{
-					s.UploadServiceIdentity.DID(): uploadServiceDoc,
+		fx.Decorate(func(node did.Resolver) did.Resolver {
+			return resolver.Tiered{
+				resolver.ByMethod{
+					"key": key.Resolver,
+					"web": resolver.WellKnown{
+						s.UploadServiceIdentity.DID(): uploadServiceDoc,
+					},
 				},
+				// The node resolves its own did:web from its identity.
+				node,
 			}
 		}),
 		// Registered open: the fixture exists to exercise panic recovery, and a

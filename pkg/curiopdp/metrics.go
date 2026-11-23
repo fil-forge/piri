@@ -533,8 +533,8 @@ func startPDPMetrics(ctx context.Context, meter metric.Meter, head *chainHead, s
 // (which must happen before startPipeline runs it, hence at construction) and
 // exports the PDP metrics for the life of the app on the global meter the
 // serve command configures before wiring. Task history is filtered to the
-// engine's own host-and-port, which is how harmonytask records the node that
-// completed a task.
+// engine's own machine identity, which is how harmonytask records the node
+// that completed a task.
 func registerPDPMetrics(lc fx.Lifecycle, db *harmonydb.DB, ec ethchain.EthClient, cs *chainsched.CurioChainSched, eng *harmonytask.TaskEngine) error {
 	head := &chainHead{}
 	if err := cs.AddHandler(head.update); err != nil {

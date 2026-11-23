@@ -1,5 +1,5 @@
-config_version = 1
-network = "forge-prod"
+config_version = 2
+network = "warm-staging"
 
 [identity]
   key_file = "/keys/piri.pem"
@@ -31,18 +31,18 @@ network = "forge-prod"
   owner_address = "0x9012345678901234567890123456789012345678"
   lotus_endpoint = "wss://lotus.example.com/rpc/v1"
   lotus_auth_token = "fixture-lotus-token"
-  chain_id = "314"
-  payer_address = "0x3C1AE7A70a2b51458Fcb7927FD77AaE408a1B857"
+  chain_id = "314159"
+  payer_address = "0x8d3d7cE4F43607C9d0ac01f695c7A9caC135f9AD"
   [pdp.signing_service]
-    did = "did:web:signer.forge.storacha.network"
-    url = "https://signer.forge.storacha.network"
+    did = "did:web:staging.signer.warm.storacha.network"
+    url = "https://staging.signer.warm.storacha.network"
   [pdp.contracts]
-    verifier = "0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"
-    provider_registry = "0xf55dDbf63F1b55c3F1D4FA7e339a68AB7b64A5eB"
-    service = "0x56e53c5e7F27504b810494cc3b88b2aa0645a839"
-    service_view = "0x778Bbb8F50d759e2AA03ab6FAEF830Ca329AFF9D"
-    payments = "0x23b1e018F08BB982348b15a86ee926eEBf7F4DAa"
-    usdfc_token = "0x80B98d3aa09ffff255c3ba4A241111Ff1262F045"
+    verifier = "0x85e366Cf9DD2c0aE37E963d9556F5f4718d6417C"
+    provider_registry = "0x6A96aaB210B75ee733f0A291B5D8d4A053643979"
+    service = "0x0c6875983B20901a7C3c86871f43FdEE77946424"
+    service_view = "0xEAD67d775f36D1d2894854D20e042C77A3CC20a5"
+    payments = "0x09a0fDc2723fAd1A7b8e3e00eE5DF73841df55a0"
+    usdfc_token = "0xb3042734b608a1B16e9e86B374A3f3e389B4cDf0"
   [pdp.aggregation]
     [pdp.aggregation.commp]
       delay = "1h0m0s"
@@ -69,17 +69,17 @@ network = "forge-prod"
   plc_directory = "https://plc.example.com"
   [ucan.services]
     [ucan.services.indexer]
-      did = "did:web:indexer.forge.storacha.network"
-      url = "https://indexer.forge.storacha.network/claims"
+      did = "did:web:staging.indexer.warm.storacha.network"
+      url = "https://staging.indexer.warm.storacha.network/claims"
       proof = "indexer-proof"
     [ucan.services.etracker]
-      did = "did:web:etracker.forge.storacha.network"
-      url = "https://etracker.forge.storacha.network"
-      receipts_endpoint = "https://etracker.forge.storacha.network/receipts"
+      did = "did:web:staging.etracker.warm.storacha.network"
+      url = "https://staging.etracker.warm.storacha.network"
+      receipts_endpoint = "https://staging.etracker.warm.storacha.network/receipts"
       max_batch_size_bytes = 10485760
       proof = "egress-proof"
     [ucan.services.upload]
-      did = "did:web:up.forge.storacha.network"
-      url = "https://up.forge.storacha.network"
+      did = "did:web:staging.up.warm.storacha.network"
+      url = "https://staging.up.warm.storacha.network"
     [ucan.services.publisher]
-      ipni_announce_urls = ["https://cid.contact/announce", "https://ipni.forge.storacha.network"]
+      ipni_announce_urls = ["https://cid.contact/announce", "https://staging.ipni.warm.storacha.network"]

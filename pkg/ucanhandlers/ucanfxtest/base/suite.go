@@ -27,6 +27,7 @@ import (
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 
+	"github.com/fil-forge/piri/pkg/config"
 	"github.com/fil-forge/piri/pkg/fx/app"
 	piritestutil "github.com/fil-forge/piri/pkg/internal/testutil"
 	"github.com/fil-forge/piri/pkg/internal/testutil/pdpfake"
@@ -68,6 +69,13 @@ func (s *BaseSuite) SetupSuite() {
 	)
 	cfg := piritestutil.NewTestConfig(s.T(), cfgOpts...)
 	s.ServiceURL = &cfg.Server.PublicURL
+
+	// The node is identified as it is when served: by the did:web of its
+	// public URL, signing with its key.
+	serviceDID, err := config.DIDFromPublicURL(cfg.Server.PublicURL, true)
+	require.NoError(s.T(), err)
+	s.ServiceID = multikey.NewIssuer(serviceDID, s.ServiceID)
+	cfg.Identity.Issuer = s.ServiceID
 
 	opts := []fx.Option{
 		fx.NopLogger,

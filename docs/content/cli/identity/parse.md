@@ -2,6 +2,8 @@
 
 Parse a DID from a PEM file containing an Ed25519 key.
 
+The output is the `did:key` of the key. A node's own DID is the `did:web` of its public URL; see [identity](../../configuration/identity.md#the-nodes-did).
+
 ## Usage
 
 ```

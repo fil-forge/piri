@@ -8,6 +8,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 
+	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/key"
 	"github.com/fil-forge/ucantone/did/plc"
@@ -106,7 +107,11 @@ func logPanic(req execution.Request, value any) {
 // newDIDResolver builds the DID resolver used to validate incoming UCANs. It
 // always supports did:key and did:web, and additionally supports did:plc when a
 // PLC directory URL is configured.
-func newDIDResolver(cfg app.UCANServiceConfig) (did.Resolver, error) {
+//
+// The node's own did:web is answered from its identity and never fetched: a
+// node validating a token it issued itself would otherwise make an HTTP
+// request to its own public URL.
+func newDIDResolver(cfg app.UCANServiceConfig, id identity.Identity) (did.Resolver, error) {
 	var (
 		httpResolver did.Resolver
 		err          error
@@ -123,9 +128,17 @@ func newDIDResolver(cfg app.UCANServiceConfig) (did.Resolver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create did:plc resolver: %w", err)
 	}
+	self := resolver.WellKnown{}
+	if id.DID().Method() == web.Method {
+		doc, err := id.DIDDocument()
+		if err != nil {
+			return nil, fmt.Errorf("building own DID document: %w", err)
+		}
+		self[id.DID()] = doc
+	}
 	m := resolver.ByMethod{
 		"key": key.Resolver,
-		"web": httpResolver,
+		"web": resolver.Tiered{self, httpResolver},
 		"plc": resolver.NewCached(p, 3*time.Hour),
 	}
 	return m, nil

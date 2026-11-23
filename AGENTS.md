@@ -59,6 +59,26 @@ deploy/full-node/     # deployment assets; Dockerfile at repo root
 docs/                 # mkdocs operator documentation (content/ + mkdocs.yml)
 ```
 
+## Identity
+
+The node is a `did:web` derived from `server.public_url`
+(`config.DIDFromPublicURL`), wrapping the key in `identity.key_file`. It is
+never configured: the URL must be the root of a host, and the node does not
+start without one. An `http` URL is refused unless
+`ucan.insecure_did_resolution` is set, since a `did:web` is resolved over
+HTTPS. The DID document is served at `/.well-known/did.json`
+(`pkg/fx/root`), and the node resolves its own DID from its identity instead of
+fetching it (`ucanfx.newDIDResolver`).
+
+Take the node's DID from `Issuer.DID()`. `Issuer.String()` is not the DID for a
+wrapped identity, and `KeyDID()` is the key's `did:key`, which is what the IPNI
+peer ID follows.
+
+Location commitments carry `iat`. They outlive the key that signed them, and
+the issue time is what lets a verifier place one before a later change of key.
+`/pdp/accept` invocations must stay without `iat` and nonce: their link is
+rebuilt in three places and has to be deterministic.
+
 ## UCAN stack
 
 Piri uses `github.com/fil-forge/ucantone` (UCAN server/execution runtime) and
