@@ -24,7 +24,10 @@ func (i IdentityConfig) Validate() error {
 // did:web of the node's public URL. The DID is derived and never configured, so
 // it cannot disagree with where the node serves its DID document, and the key
 // can be replaced without the node becoming a different node.
-func (i IdentityConfig) ToAppConfig(publicURL url.URL) (app.IdentityConfig, error) {
+//
+// insecureDIDResolution says the node runs where did:web documents are fetched
+// over HTTP, which is the only place an http public URL can identify it.
+func (i IdentityConfig) ToAppConfig(publicURL url.URL, insecureDIDResolution bool) (app.IdentityConfig, error) {
 	pem, err := os.ReadFile(i.KeyFile)
 	if err != nil {
 		return app.IdentityConfig{}, fmt.Errorf("reading identity key file: %w", err)
@@ -33,7 +36,7 @@ func (i IdentityConfig) ToAppConfig(publicURL url.URL) (app.IdentityConfig, erro
 	if err != nil {
 		return app.IdentityConfig{}, fmt.Errorf("decoding identity key file: %w", err)
 	}
-	id, err := DIDFromPublicURL(publicURL)
+	id, err := DIDFromPublicURL(publicURL, insecureDIDResolution)
 	if err != nil {
 		return app.IdentityConfig{}, err
 	}
@@ -48,9 +51,16 @@ func (i IdentityConfig) ToAppConfig(publicURL url.URL) (app.IdentityConfig, erro
 // is where the node serves its DID document, so the URL has to be the root of
 // a host: a path, query, fragment or user info is refused. The scheme is not
 // part of the DID. A port is, unless it is the scheme's default.
-func DIDFromPublicURL(publicURL url.URL) (did.DID, error) {
+//
+// A did:web document is fetched over HTTPS, so a node at an http URL cannot be
+// resolved and the URL is refused. With insecureDIDResolution, for development
+// stacks whose services fetch DID documents over HTTP, it is accepted.
+func DIDFromPublicURL(publicURL url.URL, insecureDIDResolution bool) (did.DID, error) {
 	if publicURL.Scheme != "http" && publicURL.Scheme != "https" {
 		return did.Undef, fmt.Errorf("public URL %q must be an http or https URL", publicURL.String())
+	}
+	if publicURL.Scheme == "http" && !insecureDIDResolution {
+		return did.Undef, fmt.Errorf("public URL %q must be an https URL: the node's DID document is fetched over HTTPS (ucan.insecure_did_resolution allows http for development)", publicURL.String())
 	}
 	if publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
 		return did.Undef, fmt.Errorf("public URL %q must have no user info, query or fragment", publicURL.Redacted())

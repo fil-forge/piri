@@ -53,7 +53,7 @@ func (f FullServerConfig) ToAppConfig() (app.AppConfig, error) {
 		return app.AppConfig{}, fmt.Errorf("converting server config to app config: %s", err)
 	}
 
-	out.Identity, err = f.Identity.ToAppConfig(out.Server.PublicURL)
+	out.Identity, err = f.Identity.ToAppConfig(out.Server.PublicURL, f.UCANService.InsecureDIDResolution)
 	if err != nil {
 		return app.AppConfig{}, fmt.Errorf("converting identity to app config: %s", err)
 	}

@@ -27,6 +27,7 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/samber/lo"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap/zapcore"
@@ -136,20 +137,22 @@ func addInitFlags(cmd *cobra.Command) {
 
 // initFlags holds all the parsed command flags
 type initFlags struct {
-	network        presets.Network
-	host           string
-	port           uint
-	dataDir        string
-	tempDir        string
-	blobDir        string
-	keyFile        string
-	publicURL      *url.URL
-	walletPath     string
-	lotusEndpoint  string
-	lotusAuthToken string
-	operatorEmail  string
-	delegatorURL   string
-	plcDirectory   string
+	network   presets.Network
+	host      string
+	port      uint
+	dataDir   string
+	tempDir   string
+	blobDir   string
+	keyFile   string
+	publicURL *url.URL
+	// insecureDIDResolution is whether did:web documents are fetched over HTTP.
+	insecureDIDResolution bool
+	walletPath            string
+	lotusEndpoint         string
+	lotusAuthToken        string
+	operatorEmail         string
+	delegatorURL          string
+	plcDirectory          string
 	// baseConfig holds values from --base-config or network presets
 	baseConfig *baseConfigValues
 	// storage holds storage backend configuration (S3/Postgres)
@@ -437,9 +440,12 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	if parsedURL.Scheme == "" {
 		return nil, fmt.Errorf("--public-url must include a scheme (http:// or https://)")
 	}
+	// Developer only, and set the way `serve full` reads it: did:web documents
+	// are fetched over HTTP, so an http public URL can identify the node.
+	insecureDIDResolution := viper.GetBool("ucan.insecure_did_resolution")
 	// The node's DID is derived from the public URL; fail here, before
 	// anything is registered, if it cannot be.
-	if _, err := config.DIDFromPublicURL(*parsedURL); err != nil {
+	if _, err := config.DIDFromPublicURL(*parsedURL, insecureDIDResolution); err != nil {
 		return nil, fmt.Errorf("--public-url: %w", err)
 	}
 
@@ -631,22 +637,23 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	}
 
 	return &initFlags{
-		network:        network,
-		host:           host,
-		port:           port,
-		dataDir:        dataDir,
-		tempDir:        tempDir,
-		blobDir:        blobDir,
-		keyFile:        keyFile,
-		publicURL:      parsedURL,
-		walletPath:     walletPath,
-		lotusEndpoint:  lotusEndpoint,
-		lotusAuthToken: lotusAuthToken,
-		operatorEmail:  operatorEmail,
-		delegatorURL:   delegatorURL,
-		plcDirectory:   plcDirectory,
-		baseConfig:     baseValues,
-		storage:        storage,
+		network:               network,
+		host:                  host,
+		port:                  port,
+		dataDir:               dataDir,
+		tempDir:               tempDir,
+		blobDir:               blobDir,
+		keyFile:               keyFile,
+		publicURL:             parsedURL,
+		insecureDIDResolution: insecureDIDResolution,
+		walletPath:            walletPath,
+		lotusEndpoint:         lotusEndpoint,
+		lotusAuthToken:        lotusAuthToken,
+		operatorEmail:         operatorEmail,
+		delegatorURL:          delegatorURL,
+		plcDirectory:          plcDirectory,
+		baseConfig:            baseValues,
+		storage:               storage,
 	}, nil
 }
 
@@ -669,7 +676,7 @@ func createNode(ctx context.Context, flags *initFlags) (*fx.App, *service.PDPSer
 	}
 
 	cfg := appcfg.AppConfig{
-		Identity: lo.Must(config.IdentityConfig{KeyFile: flags.keyFile}.ToAppConfig(*flags.publicURL)),
+		Identity: lo.Must(config.IdentityConfig{KeyFile: flags.keyFile}.ToAppConfig(*flags.publicURL, flags.insecureDIDResolution)),
 		Server: appcfg.ServerConfig{
 			Host:      flags.host,
 			Port:      flags.port,
@@ -1016,6 +1023,7 @@ func generateConfig(cfg *appcfg.AppConfig, flags *initFlags, ownerAddress common
 			Aggregation:  config.DefaultAggregationConfig(),
 		},
 		UCANService: config.UCANServiceConfig{
+			InsecureDIDResolution: flags.insecureDIDResolution,
 			Services: config.ServicesConfig{
 				Indexer: config.IndexingServiceConfig{
 					DID:   flags.baseConfig.indexingServiceDID,

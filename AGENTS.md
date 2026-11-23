@@ -64,7 +64,9 @@ docs/                 # mkdocs operator documentation (content/ + mkdocs.yml)
 The node is a `did:web` derived from `server.public_url`
 (`config.DIDFromPublicURL`), wrapping the key in `identity.key_file`. It is
 never configured: the URL must be the root of a host, and the node does not
-start without one. The DID document is served at `/.well-known/did.json`
+start without one. An `http` URL is refused unless
+`ucan.insecure_did_resolution` is set, since a `did:web` is resolved over
+HTTPS. The DID document is served at `/.well-known/did.json`
 (`pkg/fx/root`), and the node resolves its own DID from its identity instead of
 fetching it (`ucanfx.newDIDResolver`).
 

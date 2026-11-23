@@ -27,6 +27,11 @@ to be the root of a host, such as `https://piri.example.com`. A URL with a path,
 query or fragment is refused. A port other than the scheme's default becomes
 part of the DID.
 
+The URL has to be `https`. Other services fetch the node's DID document over
+HTTPS, so a node at an `http` URL could not be identified. Development stacks
+that resolve DIDs over HTTP set `ucan.insecure_did_resolution`, which allows an
+`http` URL.
+
 ## TOML
 
 ```toml

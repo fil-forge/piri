@@ -72,7 +72,7 @@ func (s *BaseSuite) SetupSuite() {
 
 	// The node is identified as it is when served: by the did:web of its
 	// public URL, signing with its key.
-	serviceDID, err := config.DIDFromPublicURL(cfg.Server.PublicURL)
+	serviceDID, err := config.DIDFromPublicURL(cfg.Server.PublicURL, true)
 	require.NoError(s.T(), err)
 	s.ServiceID = multikey.NewIssuer(serviceDID, s.ServiceID)
 	cfg.Identity.Issuer = s.ServiceID
