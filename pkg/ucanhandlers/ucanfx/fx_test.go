@@ -6,8 +6,8 @@ import (
 
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/config/app"
-	"github.com/fil-forge/ucantone/did"
 	"github.com/fil-forge/ucantone/did/resolver"
+	"github.com/fil-forge/ucantone/did/web"
 	"github.com/fil-forge/ucantone/multikey"
 	"github.com/fil-forge/ucantone/multikey/ed25519"
 	"github.com/stretchr/testify/require"
@@ -34,7 +34,7 @@ func TestNewDIDResolver(t *testing.T) {
 	t.Run("resolves the node's own did:web without fetching it", func(t *testing.T) {
 		// Nothing serves this host, so the document can only come from the
 		// node's own identity.
-		self, err := did.Parse("did:web:node.invalid")
+		self, err := web.Parse("did:web:node.invalid")
 		require.NoError(t, err)
 		id := identity.Identity{Issuer: multikey.NewIssuer(self, key)}
 

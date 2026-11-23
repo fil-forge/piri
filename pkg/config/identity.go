@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/fil-forge/libforge/identity"
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/ucantone/did"
+	"github.com/fil-forge/ucantone/did/web"
 	"github.com/fil-forge/ucantone/multikey"
 )
 
@@ -56,32 +56,21 @@ func (i IdentityConfig) ToAppConfig(publicURL url.URL, insecureDIDResolution boo
 // resolved and the URL is refused. With insecureDIDResolution, for development
 // stacks whose services fetch DID documents over HTTP, it is accepted.
 func DIDFromPublicURL(publicURL url.URL, insecureDIDResolution bool) (did.DID, error) {
-	if publicURL.Scheme != "http" && publicURL.Scheme != "https" {
-		return did.Undef, fmt.Errorf("public URL %q must be an http or https URL", publicURL.String())
-	}
 	if publicURL.Scheme == "http" && !insecureDIDResolution {
 		return did.Undef, fmt.Errorf("public URL %q must be an https URL: the node's DID document is fetched over HTTPS (ucan.insecure_did_resolution allows http for development)", publicURL.String())
 	}
-	if publicURL.User != nil || publicURL.RawQuery != "" || publicURL.Fragment != "" {
-		return did.Undef, fmt.Errorf("public URL %q must have no user info, query or fragment", publicURL.Redacted())
+	newDID := web.New
+	if insecureDIDResolution {
+		newDID = web.NewInsecure
 	}
+	id, err := newDID(publicURL)
+	if err != nil {
+		return did.Undef, fmt.Errorf("deriving the node's DID from its public URL: %w", err)
+	}
+	// web.New turns a path into part of the DID, whose document would then be
+	// expected somewhere the node does not serve it.
 	if publicURL.Path != "" && publicURL.Path != "/" {
 		return did.Undef, fmt.Errorf("public URL %q must have no path: the node's identity is its host, and its DID document is served at /.well-known/did.json", publicURL.String())
 	}
-	host := strings.ToLower(publicURL.Hostname())
-	if host == "" {
-		return did.Undef, fmt.Errorf("public URL %q has no host", publicURL.String())
-	}
-	if strings.Contains(host, ":") {
-		return did.Undef, fmt.Errorf("public URL %q must name a host, not an IPv6 address", publicURL.String())
-	}
-	id := host
-	if port := publicURL.Port(); port != "" && !isDefaultPort(publicURL.Scheme, port) {
-		id += "%3A" + port
-	}
-	return did.Parse("did:web:" + id)
-}
-
-func isDefaultPort(scheme, port string) bool {
-	return (scheme == "https" && port == "443") || (scheme == "http" && port == "80")
+	return id, nil
 }

@@ -33,8 +33,9 @@ func TestDIDFromPublicURL(t *testing.T) {
 		{url: "https://node.example.com/?x=1", wantErr: "query"},
 		{url: "https://node.example.com/#x", wantErr: "fragment"},
 		{url: "https://user@node.example.com", wantErr: "user info"},
-		{url: "ftp://node.example.com", wantErr: "http or https"},
-		{url: "node.example.com", wantErr: "http or https"},
+		{url: "ftp://node.example.com", wantErr: "must be an https URL"},
+		{url: "node.example.com", wantErr: "must be an https URL"},
+		{url: "ftp://node.example.com", insecure: true, wantErr: "http or https"},
 		{url: "http://[::1]:3000", insecure: true, wantErr: "IPv6"},
 		{url: "https://", wantErr: "no host"},
 	}
