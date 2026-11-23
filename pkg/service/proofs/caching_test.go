@@ -9,6 +9,9 @@ import (
 	"github.com/fil-forge/libforge/commands/access"
 	"github.com/fil-forge/ucantone/binding"
 	"github.com/fil-forge/ucantone/client"
+	"github.com/fil-forge/ucantone/did/web"
+	"github.com/fil-forge/ucantone/multikey"
+	"github.com/fil-forge/ucantone/multikey/ed25519"
 	"github.com/fil-forge/ucantone/server"
 	"github.com/fil-forge/ucantone/testutil"
 	"github.com/fil-forge/ucantone/ucan"
@@ -102,4 +105,54 @@ func TestCachingProofsService(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NotEqual(t, dlg.Nonce(), freshDlg.Nonce())
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestRequestAccessFindsTheServiceFromItsDID covers a request made with no
+// service URL: the service is reached at the address its did:web names.
+func TestRequestAccessFindsTheServiceFromItsDID(t *testing.T) {
+	alice := testutil.RandomIssuer(t)
+	key, err := ed25519.Generate()
+	require.NoError(t, err)
+	serviceDID, err := web.Parse("did:web:service.example%3A8443")
+	require.NoError(t, err)
+	service := multikey.NewIssuer(serviceDID, key)
+
+	srv := server.NewHTTP(service)
+	srv.Handle(access.Grant.Command, binding.NewHandler(
+		func(req *binding.Request[*access.GrantArguments], res *binding.Response[*access.GrantOK]) error {
+			dlg, err := delegation.Delegate(
+				service,
+				req.Invocation().Issuer(),
+				service.DID(),
+				req.Task().Arguments().Attenuations[0].Command,
+				delegation.WithExpiration(ucan.Now()+30),
+			)
+			require.NoError(t, err)
+			if err := res.SetMetadata(container.New(container.WithDelegations(dlg))); err != nil {
+				return err
+			}
+			return res.SetSuccess(&access.GrantOK{Delegations: []cid.Cid{dlg.Link()}})
+		},
+	))
+
+	var requested []string
+	httpClient := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requested = append(requested, r.URL.Scheme+"://"+r.URL.Host)
+		return srv.RoundTrip(r)
+	})}
+
+	cmd := command.New("/test/test")
+	dlg, err := proofs.NewCachingProofService().RequestAccess(t.Context(), alice, service.DID(), cmd, nil, proofs.WithHTTPClient(httpClient))
+	require.NoError(t, err)
+	require.Equal(t, cmd, dlg.Command())
+	require.Equal(t, []string{"https://service.example:8443"}, requested)
+
+	t.Run("an audience that is not a did:web needs a service URL", func(t *testing.T) {
+		_, err := proofs.NewCachingProofService().RequestAccess(t.Context(), alice, testutil.RandomIssuer(t).DID(), cmd, nil)
+		require.ErrorContains(t, err, "non-did:web audience")
+	})
 }
