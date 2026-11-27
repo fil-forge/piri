@@ -22,7 +22,7 @@ require (
 	github.com/filecoin-project/go-commp-utils/v2 v2.1.0
 	github.com/filecoin-project/go-data-segment v0.0.1
 	github.com/filecoin-project/go-fil-commcid v0.3.1
-	github.com/filecoin-project/go-fil-commp-hashhash v0.4.0
+	github.com/filecoin-project/go-fil-commp-hashhash v0.5.0
 	github.com/filecoin-project/go-jsonrpc v0.10.3
 	github.com/filecoin-project/go-state-types v0.19.1
 	github.com/filecoin-project/lotus v1.38.3
