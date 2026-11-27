@@ -243,6 +243,30 @@ func (q *Queue) sendAndGetIDTx(ctx context.Context, tx *sql.Tx, m queue.Message)
 		return "", fmt.Errorf("insert job: %w", err)
 	}
 
+	// Check job_done again now that the insert went through. On Postgres
+	// (READ COMMITTED), a Delete of the same payload can commit between the
+	// check above and the insert: the check sees no job_done row, and the
+	// insert finds no conflicting live job, or waits for the delete and then
+	// proceeds. Delete removes the live job and records job_done in one
+	// transaction, so once our insert succeeded, a fresh statement sees that
+	// job_done row. The new row is not committed yet, so no worker can have
+	// received it. This relies on READ COMMITTED; a caller of SendTx using
+	// REPEATABLE READ or SERIALIZABLE keeps its earlier snapshot.
+	if q.dedupeEnabled {
+		done, err := q.isJobDone(ctx, tx, nsID, key)
+		if err != nil {
+			return "", err
+		}
+		if done {
+			deleteQuery := q.dialect.Rebind(`DELETE FROM jobs WHERE id = ?`)
+			if _, err := tx.ExecContext(ctx, deleteQuery, id); err != nil {
+				return "", fmt.Errorf("delete job completed during enqueue: %w", err)
+			}
+			q.logger.Debugw("skipping job: completed during enqueue", "task", env.Name, "queue", nsID, "id", key)
+			return "", nil
+		}
+	}
+
 	return queue.ID(strconv.FormatInt(id, 10)), nil
 }
 
