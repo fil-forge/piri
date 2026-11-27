@@ -29,14 +29,17 @@ Follow these guides in order to set up Piri:
 
 - **New to Piri?** Start with the [Getting Started Guide](https://fil-forge.github.io/piri/)
 
-## Deploying to the dev node
+## Deploying to the staging node
 
 Every merge to `main` publishes `ghcr.io/fil-forge/piri:main` and dispatches the digest it just
 pushed to
 [infra-nodes](https://github.com/fil-forge/infra-nodes/blob/main/.github/workflows/bump-deployed-image.yml).
-That workflow rewrites the pin the FilOne Appliance dev node runs and opens a pull request with
-auto-merge armed. Merging queues the image; the node picks it up on its next reconcile pass, waits
-for a safe proving window, and then restarts.
+That workflow rewrites the pin the FilOne Appliance staging node runs and opens a pull request
+with auto-merge armed. Merging queues the image; the node picks it up on its next reconcile pass,
+waits for a safe proving window, and then restarts.
+
+Prod nodes are promoted by hand: infra-nodes keeps a pull request open for each prod node that
+copies staging's pins to it, and a person merges it to upgrade that node.
 
 The dispatch needs two repository credentials: the Actions variable `FORGE_BOT_APP_ID` and the
 Actions secret `FORGE_BOT_PRIVATE_KEY`, which mint a token scoped to `infra-nodes` alone. Without
