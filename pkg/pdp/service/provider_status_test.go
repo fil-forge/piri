@@ -66,10 +66,15 @@ func (m *mockRegistry) Address() common.Address {
 }
 
 // mockServiceContract implements smartcontracts.Service for testing; only
-// IsProviderApproved is expected to be called.
+// IsProviderApproved and GetDataSet are expected to be called.
 type mockServiceContract struct {
 	smartcontracts.Service
 	approved bool
+	dataSet  *smartcontracts.DataSetInfo
+}
+
+func (m *mockServiceContract) GetDataSet(ctx context.Context, dataSetId *big.Int) (*smartcontracts.DataSetInfo, error) {
+	return m.dataSet, nil
 }
 
 func (m *mockServiceContract) IsProviderApproved(ctx context.Context, providerId *big.Int) (bool, error) {
