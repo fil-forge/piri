@@ -409,6 +409,56 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 }
 
 // parseAndValidateFlags parses command flags and validates them
+// databaseFromFlags returns the database settings init writes. A base config
+// supplies every field the user did not set by flag; without one, unset flags
+// take their defaults. The result must name a PostgreSQL database, since the
+// PDP pipeline (Curio's harmonydb) supports no other backend.
+func databaseFromFlags(cmd *cobra.Command, baseValues *baseConfigValues) (config.DatabaseConfig, error) {
+	var database config.DatabaseConfig
+	if baseValues != nil {
+		database = baseValues.database
+	}
+	fromFlag := func(name string) bool {
+		return baseValues == nil || cmd.Flags().Changed(name)
+	}
+	pg := &database.Postgres
+
+	var err error
+	if fromFlag("db-postgres-url") {
+		if pg.URL, err = cmd.Flags().GetString("db-postgres-url"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-url: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-max-open-conns") {
+		if pg.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-max-idle-conns") {
+		if pg.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-conn-max-lifetime") {
+		if pg.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
+		}
+	}
+
+	if pg.URL == "" {
+		return config.DatabaseConfig{}, fmt.Errorf("a PostgreSQL database is required: provide --db-postgres-url or repo.database.postgres.url via --base-config (SQLite is no longer supported)")
+	}
+	if _, err := url.Parse(pg.URL); err != nil {
+		return config.DatabaseConfig{}, fmt.Errorf("invalid PostgreSQL URL: %w", err)
+	}
+	if pg.ConnMaxLifetime != "" {
+		if _, err := time.ParseDuration(pg.ConnMaxLifetime); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("invalid PostgreSQL connection max lifetime: %w", err)
+		}
+	}
+	return database, nil
+}
+
 func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	// Load network presets or base config first
 	network, baseValues, err := loadPresets(cmd)
@@ -570,74 +620,24 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		return nil, fmt.Errorf("--db-type %q is not supported: PostgreSQL is the only supported database", dbType)
 	}
 
-	// Database configuration (PostgreSQL is the only supported backend) -
-	// only if user explicitly provided a db flag
-	dbFlagsChanged := cmd.Flags().Changed("db-postgres-url") ||
-		cmd.Flags().Changed("db-postgres-max-open-conns") ||
-		cmd.Flags().Changed("db-postgres-max-idle-conns") ||
-		cmd.Flags().Changed("db-postgres-conn-max-lifetime")
-	if dbFlagsChanged {
-		postgresURL, err := cmd.Flags().GetString("db-postgres-url")
-		if err != nil {
-			return nil, fmt.Errorf("error reading --db-postgres-url: %w", err)
-		}
-		if postgresURL == "" {
-			return nil, fmt.Errorf("--db-postgres-url is required when configuring the database")
-		}
-		// Validate URL format
-		if _, err := url.Parse(postgresURL); err != nil {
-			return nil, fmt.Errorf("invalid --db-postgres-url: %w", err)
-		}
-
-		if storage == nil {
-			storage = &storageConfig{}
-		}
-		storage.database.Postgres.URL = postgresURL
-		storage.database.Postgres.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns")
-		if err != nil {
-			return nil, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
-		}
-		storage.database.Postgres.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns")
-		if err != nil {
-			return nil, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
-		}
-		storage.database.Postgres.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime")
-		if err != nil {
-			return nil, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
-		}
-
-		// Validate duration format if provided
-		if storage.database.Postgres.ConnMaxLifetime != "" {
-			if _, err := time.ParseDuration(storage.database.Postgres.ConnMaxLifetime); err != nil {
-				return nil, fmt.Errorf("invalid --db-postgres-conn-max-lifetime: %w", err)
-			}
-		}
+	// Database configuration starts from the base config, if any, and each
+	// database flag the user set overrides its own field.
+	database, err := databaseFromFlags(cmd, baseValues)
+	if err != nil {
+		return nil, err
 	}
 
-	// Merge with base-config (flags take precedence per-setting)
-	if baseValues != nil {
-		if storage == nil {
-			storage = &storageConfig{}
-		}
-
-		// Use base-config S3 if no S3 flags were explicitly provided
-		if !s3FlagsChanged && baseValues.s3Config != nil {
-			if err := baseValues.s3Config.Validate(); err != nil {
-				return nil, fmt.Errorf("base-config s3: %w", err)
-			}
-			storage.s3 = baseValues.s3Config
-		}
-
-		// Use base-config database if no db flags were explicitly set
-		if !dbFlagsChanged && baseValues.database.Postgres.URL != "" {
-			storage.database = baseValues.database
-		}
+	if storage == nil {
+		storage = &storageConfig{}
 	}
+	storage.database = database
 
-	// PostgreSQL is required: the PDP pipeline (Curio's harmonydb) does not
-	// support any other backend.
-	if storage == nil || storage.database.Postgres.URL == "" {
-		return nil, fmt.Errorf("a PostgreSQL database is required: provide --db-postgres-url or repo.database.postgres.url via --base-config (SQLite is no longer supported)")
+	// Use base-config S3 if no S3 flags were explicitly provided
+	if baseValues != nil && !s3FlagsChanged && baseValues.s3Config != nil {
+		if err := baseValues.s3Config.Validate(); err != nil {
+			return nil, fmt.Errorf("base-config s3: %w", err)
+		}
+		storage.s3 = baseValues.s3Config
 	}
 
 	return &initFlags{

@@ -612,12 +612,67 @@ func TestParseAndValidateFlags_Database(t *testing.T) {
 		{description: "no database", message: "a PostgreSQL database is required"},
 		{description: "--db-type=postgres without a URL", args: []string{"--db-type=postgres"}, message: "a PostgreSQL database is required"},
 		{description: "--db-type=sqlite", args: []string{"--db-type=sqlite", "--db-postgres-url=" + dbURL}, message: `--db-type "sqlite" is not supported`},
-		{description: "pool flags without a URL", args: []string{"--db-postgres-max-open-conns=10"}, message: "--db-postgres-url is required"},
+		{description: "pool flags without a URL", args: []string{"--db-postgres-max-open-conns=10"}, message: "a PostgreSQL database is required"},
+		{description: "invalid --db-postgres-conn-max-lifetime", args: []string{"--db-postgres-url=" + dbURL, "--db-postgres-conn-max-lifetime=soon"}, message: "invalid PostgreSQL connection max lifetime"},
 	}
 	for _, tc := range rejectedCases {
 		t.Run(tc.description, func(t *testing.T) {
 			_, err := parse(t, tc.args...)
 			require.ErrorContains(t, err, tc.message)
+		})
+	}
+}
+
+func TestParseAndValidateFlags_BaseConfigDatabase(t *testing.T) {
+	baseConfig := filepath.Join("testdata", "generated-config", "base-config.toml")
+	parse := func(t *testing.T, args ...string) (*initFlags, error) {
+		t.Helper()
+		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+		cmd := &cobra.Command{Use: "init"}
+		addInitFlags(cmd)
+		allArgs := append(append([]string{}, goldenCommonArgs...),
+			"--base-config="+baseConfig, "--registrar-url=https://registrar.example.com")
+		require.NoError(t, cmd.ParseFlags(append(allArgs, args...)))
+		return parseAndValidateFlags(cmd)
+	}
+	fixture := config.PostgresConfig{
+		URL:             "postgres://piri:fixture-db-password@db.example.com:5432/piri?sslmode=disable",
+		MaxOpenConns:    17,
+		MaxIdleConns:    13,
+		ConnMaxLifetime: "45m",
+	}
+
+	cases := []struct {
+		description string
+		args        []string
+		expected    func(config.PostgresConfig) config.PostgresConfig
+	}{
+		{
+			description: "no flags keep the base config",
+			expected:    func(c config.PostgresConfig) config.PostgresConfig { return c },
+		},
+		{
+			description: "a pool flag overrides only its field",
+			args:        []string{"--db-postgres-max-open-conns=40"},
+			expected: func(c config.PostgresConfig) config.PostgresConfig {
+				c.MaxOpenConns = 40
+				return c
+			},
+		},
+		{
+			description: "the URL flag keeps the base pool settings",
+			args:        []string{"--db-postgres-url=postgres://piri@other.example.com:5432/piri"},
+			expected: func(c config.PostgresConfig) config.PostgresConfig {
+				c.URL = "postgres://piri@other.example.com:5432/piri"
+				return c
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.description, func(t *testing.T) {
+			flags, err := parse(t, tc.args...)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected(fixture), flags.storage.database.Postgres)
 		})
 	}
 }
