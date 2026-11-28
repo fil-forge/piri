@@ -112,8 +112,8 @@ func TestGenerateConfig(t *testing.T) {
 		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
 		require.NoError(t, err)
 
-		// Database should have empty type (defaults to sqlite)
-		require.Equal(t, "", result.Repo.Database.Type)
+		// Database should be empty (no backend configured)
+		require.Equal(t, "", result.Repo.Database.Postgres.URL)
 		// S3 should be nil
 		require.Nil(t, result.Repo.S3)
 	})
@@ -138,28 +138,11 @@ func TestGenerateConfig(t *testing.T) {
 		})
 	}
 
-	t.Run("sqlite database configuration", func(t *testing.T) {
-		setupViperDefaults(t)
-		flags := baseFlags()
-		flags.storage = &storageConfig{
-			database: config.DatabaseConfig{
-				Type: "sqlite",
-			},
-		}
-
-		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
-		require.NoError(t, err)
-
-		require.Equal(t, "sqlite", result.Repo.Database.Type)
-		require.Nil(t, result.Repo.S3)
-	})
-
 	t.Run("postgres database configuration", func(t *testing.T) {
 		setupViperDefaults(t)
 		flags := baseFlags()
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://user:pass@localhost:5432/piri?sslmode=disable",
 					MaxOpenConns:    10,
@@ -172,7 +155,6 @@ func TestGenerateConfig(t *testing.T) {
 		result, err := generateConfig(baseCfg(), flags, ownerAddress, 1, "indexer-proof", "egress-proof")
 		require.NoError(t, err)
 
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://user:pass@localhost:5432/piri?sslmode=disable", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 5, result.Repo.Database.Postgres.MaxIdleConns)
@@ -211,7 +193,6 @@ func TestGenerateConfig(t *testing.T) {
 		flags := baseFlags()
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://user:pass@localhost:5432/piri",
 					MaxOpenConns:    25,
@@ -234,7 +215,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify postgres config
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://user:pass@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 25, result.Repo.Database.Postgres.MaxOpenConns)
 		require.Equal(t, 10, result.Repo.Database.Postgres.MaxIdleConns)
@@ -314,7 +294,6 @@ func TestGenerateConfig(t *testing.T) {
 		// - S3 values came from base-config (lower priority)
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://flags:user@localhost:5432/piri",
 					MaxOpenConns:    20,
@@ -337,7 +316,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Both postgres and S3 should be present in the output
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://flags:user@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 		require.Equal(t, 20, result.Repo.Database.Postgres.MaxOpenConns)
 
@@ -354,7 +332,6 @@ func TestGenerateConfig(t *testing.T) {
 		// - postgres values came from base-config (lower priority)
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://base:config@localhost:5432/piri",
 					MaxOpenConns:    12,
@@ -382,7 +359,6 @@ func TestGenerateConfig(t *testing.T) {
 		require.Equal(t, "flags-", result.Repo.S3.BucketPrefix)
 		require.True(t, result.Repo.S3.Insecure)
 
-		require.Equal(t, "postgres", result.Repo.Database.Type)
 		require.Equal(t, "postgres://base:config@localhost:5432/piri", result.Repo.Database.Postgres.URL)
 	})
 
@@ -393,7 +369,6 @@ func TestGenerateConfig(t *testing.T) {
 		// for the same fields
 		flags.storage = &storageConfig{
 			database: config.DatabaseConfig{
-				Type: "postgres",
 				Postgres: config.PostgresConfig{
 					URL:             "postgres://flags:winner@localhost:5432/piri",
 					MaxOpenConns:    50,
@@ -537,7 +512,10 @@ func TestParseAndValidateFlags_S3Path(t *testing.T) {
 		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
 		cmd := &cobra.Command{Use: "init"}
 		addInitFlags(cmd)
-		allArgs := append(append([]string{"--network=" + string(presets.AvailableNetworks[0])}, goldenCommonArgs...), args...)
+		allArgs := append(append([]string{
+			"--network=" + string(presets.AvailableNetworks[0]),
+			"--db-postgres-url=postgres://piri@db.example.com:5432/piri",
+		}, goldenCommonArgs...), args...)
 		require.NoError(t, cmd.ParseFlags(allArgs))
 		if err := cmd.ValidateFlagGroups(); err != nil {
 			return nil, err
@@ -597,4 +575,104 @@ func TestParseAndValidateFlags_BaseConfigS3Path(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "fixture/piri-0/", flags.storage.s3.Path)
+}
+
+func TestParseAndValidateFlags_Database(t *testing.T) {
+	const dbURL = "postgres://piri@db.example.com:5432/piri"
+	parse := func(t *testing.T, args ...string) (*initFlags, error) {
+		t.Helper()
+		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+		cmd := &cobra.Command{Use: "init"}
+		addInitFlags(cmd)
+		allArgs := append(append([]string{"--network=" + string(presets.AvailableNetworks[0])}, goldenCommonArgs...), args...)
+		require.NoError(t, cmd.ParseFlags(allArgs))
+		return parseAndValidateFlags(cmd)
+	}
+
+	acceptedCases := []struct {
+		description string
+		args        []string
+	}{
+		{description: "--db-postgres-url alone", args: []string{"--db-postgres-url=" + dbURL}},
+		{description: "with --db-type=postgres", args: []string{"--db-type=postgres", "--db-postgres-url=" + dbURL}},
+	}
+	for _, tc := range acceptedCases {
+		t.Run(tc.description, func(t *testing.T) {
+			flags, err := parse(t, tc.args...)
+			require.NoError(t, err)
+			require.Equal(t, dbURL, flags.storage.database.Postgres.URL)
+		})
+	}
+
+	rejectedCases := []struct {
+		description string
+		args        []string
+		message     string
+	}{
+		{description: "no database", message: "a PostgreSQL database is required"},
+		{description: "--db-type=postgres without a URL", args: []string{"--db-type=postgres"}, message: "a PostgreSQL database is required"},
+		{description: "--db-type=sqlite", args: []string{"--db-type=sqlite", "--db-postgres-url=" + dbURL}, message: `--db-type "sqlite" is not supported`},
+		{description: "pool flags without a URL", args: []string{"--db-postgres-max-open-conns=10"}, message: "a PostgreSQL database is required"},
+		{description: "invalid --db-postgres-conn-max-lifetime", args: []string{"--db-postgres-url=" + dbURL, "--db-postgres-conn-max-lifetime=soon"}, message: "invalid PostgreSQL connection max lifetime"},
+	}
+	for _, tc := range rejectedCases {
+		t.Run(tc.description, func(t *testing.T) {
+			_, err := parse(t, tc.args...)
+			require.ErrorContains(t, err, tc.message)
+		})
+	}
+}
+
+func TestParseAndValidateFlags_BaseConfigDatabase(t *testing.T) {
+	baseConfig := filepath.Join("testdata", "generated-config", "base-config.toml")
+	parse := func(t *testing.T, args ...string) (*initFlags, error) {
+		t.Helper()
+		t.Setenv("PIRI_PDP_LOTUS_AUTH_TOKEN", "fixture-lotus-token")
+		cmd := &cobra.Command{Use: "init"}
+		addInitFlags(cmd)
+		allArgs := append(append([]string{}, goldenCommonArgs...),
+			"--base-config="+baseConfig, "--registrar-url=https://registrar.example.com")
+		require.NoError(t, cmd.ParseFlags(append(allArgs, args...)))
+		return parseAndValidateFlags(cmd)
+	}
+	fixture := config.PostgresConfig{
+		URL:             "postgres://piri:fixture-db-password@db.example.com:5432/piri?sslmode=disable",
+		MaxOpenConns:    17,
+		MaxIdleConns:    13,
+		ConnMaxLifetime: "45m",
+	}
+
+	cases := []struct {
+		description string
+		args        []string
+		expected    func(config.PostgresConfig) config.PostgresConfig
+	}{
+		{
+			description: "no flags keep the base config",
+			expected:    func(c config.PostgresConfig) config.PostgresConfig { return c },
+		},
+		{
+			description: "a pool flag overrides only its field",
+			args:        []string{"--db-postgres-max-open-conns=40"},
+			expected: func(c config.PostgresConfig) config.PostgresConfig {
+				c.MaxOpenConns = 40
+				return c
+			},
+		},
+		{
+			description: "the URL flag keeps the base pool settings",
+			args:        []string{"--db-postgres-url=postgres://piri@other.example.com:5432/piri"},
+			expected: func(c config.PostgresConfig) config.PostgresConfig {
+				c.URL = "postgres://piri@other.example.com:5432/piri"
+				return c
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.description, func(t *testing.T) {
+			flags, err := parse(t, tc.args...)
+			require.NoError(t, err)
+			require.Equal(t, tc.expected(fixture), flags.storage.database.Postgres)
+		})
+	}
 }

@@ -99,12 +99,15 @@ func addInitFlags(cmd *cobra.Command) {
 		"did:plc directory URL used to resolve did:plc identities (defaults to https://plc.directory)",
 	)
 
-	// Database configuration flags
-	cmd.Flags().String("db-type", "sqlite", "Database backend: 'sqlite' (default) or 'postgres'")
-	cmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required when db-type=postgres)")
+	// Database configuration flags (PostgreSQL is the only supported backend)
+	cmd.Flags().String("db-postgres-url", "", "PostgreSQL connection URL (required unless provided via --base-config)")
 	cmd.Flags().Int("db-postgres-max-open-conns", 5, "PostgreSQL max open connections (default: 5)")
 	cmd.Flags().Int("db-postgres-max-idle-conns", 5, "PostgreSQL max idle connections (default: 5)")
 	cmd.Flags().String("db-postgres-conn-max-lifetime", "30m", "PostgreSQL connection max lifetime (e.g. '30m')")
+	// Deployment scripts pass --db-type=postgres, so the flag stays accepted
+	// with that one value.
+	cmd.Flags().String("db-type", "postgres", "Database backend; 'postgres' is the only supported value")
+	_ = cmd.Flags().MarkDeprecated("db-type", "PostgreSQL is the only supported database; drop the flag")
 
 	// S3 storage configuration flags
 	cmd.Flags().String("s3-endpoint", "", "S3-compatible storage endpoint (e.g. minio.example.com:9000)")
@@ -124,7 +127,7 @@ func addInitFlags(cmd *cobra.Command) {
 	// base-config provides an alternative to --network for custom or local development environments.
 	// It defines the network identity: which blockchain (chain ID), which smart contracts to interact
 	// with, and which Forge services (signing, upload, indexer, etc.) to connect to.
-	// It may also optionally include storage backend configuration (database type, S3 settings)
+	// It may also optionally include storage backend configuration (database, S3 settings)
 	// which will be used unless overridden by explicit flags.
 	cmd.Flags().String(
 		"base-config",
@@ -406,6 +409,56 @@ func loadPresets(cmd *cobra.Command) (presets.Network, *baseConfigValues, error)
 }
 
 // parseAndValidateFlags parses command flags and validates them
+// databaseFromFlags returns the database settings init writes. A base config
+// supplies every field the user did not set by flag; without one, unset flags
+// take their defaults. The result must name a PostgreSQL database, since the
+// PDP pipeline (Curio's harmonydb) supports no other backend.
+func databaseFromFlags(cmd *cobra.Command, baseValues *baseConfigValues) (config.DatabaseConfig, error) {
+	var database config.DatabaseConfig
+	if baseValues != nil {
+		database = baseValues.database
+	}
+	fromFlag := func(name string) bool {
+		return baseValues == nil || cmd.Flags().Changed(name)
+	}
+	pg := &database.Postgres
+
+	var err error
+	if fromFlag("db-postgres-url") {
+		if pg.URL, err = cmd.Flags().GetString("db-postgres-url"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-url: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-max-open-conns") {
+		if pg.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-max-idle-conns") {
+		if pg.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
+		}
+	}
+	if fromFlag("db-postgres-conn-max-lifetime") {
+		if pg.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime"); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
+		}
+	}
+
+	if pg.URL == "" {
+		return config.DatabaseConfig{}, fmt.Errorf("a PostgreSQL database is required: provide --db-postgres-url or repo.database.postgres.url via --base-config (SQLite is no longer supported)")
+	}
+	if _, err := url.Parse(pg.URL); err != nil {
+		return config.DatabaseConfig{}, fmt.Errorf("invalid PostgreSQL URL: %w", err)
+	}
+	if pg.ConnMaxLifetime != "" {
+		if _, err := time.ParseDuration(pg.ConnMaxLifetime); err != nil {
+			return config.DatabaseConfig{}, fmt.Errorf("invalid PostgreSQL connection max lifetime: %w", err)
+		}
+	}
+	return database, nil
+}
+
 func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 	// Load network presets or base config first
 	network, baseValues, err := loadPresets(cmd)
@@ -559,81 +612,32 @@ func parseAndValidateFlags(cmd *cobra.Command) (*initFlags, error) {
 		}
 	}
 
-	// Database configuration - only if user explicitly provided --db-type flag
 	dbType, err := cmd.Flags().GetString("db-type")
 	if err != nil {
 		return nil, fmt.Errorf("error reading --db-type: %w", err)
 	}
-	dbFlagsChanged := cmd.Flags().Changed("db-type")
-	if dbFlagsChanged {
-		if dbType != "sqlite" && dbType != "postgres" {
-			return nil, fmt.Errorf("--db-type must be 'sqlite' or 'postgres', got %q", dbType)
-		}
-
-		if storage == nil {
-			storage = &storageConfig{}
-		}
-		storage.database.Type = dbType
-
-		if dbType == "postgres" {
-			postgresURL, err := cmd.Flags().GetString("db-postgres-url")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-url: %w", err)
-			}
-			if postgresURL == "" {
-				return nil, fmt.Errorf("--db-postgres-url is required when --db-type is 'postgres'")
-			}
-			// Validate URL format
-			if _, err := url.Parse(postgresURL); err != nil {
-				return nil, fmt.Errorf("invalid --db-postgres-url: %w", err)
-			}
-
-			storage.database.Postgres.URL = postgresURL
-			storage.database.Postgres.MaxOpenConns, err = cmd.Flags().GetInt("db-postgres-max-open-conns")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-max-open-conns: %w", err)
-			}
-			storage.database.Postgres.MaxIdleConns, err = cmd.Flags().GetInt("db-postgres-max-idle-conns")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-max-idle-conns: %w", err)
-			}
-			storage.database.Postgres.ConnMaxLifetime, err = cmd.Flags().GetString("db-postgres-conn-max-lifetime")
-			if err != nil {
-				return nil, fmt.Errorf("error reading --db-postgres-conn-max-lifetime: %w", err)
-			}
-
-			// Validate duration format if provided
-			if storage.database.Postgres.ConnMaxLifetime != "" {
-				if _, err := time.ParseDuration(storage.database.Postgres.ConnMaxLifetime); err != nil {
-					return nil, fmt.Errorf("invalid --db-postgres-conn-max-lifetime: %w", err)
-				}
-			}
-		}
+	if dbType != "postgres" {
+		return nil, fmt.Errorf("--db-type %q is not supported: PostgreSQL is the only supported database", dbType)
 	}
 
-	// Merge with base-config (flags take precedence per-setting)
-	if baseValues != nil {
-		if storage == nil {
-			storage = &storageConfig{}
-		}
-
-		// Use base-config S3 if no S3 flags were explicitly provided
-		if !s3FlagsChanged && baseValues.s3Config != nil {
-			if err := baseValues.s3Config.Validate(); err != nil {
-				return nil, fmt.Errorf("base-config s3: %w", err)
-			}
-			storage.s3 = baseValues.s3Config
-		}
-
-		// Use base-config database if --db-type was not explicitly set
-		if !dbFlagsChanged && baseValues.database.Type != "" {
-			storage.database = baseValues.database
-		}
+	// Database configuration starts from the base config, if any, and each
+	// database flag the user set overrides its own field.
+	database, err := databaseFromFlags(cmd, baseValues)
+	if err != nil {
+		return nil, err
 	}
 
-	// Apply default database type if still not set
-	if storage != nil && storage.database.Type == "" {
-		storage.database.Type = "sqlite"
+	if storage == nil {
+		storage = &storageConfig{}
+	}
+	storage.database = database
+
+	// Use base-config S3 if no S3 flags were explicitly provided
+	if baseValues != nil && !s3FlagsChanged && baseValues.s3Config != nil {
+		if err := baseValues.s3Config.Validate(); err != nil {
+			return nil, fmt.Errorf("base-config s3: %w", err)
+		}
+		storage.s3 = baseValues.s3Config
 	}
 
 	return &initFlags{

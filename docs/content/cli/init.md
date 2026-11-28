@@ -46,6 +46,7 @@ All flags are required:
 | `--lotus-endpoint <url>` | WebSocket URL of your Lotus node (e.g., `wss://lotus.example.com/rpc/v1`) |
 | `--operator-email <email>` | Contact email for the Forge team to reach you |
 | `--public-url <url>` | Public HTTPS URL where your node will be accessible. The node's DID is derived from it, so it must have no path |
+| `--db-postgres-url <url>` | PostgreSQL connection string (e.g., `postgres://piri:secret@localhost:5432/piri?sslmode=disable`) |
 
 `--blob-dir <path>` is optional. It keeps blob bytes and IPNI adverts in a directory other than `--data-dir`, and `init` writes it into the generated config as [`repo.blob_dir`](../configuration/repo/index.md#blob_dir).
 
@@ -74,7 +75,8 @@ piri init \
   --wallet-file=/etc/piri/wallet.hex \
   --lotus-endpoint=wss://lotus.example.com/rpc/v1 \
   --operator-email=admin@example.com \
-  --public-url=https://piri.example.com > config.toml
+  --public-url=https://piri.example.com \
+  --db-postgres-url="postgres://piri:secret@localhost:5432/piri?sslmode=disable" > config.toml
 ```
 
 ```

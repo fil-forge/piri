@@ -1,5 +1,5 @@
-config_version = 2
-network = "forge-prod"
+config_version = 3
+network = "prod"
 
 [identity]
   key_file = "/keys/piri.pem"
@@ -8,7 +8,6 @@ network = "forge-prod"
   data_dir = "/data/piri"
   temp_dir = "/tmp/piri"
   [repo.database]
-    type = "postgres"
     [repo.database.postgres]
       url = "postgres://piri:fixture-db-password@db.example.com:5432/piri"
       max_open_conns = 21
@@ -33,9 +32,6 @@ network = "forge-prod"
   lotus_auth_token = "fixture-lotus-token"
   chain_id = "314"
   payer_address = "0x3C1AE7A70a2b51458Fcb7927FD77AaE408a1B857"
-  [pdp.signing_service]
-    did = "did:web:signer.forge.storacha.network"
-    url = "https://signer.forge.storacha.network"
   [pdp.contracts]
     verifier = "0xBADd0B92C1c71d02E7d520f64c0876538fa2557F"
     provider_registry = "0xf55dDbf63F1b55c3F1D4FA7e339a68AB7b64A5eB"
@@ -69,17 +65,17 @@ network = "forge-prod"
   plc_directory = "https://plc.example.com"
   [ucan.services]
     [ucan.services.indexer]
-      did = "did:web:indexer.forge.storacha.network"
-      url = "https://indexer.forge.storacha.network/claims"
+      did = "did:web:indexer.storacha.network"
+      url = "https://indexer.storacha.network/claims"
       proof = "indexer-proof"
     [ucan.services.etracker]
-      did = "did:web:etracker.forge.storacha.network"
-      url = "https://etracker.forge.storacha.network"
-      receipts_endpoint = "https://etracker.forge.storacha.network/receipts"
+      did = "did:web:etracker.storacha.network"
+      url = "https://etracker.storacha.network"
+      receipts_endpoint = "https://etracker.storacha.network/receipts"
       max_batch_size_bytes = 10485760
       proof = "egress-proof"
     [ucan.services.upload]
-      did = "did:web:up.forge.storacha.network"
-      url = "https://up.forge.storacha.network"
+      did = "did:web:up.storacha.network"
+      url = "https://up.storacha.network"
     [ucan.services.publisher]
-      ipni_announce_urls = ["https://cid.contact/announce", "https://ipni.forge.storacha.network"]
+      ipni_announce_urls = ["https://cid.contact/announce", "https://ipni.storacha.network"]

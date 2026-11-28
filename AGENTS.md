@@ -149,8 +149,8 @@ fil-forge/infra-central. Skip it for changes nothing operational depends on.
   logs go through zap.
 - HTTP: echo v5. Observability: OpenTelemetry (traces + metrics, echo-otel
   middleware); per-package `telemetry.go` files add handler instrumentation.
-- Persistence: gorm with SQLite and Postgres drivers; job queues in
-  `lib/jobqueue` back async processing.
+- Persistence: PostgreSQL only (the PDP pipeline runs on Curio's harmonydb);
+  job queues in `lib/jobqueue` back async processing.
 
 ## Gotchas / blast radius
 

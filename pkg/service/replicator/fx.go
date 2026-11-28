@@ -13,7 +13,6 @@ import (
 	"go.uber.org/fx"
 
 	"github.com/fil-forge/piri/lib/jobqueue"
-	"github.com/fil-forge/piri/lib/jobqueue/dialect"
 	"github.com/fil-forge/piri/lib/jobqueue/serializer"
 	"github.com/fil-forge/piri/pkg/config/app"
 	"github.com/fil-forge/piri/pkg/pdp/aggregation/commp"
@@ -41,17 +40,11 @@ var Module = fx.Module("replicator",
 
 type QueueParams struct {
 	fx.In
-	DB            *sql.DB `name:"replicator_db"`
-	Config        app.ReplicatorConfig
-	StorageConfig app.StorageConfig
+	DB     *sql.DB `name:"replicator_db"`
+	Config app.ReplicatorConfig
 }
 
 func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.JobQueue[*replicahandler.TransferRequest], error) {
-	d := dialect.SQLite
-	if params.StorageConfig.Database.IsPostgres() {
-		d = dialect.Postgres
-	}
-
 	replicationQueue, err := jobqueue.New[*replicahandler.TransferRequest](
 		"replication",
 		params.DB,
@@ -60,7 +53,6 @@ func ProvideReplicationQueue(lc fx.Lifecycle, params QueueParams) (*jobqueue.Job
 		jobqueue.WithMaxRetries(params.Config.MaxRetries),
 		jobqueue.WithMaxWorkers(params.Config.MaxWorkers),
 		jobqueue.WithMaxTimeout(params.Config.MaxTimeout),
-		jobqueue.WithDialect(d),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("creating replication queue: %w", err)

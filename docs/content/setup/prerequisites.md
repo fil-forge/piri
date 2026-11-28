@@ -24,6 +24,23 @@ sudo apt update && \
 sudo apt install -y make git jq curl wget nginx certbot python3-certbot-nginx
 ```
 
+### PostgreSQL
+
+Piri requires a **PostgreSQL database** (version 16+ recommended) for operational state, job queues, and the PDP proving pipeline. Install it locally:
+
+```bash
+sudo apt install -y postgresql
+```
+
+Or use a managed/external PostgreSQL instance. Create a database and user for Piri:
+
+```bash
+sudo -u postgres psql -c "CREATE USER piri WITH PASSWORD 'CHANGE_ME';"
+sudo -u postgres psql -c "CREATE DATABASE piri OWNER piri;"
+```
+
+You'll pass the connection string to `piri init` later, e.g. `postgres://piri:CHANGE_ME@localhost:5432/piri?sslmode=disable`. See [Database](../concepts/database.md) for details.
+
 ## Network Requirements
 
 ### Domain
